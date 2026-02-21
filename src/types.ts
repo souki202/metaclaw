@@ -68,6 +68,13 @@ export interface SessionDiscordConfig {
   prefix?: string;
 }
 
+export interface McpServerConfig {
+  command: string;
+  args?: string[];
+  env?: Record<string, string>;
+  enabled?: boolean;
+}
+
 export interface SessionConfig {
   name: string;
   description?: string;
@@ -90,6 +97,7 @@ export interface SessionConfig {
     compressionThreshold?: number;
     keepRecentMessages?: number;
   };
+  mcpServers?: Record<string, McpServerConfig>;
 }
 
 export interface Config {

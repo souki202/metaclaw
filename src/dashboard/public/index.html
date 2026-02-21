@@ -1022,6 +1022,7 @@
         <div class="modal-tabs">
           <div class="modal-tab active" onclick="switchSessionSettingsTab('general')">General</div>
           <div class="modal-tab" onclick="switchSessionSettingsTab('discord')">Discord</div>
+          <div class="modal-tab" onclick="switchSessionSettingsTab('mcp')">MCP Servers</div>
         </div>
 
         <!-- General Tab -->
@@ -1125,6 +1126,45 @@
               style="max-width:100px">
             <div class="form-hint">Optional prefix for commands</div>
           </div>
+        </div>
+
+        <!-- MCP Servers Tab -->
+        <div id="session-settings-mcp" style="display:none">
+          <div class="settings-title">
+            MCP Servers
+            <button class="btn add-btn" onclick="showAddMcpForm()">+ Add Server</button>
+          </div>
+
+          <div id="mcp-add-form"
+            style="display:none; margin-bottom:16px; background:var(--surface2); border:1px solid var(--border); border-radius:var(--radius); padding:12px;">
+            <div class="form-group">
+              <label class="form-label">Server ID</label>
+              <input type="text" class="form-input mono" id="mcp-new-id" placeholder="e.g. filesystem">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Command</label>
+              <input type="text" class="form-input mono" id="mcp-new-command" placeholder="e.g. npx">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Arguments (one per line)</label>
+              <textarea class="file-editor" id="mcp-new-args" rows="3"
+                placeholder="-y\n@modelcontextprotocol/server-filesystem\n/path/to/dir"></textarea>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Environment Variables (JSON)</label>
+              <input type="text" class="form-input mono" id="mcp-new-env" placeholder='{"KEY": "value"}'>
+            </div>
+            <div style="display:flex; gap:8px; justify-content:flex-end;">
+              <button class="btn" onclick="hideAddMcpForm()">Cancel</button>
+              <button class="btn primary" onclick="addMcpServer()">Add</button>
+            </div>
+          </div>
+
+          <div id="mcp-server-list" class="env-list">
+            <div class="empty">No MCP servers configured.</div>
+          </div>
+          <div class="form-hint" style="margin-top:10px;">MCP servers provide additional tools to the AI agent. Changes
+            take effect after restart.</div>
         </div>
       </div>
       <div class="modal-footer">
@@ -1655,6 +1695,8 @@
       setupTagInput('allow-from-input', discord.allowFrom || []);
 
       document.getElementById('session-modal').classList.add('active');
+      // Reset MCP tab
+      hideAddMcpForm();
     }
 
     function closeSessionModal() {
@@ -1662,10 +1704,127 @@
     }
 
     function switchSessionSettingsTab(tab) {
+      const tabNames = ['general', 'discord', 'mcp'];
       const tabs = document.querySelectorAll('#session-modal .modal-tabs .modal-tab');
-      tabs.forEach((t, i) => t.className = 'modal-tab' + (['general', 'discord'][i] === tab ? ' active' : ''));
+      tabs.forEach((t, i) => t.className = 'modal-tab' + (tabNames[i] === tab ? ' active' : ''));
       document.getElementById('session-settings-general').style.display = tab === 'general' ? 'block' : 'none';
       document.getElementById('session-settings-discord').style.display = tab === 'discord' ? 'block' : 'none';
+      document.getElementById('session-settings-mcp').style.display = tab === 'mcp' ? 'block' : 'none';
+      if (tab === 'mcp') loadMcpServers();
+    }
+
+    // ==================== MCP Servers ====================
+
+    async function loadMcpServers() {
+      if (!currentSession) return;
+      const list = document.getElementById('mcp-server-list');
+      list.innerHTML = '<div class="empty">Loading...</div>';
+
+      try {
+        const res = await fetch(`/api/sessions/${currentSession}/mcp`);
+        const servers = await res.json();
+        const entries = Object.entries(servers);
+
+        if (entries.length === 0) {
+          list.innerHTML = '<div class="empty">No MCP servers configured.</div>';
+          return;
+        }
+
+        list.innerHTML = entries.map(([id, cfg]) => `
+          <div class="env-item">
+            <div class="env-info">
+              <div class="env-name">${escapeHtml(id)}</div>
+              <div class="env-detail" style="font-family:var(--mono);">${escapeHtml(cfg.command)} ${(cfg.args || []).map(a => escapeHtml(a)).join(' ')}</div>
+              <div class="env-detail" style="margin-top:2px; color: ${cfg.enabled !== false ? 'var(--green)' : 'var(--text2)'};">
+                ${cfg.enabled !== false ? '● Enabled' : '○ Disabled'}
+              </div>
+            </div>
+            <div class="env-actions">
+              <button class="btn" onclick="toggleMcpServer('${escapeHtml(id)}', ${cfg.enabled === false})" title="${cfg.enabled !== false ? 'Disable' : 'Enable'}">${cfg.enabled !== false ? '⏸' : '▶'}</button>
+              <button class="btn danger" onclick="deleteMcpServer('${escapeHtml(id)}')" title="Delete">✕</button>
+            </div>
+          </div>
+        `).join('');
+      } catch (e) {
+        list.innerHTML = '<div class="empty" style="color:var(--red)">Error loading MCP servers.</div>';
+      }
+    }
+
+    function showAddMcpForm() {
+      document.getElementById('mcp-add-form').style.display = 'block';
+      document.getElementById('mcp-new-id').value = '';
+      document.getElementById('mcp-new-command').value = '';
+      document.getElementById('mcp-new-args').value = '';
+      document.getElementById('mcp-new-env').value = '';
+    }
+
+    function hideAddMcpForm() {
+      document.getElementById('mcp-add-form').style.display = 'none';
+    }
+
+    async function addMcpServer() {
+      const id = document.getElementById('mcp-new-id').value.trim();
+      const command = document.getElementById('mcp-new-command').value.trim();
+      const argsRaw = document.getElementById('mcp-new-args').value.trim();
+      const envRaw = document.getElementById('mcp-new-env').value.trim();
+
+      if (!id) return alert('Server ID is required');
+      if (!command) return alert('Command is required');
+
+      const args = argsRaw ? argsRaw.split('\n').map(s => s.trim()).filter(Boolean) : [];
+      let env = {};
+      if (envRaw) {
+        try {
+          env = JSON.parse(envRaw);
+        } catch {
+          return alert('Environment variables must be valid JSON');
+        }
+      }
+
+      try {
+        const res = await fetch(`/api/sessions/${currentSession}/mcp`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id, command, args, env, enabled: true }),
+        });
+        if (res.ok) {
+          hideAddMcpForm();
+          loadMcpServers();
+        } else {
+          const err = await res.json();
+          alert('Error: ' + err.error);
+        }
+      } catch (e) {
+        alert('Request failed: ' + e.message);
+      }
+    }
+
+    async function toggleMcpServer(serverId, enable) {
+      try {
+        await fetch(`/api/sessions/${currentSession}/mcp/${serverId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enabled: enable }),
+        });
+        loadMcpServers();
+      } catch (e) {
+        alert('Error toggling MCP server: ' + e.message);
+      }
+    }
+
+    async function deleteMcpServer(serverId) {
+      if (!confirm(`Delete MCP server "${serverId}"?`)) return;
+      try {
+        const res = await fetch(`/api/sessions/${currentSession}/mcp/${serverId}`, { method: 'DELETE' });
+        if (res.ok) {
+          loadMcpServers();
+        } else {
+          const err = await res.json();
+          alert('Error: ' + err.error);
+        }
+      } catch (e) {
+        alert('Error deleting MCP server: ' + e.message);
+      }
     }
 
     async function saveSessionSettings() {

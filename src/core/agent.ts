@@ -5,6 +5,7 @@ import { OpenAIProvider } from '../providers/openai.js';
 import { VectorMemory } from '../memory/vector.js';
 import { QuickMemory, WorkspaceFiles } from '../memory/quick.js';
 import { buildTools, executeTool, type ToolContext } from '../tools/index.js';
+import { McpClientManager } from '../tools/mcp-client.js';
 import { buildSkillsPromptText } from './skills.js';
 import { createLogger } from '../logger.js';
 
@@ -40,6 +41,7 @@ export class Agent {
   private quickMemory: QuickMemory;
   private tmpMemory: QuickMemory;
   private vectorMemory: VectorMemory;
+  private mcpManager: McpClientManager;
   private files: WorkspaceFiles;
   private history: ChatMessage[] = [];
   private log: ReturnType<typeof createLogger>;
@@ -63,12 +65,14 @@ export class Agent {
     this.quickMemory = new QuickMemory(workspace);
     this.tmpMemory = new QuickMemory(workspace, 'TMP_MEMORY.md');
     this.vectorMemory = new VectorMemory(workspace, sessionId, this.provider);
+    this.mcpManager = new McpClientManager();
     this.files = new WorkspaceFiles(workspace);
     this.log = createLogger(`agent:${sessionId}`);
     this.onEvent = onEvent;
     this.globalConfig = globalConfig;
     
     this.loadHistory();
+    this.initMcpServers();
   }
 
   private loadHistory() {
@@ -93,6 +97,24 @@ export class Agent {
         this.history = [];
       }
     }
+  }
+
+  private async initMcpServers() {
+    const servers = this.config.mcpServers;
+    if (!servers) return;
+
+    for (const [id, config] of Object.entries(servers)) {
+      if (config.enabled === false) continue;
+      try {
+        await this.mcpManager.startServer(id, config);
+      } catch (e) {
+        this.log.error(`Failed to start MCP server "${id}":`, e);
+      }
+    }
+  }
+
+  async stopMcpServers() {
+    await this.mcpManager.stopAll();
   }
 
   private resolveProviderConfig(): ProviderConfig {
@@ -206,8 +228,9 @@ export class Agent {
       quickMemory: this.quickMemory,
       tmpMemory: this.tmpMemory,
       searchConfig: this.globalConfig?.search,
+      mcpManager: this.mcpManager,
     };
-    const tools = buildTools(toolCtx);
+    const tools = await buildTools(toolCtx);
 
     const messages: ChatMessage[] = [
       { role: 'system', content: systemPrompt },

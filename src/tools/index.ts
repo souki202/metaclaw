@@ -5,6 +5,7 @@ import { webFetch, webSearch } from './web.js';
 import { selfRead, selfWrite, selfEdit, selfList, selfRestart, readConfigFile } from './self.js';
 import type { VectorMemory } from '../memory/vector.js';
 import type { QuickMemory } from '../memory/quick.js';
+import type { McpClientManager } from './mcp-client.js';
 
 export interface ToolContext {
   sessionId: string;
@@ -14,9 +15,10 @@ export interface ToolContext {
   quickMemory?: QuickMemory;
   tmpMemory?: QuickMemory;
   searchConfig?: SearchConfig;
+  mcpManager?: McpClientManager;
 }
 
-export function buildTools(ctx: ToolContext): ToolDefinition[] {
+export async function buildTools(ctx: ToolContext): Promise<ToolDefinition[]> {
   const tools: ToolDefinition[] = [];
   const { config } = ctx;
 
@@ -314,6 +316,12 @@ export function buildTools(ctx: ToolContext): ToolDefinition[] {
     );
   }
 
+  // MCP tools
+  if (ctx.mcpManager) {
+    const mcpTools = await ctx.mcpManager.getAllTools();
+    tools.push(...mcpTools);
+  }
+
   return tools;
 }
 
@@ -409,6 +417,11 @@ export async function executeTool(
       return readConfigFile();
 
     default:
+      // Try MCP tools
+      if (ctx.mcpManager && name.startsWith('mcp_')) {
+        const result = await ctx.mcpManager.routeToolCall(name, args);
+        if (result) return result;
+      }
       return { success: false, output: `Unknown tool: ${name}` };
   }
 }

@@ -245,6 +245,86 @@ export class DashboardServer {
       }
     });
 
+    // ==================== MCP Server API ====================
+
+    // API: MCPサーバー一覧
+    this.app.get('/api/sessions/:id/mcp', (req, res) => {
+      const config = this.loadCurrentConfig();
+      const session = config.sessions[req.params.id];
+      if (!session) return res.status(404).json({ error: 'Session not found' });
+      res.json(session.mcpServers || {});
+    });
+
+    // API: MCPサーバー追加
+    this.app.post('/api/sessions/:id/mcp', (req, res) => {
+      try {
+        const config = this.loadCurrentConfig();
+        const session = config.sessions[req.params.id];
+        if (!session) return res.status(404).json({ error: 'Session not found' });
+
+        const serverId = req.body.id;
+        if (!serverId) return res.status(400).json({ error: 'Server ID required' });
+        if (!req.body.command) return res.status(400).json({ error: 'Command required' });
+
+        if (!session.mcpServers) session.mcpServers = {};
+        if (session.mcpServers[serverId]) {
+          return res.status(400).json({ error: 'MCP server already exists' });
+        }
+
+        session.mcpServers[serverId] = {
+          command: req.body.command,
+          args: req.body.args || [],
+          env: req.body.env || {},
+          enabled: req.body.enabled !== false,
+        };
+
+        saveConfig(config);
+        res.json({ ok: true, server: session.mcpServers[serverId] });
+      } catch (e: unknown) {
+        res.status(500).json({ error: (e as Error).message });
+      }
+    });
+
+    // API: MCPサーバー更新
+    this.app.put('/api/sessions/:id/mcp/:serverId', (req, res) => {
+      try {
+        const config = this.loadCurrentConfig();
+        const session = config.sessions[req.params.id];
+        if (!session) return res.status(404).json({ error: 'Session not found' });
+        if (!session.mcpServers?.[req.params.serverId]) {
+          return res.status(404).json({ error: 'MCP server not found' });
+        }
+
+        session.mcpServers[req.params.serverId] = {
+          ...session.mcpServers[req.params.serverId],
+          ...req.body,
+        };
+
+        saveConfig(config);
+        res.json({ ok: true, server: session.mcpServers[req.params.serverId] });
+      } catch (e: unknown) {
+        res.status(500).json({ error: (e as Error).message });
+      }
+    });
+
+    // API: MCPサーバー削除
+    this.app.delete('/api/sessions/:id/mcp/:serverId', (req, res) => {
+      try {
+        const config = this.loadCurrentConfig();
+        const session = config.sessions[req.params.id];
+        if (!session) return res.status(404).json({ error: 'Session not found' });
+        if (!session.mcpServers?.[req.params.serverId]) {
+          return res.status(404).json({ error: 'MCP server not found' });
+        }
+
+        delete session.mcpServers[req.params.serverId];
+        saveConfig(config);
+        res.json({ ok: true });
+      } catch (e: unknown) {
+        res.status(500).json({ error: (e as Error).message });
+      }
+    });
+
     // ==================== グローバル設定 API ====================
 
     // API: グローバル設定取得

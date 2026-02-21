@@ -63,6 +63,10 @@ export class SessionManager {
 
   stopSession(sessionId: string) {
     this.heartbeat.cancel(sessionId);
+    const agent = this.agents.get(sessionId);
+    if (agent) {
+      agent.stopMcpServers().catch(e => log.error(`Error stopping MCP servers for ${sessionId}:`, e));
+    }
     this.agents.delete(sessionId);
     log.info(`Stopped session: ${sessionId}`);
   }
