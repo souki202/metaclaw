@@ -1,8 +1,8 @@
-import type { ToolDefinition, ToolResult, SessionConfig } from '../types.js';
+import type { ToolDefinition, ToolResult, SessionConfig, SearchConfig } from '../types.js';
 import { execTool } from './exec.js';
 import { readFile, writeFile, editFile, listDir, deleteFile } from './fs.js';
 import { webFetch, webSearch } from './web.js';
-import { selfRead, selfWrite, selfList, selfRestart, readConfigFile } from './self.js';
+import { selfRead, selfWrite, selfEdit, selfList, selfRestart, readConfigFile } from './self.js';
 import type { VectorMemory } from '../memory/vector.js';
 import type { QuickMemory } from '../memory/quick.js';
 
@@ -12,7 +12,8 @@ export interface ToolContext {
   workspace: string;
   vectorMemory?: VectorMemory;
   quickMemory?: QuickMemory;
-  braveApiKey?: string;
+  tmpMemory?: QuickMemory;
+  searchConfig?: SearchConfig;
 }
 
 export function buildTools(ctx: ToolContext): ToolDefinition[] {
@@ -142,6 +143,32 @@ export function buildTools(ctx: ToolContext): ToolDefinition[] {
             required: ['content'],
           },
         },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'memory_update_tmp',
+          description: 'Update TMP_MEMORY.md - short-term context that persists across quick restarts.',
+          parameters: {
+            type: 'object',
+            properties: {
+              content: { type: 'string', description: 'Full new content of TMP_MEMORY.md.' },
+            },
+            required: ['content'],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'memory_clear_tmp',
+          description: 'Clear TMP_MEMORY.md context once the task is done.',
+          parameters: {
+            type: 'object',
+            properties: {},
+            required: [],
+          },
+        },
       }
     );
   }
@@ -249,6 +276,22 @@ export function buildTools(ctx: ToolContext): ToolDefinition[] {
       {
         type: 'function',
         function: {
+          name: 'self_edit',
+          description: 'Replace a specific string in a source file in mini-claw src/. Use self_restart afterward.',
+          parameters: {
+            type: 'object',
+            properties: {
+              path: { type: 'string', description: 'Path relative to src/.' },
+              old_string: { type: 'string', description: 'String to replace.' },
+              new_string: { type: 'string', description: 'Replacement string.' },
+            },
+            required: ['path', 'old_string', 'new_string'],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
           name: 'self_restart',
           description: 'Restart mini-claw to apply self-modifications. All sessions will restart.',
           parameters: {
@@ -311,7 +354,7 @@ export async function executeTool(
       return webFetch(args.url as string);
 
     case 'web_search':
-      return webSearch(args.query as string, ctx.braveApiKey);
+      return webSearch(args.query as string, ctx.searchConfig);
 
     case 'memory_save': {
       if (!ctx.vectorMemory) return { success: false, output: 'Memory tool not available.' };
@@ -335,6 +378,18 @@ export async function executeTool(
       return { success: true, output: 'MEMORY.md updated.' };
     }
 
+    case 'memory_update_tmp': {
+      if (!ctx.tmpMemory) return { success: false, output: 'Memory tool not available.' };
+      ctx.tmpMemory.write(args.content as string);
+      return { success: true, output: 'TMP_MEMORY.md updated.' };
+    }
+
+    case 'memory_clear_tmp': {
+      if (!ctx.tmpMemory) return { success: false, output: 'Memory tool not available.' };
+      ctx.tmpMemory.write('');
+      return { success: true, output: 'TMP_MEMORY.md cleared.' };
+    }
+
     case 'self_list':
       return selfList(args.subdir as string | undefined);
 
@@ -343,6 +398,9 @@ export async function executeTool(
 
     case 'self_write':
       return selfWrite(args.path as string, args.content as string);
+
+    case 'self_edit':
+      return selfEdit(args.path as string, args.old_string as string, args.new_string as string);
 
     case 'self_restart':
       return selfRestart(args.reason as string | undefined);

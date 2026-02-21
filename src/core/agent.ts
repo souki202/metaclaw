@@ -1,10 +1,11 @@
 import fs from 'fs';
 import path from 'path';
-import type { ChatMessage, SessionConfig, ToolCall } from '../types.js';
+import type { ChatMessage, SessionConfig, Config, ProviderConfig } from '../types.js';
 import { OpenAIProvider } from '../providers/openai.js';
 import { VectorMemory } from '../memory/vector.js';
 import { QuickMemory, WorkspaceFiles } from '../memory/quick.js';
 import { buildTools, executeTool, type ToolContext } from '../tools/index.js';
+import { buildSkillsPromptText } from './skills.js';
 import { createLogger } from '../logger.js';
 
 const MAX_ITERATIONS = 20;
@@ -35,28 +36,45 @@ export class Agent {
   private config: SessionConfig;
   private workspace: string;
   private provider: OpenAIProvider;
+  private providerConfig: ProviderConfig;
   private quickMemory: QuickMemory;
+  private tmpMemory: QuickMemory;
   private vectorMemory: VectorMemory;
   private files: WorkspaceFiles;
   private history: ChatMessage[] = [];
   private log: ReturnType<typeof createLogger>;
   private onEvent?: EventCallback;
+  private globalConfig?: Config;
 
   constructor(
     sessionId: string,
     config: SessionConfig,
     workspace: string,
-    onEvent?: EventCallback
+    onEvent?: EventCallback,
+    globalConfig?: Config
   ) {
     this.sessionId = sessionId;
     this.config = config;
     this.workspace = workspace;
-    this.provider = new OpenAIProvider(config.provider);
+    
+    // プロバイダー設定を解決
+    this.providerConfig = this.resolveProviderConfig();
+    this.provider = new OpenAIProvider(this.providerConfig);
     this.quickMemory = new QuickMemory(workspace);
+    this.tmpMemory = new QuickMemory(workspace, 'TMP_MEMORY.md');
     this.vectorMemory = new VectorMemory(workspace, sessionId, this.provider);
     this.files = new WorkspaceFiles(workspace);
     this.log = createLogger(`agent:${sessionId}`);
     this.onEvent = onEvent;
+    this.globalConfig = globalConfig;
+  }
+
+  private resolveProviderConfig(): ProviderConfig {
+    if (this.config.provider) {
+      return this.config.provider;
+    }
+    
+    throw new Error(`No provider configuration found for session ${this.sessionId}`);
   }
 
   private emit(type: string, data: unknown) {
@@ -67,6 +85,7 @@ export class Agent {
     const identity = this.files.read('IDENTITY.md');
     const user = this.files.read('USER.md');
     const memory = this.quickMemory.read();
+    const tmpMemory = this.tmpMemory.read();
 
     const parts = [
       `You are an AI personal agent running in the mini-claw system.`,
@@ -82,6 +101,14 @@ export class Agent {
     }
     if (memory) {
       parts.push(`## Quick Memory (MEMORY.md)\n${memory}`);
+    }
+    if (tmpMemory) {
+      parts.push(`## Temporary Memory (TMP_MEMORY.md)\n${tmpMemory}`);
+    }
+
+    const skillsPrompt = buildSkillsPromptText([process.cwd(), this.workspace]);
+    if (skillsPrompt) {
+      parts.push(skillsPrompt);
     }
 
     parts.push(
@@ -99,7 +126,7 @@ export class Agent {
 
   private async compressContext() {
     const threshold = this.config.context?.compressionThreshold ?? 0.8;
-    const contextWindow = this.config.provider.contextWindow ?? 128000;
+    const contextWindow = this.providerConfig.contextWindow ?? 128000;
     const keepRecent = this.config.context?.keepRecentMessages ?? 20;
 
     const estimated = estimateTokens(this.history);
@@ -151,6 +178,8 @@ export class Agent {
       workspace: this.workspace,
       vectorMemory: this.vectorMemory,
       quickMemory: this.quickMemory,
+      tmpMemory: this.tmpMemory,
+      searchConfig: this.globalConfig?.search,
     };
     const tools = buildTools(toolCtx);
 

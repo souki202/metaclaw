@@ -52,7 +52,7 @@ export class DiscordChannel {
     const channelId = message.channelId;
     const userId = message.author.id;
 
-    const sessionId = this.sessions.resolveDiscordSession(guildId, channelId, userId);
+    const sessionId = this.sessions.resolveDiscordSession(guildId, channelId, userId, this.token);
     if (!sessionId) {
       log.debug(`No session found for guild=${guildId} channel=${channelId} user=${userId}`);
       return;

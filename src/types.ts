@@ -49,6 +49,25 @@ export interface ProviderConfig {
   contextWindow?: number;
 }
 
+export interface SearchConfig {
+  provider: 'brave' | 'serper' | 'vertex';
+  braveApiKey?: string;
+  serperApiKey?: string;
+  vertexProjectId?: string;
+  vertexLocation?: string;
+  vertexDataStoreId?: string;
+}
+
+// セッション別Discord設定
+export interface SessionDiscordConfig {
+  enabled: boolean;
+  token?: string;
+  channels?: string[];
+  guilds?: string[];
+  allowFrom?: string[];
+  prefix?: string;
+}
+
 export interface SessionConfig {
   name: string;
   description?: string;
@@ -66,11 +85,7 @@ export interface SessionConfig {
     interval: string;
     activeHours?: { start: number; end: number };
   };
-  discord?: {
-    channels?: string[];
-    guilds?: string[];
-    allowFrom?: string[];
-  };
+  discord?: SessionDiscordConfig;
   context?: {
     compressionThreshold?: number;
     keepRecentMessages?: number;
@@ -82,10 +97,8 @@ export interface Config {
     enabled: boolean;
     port: number;
   };
+  search?: SearchConfig;
   sessions: Record<string, SessionConfig>;
-  discord?: {
-    token: string;
-  };
 }
 
 export interface SessionState {

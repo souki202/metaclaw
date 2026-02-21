@@ -40,34 +40,44 @@ async function main() {
   sessions.startAll(onEvent);
   logger.info(`Started ${sessions.getSessionIds().length} session(s): ${sessions.getSessionIds().join(', ')}`);
 
-  // Heartbeat notifications → Discord or log
-  let discord: DiscordChannel | null = null;
-  sessions.setHeartbeatNotificationHandler(async ({ sessionId, message }) => {
-    logger.info(`Heartbeat alert from "${sessionId}": ${message.slice(0, 100)}`);
-    const sessionConfig = config.sessions[sessionId];
-    if (discord && sessionConfig?.discord?.channels?.length) {
-      const channelId = sessionConfig.discord.channels[0];
-      await discord.sendToChannel(channelId, `💓 **Heartbeat Alert** [${sessionId}]\n${message}`);
-    }
-  });
-
-  // Discord
-  if (config.discord?.token) {
-    discord = new DiscordChannel(config.discord.token, sessions);
-    try {
-      await discord.start();
-      logger.info('Discord bot started.');
-    } catch (e: unknown) {
-      logger.error('Discord failed to start:', (e as Error).message);
-    }
-  } else {
-    logger.info('Discord not configured (no discord.token in config).');
-  }
-
   // Start dashboard
   if (dashboard) {
     await dashboard.start(config.dashboard.port);
   }
+
+  // Heartbeat notifications → Discord or log
+  const discordBots = new Map<string, DiscordChannel>();
+  const activeTokens = new Set<string>();
+
+  for (const s of Object.values(config.sessions)) {
+    if (s.discord?.enabled && s.discord?.token) {
+      activeTokens.add(s.discord.token);
+    }
+  }
+
+  for (const token of activeTokens) {
+    const d = new DiscordChannel(token, sessions);
+    try {
+      await d.start();
+      discordBots.set(token, d);
+      logger.info(`Discord bot started for token ending in ...${token.slice(-4)}`);
+    } catch(e: unknown) {
+      logger.error(`Discord bot failed for token ...${token.slice(-4)}: ${(e as Error).message}`);
+    }
+  }
+
+  sessions.setHeartbeatNotificationHandler(async ({ sessionId, message }) => {
+    logger.info(`Heartbeat alert from "${sessionId}": ${message.slice(0, 100)}`);
+    const sessionConfig = config.sessions[sessionId];
+    if (sessionConfig?.discord?.token && sessionConfig?.discord?.channels?.length) {
+      const token = sessionConfig.discord.token;
+      const bot = discordBots.get(token);
+      if (bot) {
+        const channelId = sessionConfig.discord.channels[0];
+        await bot.sendToChannel(channelId, `💓 **Heartbeat Alert** [${sessionId}]\n${message}`);
+      }
+    }
+  });
 
   logger.info('mini-claw ready!');
 
@@ -75,7 +85,9 @@ async function main() {
   const shutdown = async (signal: string) => {
     logger.info(`Received ${signal}. Shutting down...`);
     sessions.stopAll();
-    await discord?.stop();
+    for (const bot of discordBots.values()) {
+      await bot.stop();
+    }
     dashboard?.stop();
     process.exit(0);
   };

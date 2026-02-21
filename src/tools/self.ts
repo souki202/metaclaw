@@ -37,6 +37,22 @@ export function selfWrite(filePath: string, content: string): ToolResult {
   }
 }
 
+export function selfEdit(filePath: string, oldString: string, newString: string): ToolResult {
+  const resolved = resolveSrcPath(filePath);
+  if (!resolved) return { success: false, output: 'Access denied: can only edit files in src/.' };
+  if (!fs.existsSync(resolved)) return { success: false, output: `File not found: src/${filePath}` };
+
+  try {
+    const content = fs.readFileSync(resolved, 'utf-8');
+    if (!content.includes(oldString)) return { success: false, output: 'Old string not found in file.' };
+    const updated = content.replace(oldString, newString);
+    fs.writeFileSync(resolved, updated, 'utf-8');
+    return { success: true, output: `Edited: src/${filePath}` };
+  } catch (e: unknown) {
+    return { success: false, output: `Edit error: ${(e as Error).message}` };
+  }
+}
+
 export function selfList(subDir?: string): ToolResult {
   const target = subDir ? resolveSrcPath(subDir) : SRC_DIR;
   if (!target) return { success: false, output: 'Access denied.' };

@@ -4,8 +4,8 @@ import path from 'path';
 export class QuickMemory {
   private filePath: string;
 
-  constructor(workspace: string) {
-    this.filePath = path.join(workspace, 'MEMORY.md');
+  constructor(workspace: string, filename: string = 'MEMORY.md') {
+    this.filePath = path.join(workspace, filename);
   }
 
   read(): string {

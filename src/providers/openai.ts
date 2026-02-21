@@ -43,7 +43,7 @@ export class OpenAIProvider {
         if (delta?.tool_calls) {
           for (const tc of delta.tool_calls) {
             if (!toolCallsMap[tc.index]) {
-              toolCallsMap[tc.index] = { id: tc.id ?? '', name: tc.function?.name ?? '', arguments: '' };
+              toolCallsMap[tc.index] = { id: tc.id ?? '', name: '', arguments: '' };
             }
             if (tc.id) toolCallsMap[tc.index].id = tc.id;
             if (tc.function?.name) toolCallsMap[tc.index].name += tc.function.name;

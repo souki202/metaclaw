@@ -1,9 +1,10 @@
 import fs from 'fs';
 import path from 'path';
-import type { Config, SessionConfig } from '../types.js';
+import type { Config, SessionConfig, ProviderConfig } from '../types.js';
 import { Agent, type EventCallback } from './agent.js';
 import { HeartbeatScheduler } from './heartbeat.js';
 import { createLogger } from '../logger.js';
+import { resolveProvider as resolveProviderConfig } from '../config.js';
 
 const log = createLogger('sessions');
 
@@ -13,7 +14,7 @@ function initWorkspace(workspace: string) {
   fs.mkdirSync(workspace, { recursive: true });
   fs.mkdirSync(path.join(workspace, 'memory'), { recursive: true });
 
-  const files = ['IDENTITY.md', 'USER.md', 'MEMORY.md', 'HEARTBEAT.md'];
+  const files = ['IDENTITY.md', 'USER.md', 'MEMORY.md', 'TMP_MEMORY.md', 'HEARTBEAT.md'];
   for (const file of files) {
     const dest = path.join(workspace, file);
     if (!fs.existsSync(dest)) {
@@ -49,7 +50,7 @@ export class SessionManager {
     const workspace = this.resolveWorkspace(sessionConfig);
     initWorkspace(workspace);
 
-    const agent = new Agent(sessionId, sessionConfig, workspace, onEvent);
+    const agent = new Agent(sessionId, sessionConfig, workspace, onEvent, this.config);
     this.agents.set(sessionId, agent);
     log.info(`Started session: ${sessionId} (workspace: ${workspace})`);
 
@@ -78,6 +79,10 @@ export class SessionManager {
     return this.config.sessions;
   }
 
+  getSessionConfig(sessionId: string): SessionConfig | undefined {
+    return this.config.sessions[sessionId];
+  }
+
   resolveWorkspace(sessionConfig: SessionConfig): string {
     const ws = sessionConfig.workspace;
     if (path.isAbsolute(ws)) return ws;
@@ -89,11 +94,27 @@ export class SessionManager {
     this.agents.clear();
   }
 
+  // 設定を再読み込み
+  reloadConfig(config: Config) {
+    this.config = config;
+  }
+
+  // セッションのプロバイダー設定を解決
+  resolveProvider(sessionConfig: SessionConfig): ProviderConfig {
+    return resolveProviderConfig(sessionConfig, this.config);
+  }
+
   // Find which session a Discord channel/guild belongs to
-  resolveDiscordSession(guildId?: string, channelId?: string, userId?: string): string | null {
+  resolveDiscordSession(guildId?: string, channelId?: string, userId?: string, token?: string): string | null {
+    let fallbackSessionId: string | null = null;
     for (const [sessionId, sessionConfig] of Object.entries(this.config.sessions)) {
       const discordCfg = sessionConfig.discord;
-      if (!discordCfg) continue;
+      if (!discordCfg || !discordCfg.enabled) continue;
+      if (token && discordCfg.token !== token) continue;
+
+      if (fallbackSessionId === null) {
+        fallbackSessionId = sessionId;
+      }
 
       if (channelId && discordCfg.channels?.includes(channelId)) {
         if (!discordCfg.allowFrom || discordCfg.allowFrom.length === 0 || (userId && discordCfg.allowFrom.includes(userId))) {
@@ -107,8 +128,12 @@ export class SessionManager {
       }
     }
 
-    // Default: use first session if no specific routing
-    const first = this.getSessionIds()[0];
-    return first ?? null;
+    // Default: use first session that matches the token if no specific routing
+    return fallbackSessionId;
+  }
+
+  // 現在の設定を取得
+  getConfig(): Config {
+    return this.config;
   }
 }
