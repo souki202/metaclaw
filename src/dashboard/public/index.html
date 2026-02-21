@@ -1163,7 +1163,7 @@
 
             <div class="form-group">
               <label class="form-label">Arguments (one per line)</label>
-              <textarea class="file-editor" id="mcp-new-args" rows="3" style="min-height:56px;"
+              <textarea class="file-editor" id="mcp-new-args" rows="3" style="min-height:56px;" spellcheck="false"
                 placeholder="e.g.&#10;-y&#10;@modelcontextprotocol/server-filesystem&#10;/path/to/dir"></textarea>
             </div>
 
@@ -1939,7 +1939,14 @@
       if (!id) return alert('Server ID is required');
       if (!command) return alert('Command is required');
 
-      const args = argsRaw ? argsRaw.split('\n').map(s => s.trim()).filter(Boolean) : [];
+      const args = argsRaw ? argsRaw.split('\n').map(s => {
+        let val = s.trim();
+        // Remove balanced outer quotes
+        if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+          val = val.slice(1, -1);
+        }
+        return val;
+      }).filter(Boolean) : [];
       const env = getMcpEnvFromRows();
 
       try {
