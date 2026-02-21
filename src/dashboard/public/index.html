@@ -1083,6 +1083,11 @@
               <label class="form-checkbox"><input type="checkbox" id="session-tool-memory"> memory</label>
             </div>
           </div>
+          <div style="margin-top: 32px; padding-top: 16px; border-top: 1px solid var(--border);">
+            <div class="settings-title" style="color: var(--red);">Danger Zone</div>
+            <p class="form-hint" style="margin-bottom: 12px;">Destructive actions for this session.</p>
+            <button class="btn danger" onclick="deleteCurrentSession()" id="delete-session-btn">Delete Session</button>
+          </div>
         </div>
 
         <!-- Discord Tab -->
@@ -1187,7 +1192,6 @@
         </div>
       </div>
       <div class="modal-footer">
-        <button class="btn danger" onclick="deleteCurrentSession()" id="delete-session-btn">Delete Session</button>
         <button class="btn" onclick="closeSessionModal()">Cancel</button>
         <button class="btn primary" onclick="saveSessionSettings()">Save</button>
       </div>

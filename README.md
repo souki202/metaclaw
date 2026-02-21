@@ -103,6 +103,27 @@ When `allowSelfModify: true` is set, the AI gains access to:
 
 The restart mechanism: when `self_restart` is called, the process exits with code `75`. The `scripts/runner.js` wrapper detects this and restarts the process automatically.
 
+> [!IMPORTANT]
+> Since the AI can modify its own source code, it's recommended to **fork this repository** or **change the remote URL** (`git remote set-url origin ...`) to your own private repository. This prevents your local modifications from being accidentally overwritten by upstream updates and allows you to track changes made by the AI.
+
+### Git Tools
+
+When `allowSelfModify` is enabled, the AI also gains access to Git operations for version control:
+
+| Tool | Description |
+|---|---|
+| `git_status` | Show working tree status |
+| `git_diff` | Show unstaged changes |
+| `git_diff_staged` | Show staged changes |
+| `git_log` | View recent commit history |
+| `git_commit` | Stage all changes and commit |
+| `git_branch` | List branches (local and remote) |
+| `git_checkout` | Switch branch or restore files |
+| `git_stash` | Stash/restore uncommitted changes |
+| `git_reset` | Reset HEAD to a commit (soft/mixed/hard) |
+| `git_push` | Push commits to remote |
+| `git_pull` | Pull changes from remote |
+
 ## Multiple Sessions
 
 Sessions are isolated — each has its own:

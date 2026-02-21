@@ -3,6 +3,7 @@ import { execTool } from './exec.js';
 import { readFile, writeFile, editFile, listDir, deleteFile } from './fs.js';
 import { webFetch, webSearch } from './web.js';
 import { selfRead, selfWrite, selfEdit, selfList, selfRestart, readConfigFile } from './self.js';
+import { gitStatus, gitDiff, gitDiffStaged, gitLog, gitCommit, gitBranch, gitCheckout, gitStash, gitReset, gitPush, gitPull } from './git.js';
 import type { VectorMemory } from '../memory/vector.js';
 import type { QuickMemory } from '../memory/quick.js';
 import type { McpClientManager } from './mcp-client.js';
@@ -312,6 +313,153 @@ export async function buildTools(ctx: ToolContext): Promise<ToolDefinition[]> {
           description: 'Read the system config (API keys are redacted).',
           parameters: { type: 'object', properties: {}, required: [] },
         },
+      },
+      // Git tools
+      {
+        type: 'function',
+        function: {
+          name: 'git_status',
+          description: 'Show git working tree status.',
+          parameters: { type: 'object', properties: {}, required: [] },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'git_diff',
+          description: 'Show unstaged changes. Optionally filter by path.',
+          parameters: {
+            type: 'object',
+            properties: {
+              path: { type: 'string', description: 'File path to diff (optional).' },
+            },
+            required: [],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'git_diff_staged',
+          description: 'Show staged (cached) changes. Optionally filter by path.',
+          parameters: {
+            type: 'object',
+            properties: {
+              path: { type: 'string', description: 'File path to diff (optional).' },
+            },
+            required: [],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'git_log',
+          description: 'Show recent commit history.',
+          parameters: {
+            type: 'object',
+            properties: {
+              count: { type: 'number', description: 'Number of commits to show (default 20).' },
+            },
+            required: [],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'git_commit',
+          description: 'Stage all changes and commit with a message.',
+          parameters: {
+            type: 'object',
+            properties: {
+              message: { type: 'string', description: 'Commit message.' },
+            },
+            required: ['message'],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'git_branch',
+          description: 'List all branches (local and remote).',
+          parameters: { type: 'object', properties: {}, required: [] },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'git_checkout',
+          description: 'Switch to a branch or restore files.',
+          parameters: {
+            type: 'object',
+            properties: {
+              ref: { type: 'string', description: 'Branch name, tag, or commit hash.' },
+            },
+            required: ['ref'],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'git_stash',
+          description: 'Stash changes. Actions: push (default), pop, list, drop, apply, show.',
+          parameters: {
+            type: 'object',
+            properties: {
+              action: { type: 'string', description: 'Stash action (push, pop, list, drop, apply, show).' },
+              message: { type: 'string', description: 'Stash message (only for push action).' },
+            },
+            required: [],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'git_reset',
+          description: 'Reset current HEAD to a commit. Use for reverting changes.',
+          parameters: {
+            type: 'object',
+            properties: {
+              mode: { type: 'string', description: 'Reset mode: soft, mixed (default), or hard.' },
+              ref: { type: 'string', description: 'Commit ref to reset to (e.g., HEAD~1).' },
+            },
+            required: [],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'git_push',
+          description: 'Push commits to remote repository.',
+          parameters: {
+            type: 'object',
+            properties: {
+              remote: { type: 'string', description: 'Remote name (default: origin).' },
+              branch: { type: 'string', description: 'Branch name.' },
+            },
+            required: [],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'git_pull',
+          description: 'Pull changes from remote repository.',
+          parameters: {
+            type: 'object',
+            properties: {
+              remote: { type: 'string', description: 'Remote name (default: origin).' },
+              branch: { type: 'string', description: 'Branch name.' },
+            },
+            required: [],
+          },
+        },
       }
     );
   }
@@ -415,6 +563,39 @@ export async function executeTool(
 
     case 'self_read_config':
       return readConfigFile();
+
+    case 'git_status':
+      return gitStatus();
+
+    case 'git_diff':
+      return gitDiff(args.path as string | undefined);
+
+    case 'git_diff_staged':
+      return gitDiffStaged(args.path as string | undefined);
+
+    case 'git_log':
+      return gitLog(args.count as number | undefined);
+
+    case 'git_commit':
+      return gitCommit(args.message as string);
+
+    case 'git_branch':
+      return gitBranch();
+
+    case 'git_checkout':
+      return gitCheckout(args.ref as string);
+
+    case 'git_stash':
+      return gitStash(args.action as string | undefined, args.message as string | undefined);
+
+    case 'git_reset':
+      return gitReset(args.mode as string | undefined, args.ref as string | undefined);
+
+    case 'git_push':
+      return gitPush(args.remote as string | undefined, args.branch as string | undefined);
+
+    case 'git_pull':
+      return gitPull(args.remote as string | undefined, args.branch as string | undefined);
 
     default:
       // Try MCP tools
