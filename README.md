@@ -1,5 +1,7 @@
 # meta-claw
 
+**WIP**
+
 A multi-session AI personal agent system with Discord integration, web dashboard, long-term vector memory, workspace sandboxing, and self-modification capabilities.
 
 ## Features

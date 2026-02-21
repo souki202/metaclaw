@@ -82,18 +82,19 @@ async function main() {
   logger.info('meta-claw ready!');
 
   // Graceful shutdown
-  const shutdown = async (signal: string) => {
+  const shutdown = async (signal: string, code = 0) => {
     logger.info(`Received ${signal}. Shutting down...`);
     sessions.stopAll();
     for (const bot of discordBots.values()) {
       await bot.stop();
     }
     dashboard?.stop();
-    process.exit(0);
+    process.exit(code);
   };
 
-  process.on('SIGINT', () => shutdown('SIGINT'));
-  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT', 0));
+  process.on('SIGTERM', () => shutdown('SIGTERM', 0));
+  process.on('meta-claw-restart', () => shutdown('RESTART', 75));
 
   process.on('uncaughtException', (err) => {
     logger.error('Uncaught exception:', err);

@@ -14,6 +14,14 @@ const QUICK_RESTART_WINDOW_MS = 10_000;
 
 let quickRestarts = 0;
 let windowStart = Date.now();
+let currentChild = null;
+
+process.on("SIGINT", () => {
+  if (currentChild) currentChild.kill("SIGINT");
+});
+process.on("SIGTERM", () => {
+  if (currentChild) currentChild.kill("SIGTERM");
+});
 
 function startProcess() {
   const now = Date.now();
@@ -33,6 +41,7 @@ function startProcess() {
       : ["tsx", "src/index.ts"],
     { stdio: ["inherit", "inherit", "pipe"], cwd: ROOT, shell: !isWindows },
   );
+  currentChild = child;
 
   child.stderr.on("data", (data) => {
     process.stderr.write(data);
@@ -93,13 +102,9 @@ function startProcess() {
           process.exit(code || 1);
         }
       });
-    } else {
       process.exit(0);
     }
   });
-
-  process.on("SIGINT", () => child.kill("SIGINT"));
-  process.on("SIGTERM", () => child.kill("SIGTERM"));
 }
 
 startProcess();

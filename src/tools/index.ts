@@ -2,8 +2,13 @@ import type { ToolDefinition, ToolResult, SessionConfig, SearchConfig } from '..
 import { execTool } from './exec.js';
 import { readFile, writeFile, editFile, listDir, deleteFile } from './fs.js';
 import { webFetch, webSearch } from './web.js';
-import { selfRead, selfWrite, selfEdit, selfList, selfRestart, readConfigFile } from './self.js';
+import { selfRead, selfWrite, selfEdit, selfList, selfRestart, readConfigFile, selfReadRoot, selfWriteRoot, selfEditRoot, selfExec } from './self.js';
 import { gitStatus, gitDiff, gitDiffStaged, gitLog, gitCommit, gitBranch, gitCheckout, gitStash, gitReset, gitPush, gitPull } from './git.js';
+import {
+  browserNavigate, browserClick, browserType, browserScreenshot, browserEvaluate,
+  browserGetContent, browserWaitFor, browserScroll, browserPress, browserGetUrl,
+  browserListPages, browserSwitchPage, browserClosePage, browserClose
+} from './browser.js';
 import type { VectorMemory } from '../memory/vector.js';
 import type { QuickMemory } from '../memory/quick.js';
 import type { McpClientManager } from './mcp-client.js';
@@ -225,6 +230,204 @@ export async function buildTools(ctx: ToolContext): Promise<ToolDefinition[]> {
             },
             required: ['query'],
           },
+        },
+      }
+    );
+    
+    // Browser automation tools
+    tools.push(
+      {
+        type: 'function',
+        function: {
+          name: 'browser_navigate',
+          description: 'Open a URL in a browser. Creates a new page.',
+          parameters: {
+            type: 'object',
+            properties: {
+              url: { type: 'string', description: 'URL to navigate to.' },
+            },
+            required: ['url'],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'browser_click',
+          description: 'Click an element on the page using a CSS selector.',
+          parameters: {
+            type: 'object',
+            properties: {
+              selector: { type: 'string', description: 'CSS selector for the element to click.' },
+              page_id: { type: 'string', description: 'Page ID (optional, uses current page if not specified).' },
+            },
+            required: ['selector'],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'browser_type',
+          description: 'Type text into an input field.',
+          parameters: {
+            type: 'object',
+            properties: {
+              selector: { type: 'string', description: 'CSS selector for the input field.' },
+              text: { type: 'string', description: 'Text to type.' },
+              page_id: { type: 'string', description: 'Page ID (optional, uses current page if not specified).' },
+            },
+            required: ['selector', 'text'],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'browser_screenshot',
+          description: 'Take a screenshot of the current page.',
+          parameters: {
+            type: 'object',
+            properties: {
+              page_id: { type: 'string', description: 'Page ID (optional, uses current page if not specified).' },
+            },
+            required: [],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'browser_evaluate',
+          description: 'Execute JavaScript in the browser console.',
+          parameters: {
+            type: 'object',
+            properties: {
+              script: { type: 'string', description: 'JavaScript code to execute.' },
+              page_id: { type: 'string', description: 'Page ID (optional, uses current page if not specified).' },
+            },
+            required: ['script'],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'browser_get_content',
+          description: 'Get the text content of the page or a specific element.',
+          parameters: {
+            type: 'object',
+            properties: {
+              selector: { type: 'string', description: 'CSS selector (optional, gets full page if not specified).' },
+              page_id: { type: 'string', description: 'Page ID (optional, uses current page if not specified).' },
+            },
+            required: [],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'browser_wait_for',
+          description: 'Wait for an element to appear on the page.',
+          parameters: {
+            type: 'object',
+            properties: {
+              selector: { type: 'string', description: 'CSS selector to wait for.' },
+              timeout: { type: 'number', description: 'Timeout in milliseconds (default 10000).' },
+              page_id: { type: 'string', description: 'Page ID (optional, uses current page if not specified).' },
+            },
+            required: ['selector'],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'browser_scroll',
+          description: 'Scroll the page in a direction.',
+          parameters: {
+            type: 'object',
+            properties: {
+              direction: { type: 'string', enum: ['up', 'down', 'top', 'bottom'], description: 'Scroll direction.' },
+              amount: { type: 'number', description: 'Pixels to scroll (for up/down, default 300).' },
+              page_id: { type: 'string', description: 'Page ID (optional, uses current page if not specified).' },
+            },
+            required: ['direction'],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'browser_press',
+          description: 'Press a keyboard key.',
+          parameters: {
+            type: 'object',
+            properties: {
+              key: { type: 'string', description: 'Key to press (e.g., Enter, Tab, Escape, ArrowDown).' },
+              page_id: { type: 'string', description: 'Page ID (optional, uses current page if not specified).' },
+            },
+            required: ['key'],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'browser_get_url',
+          description: 'Get the current URL and title of the page.',
+          parameters: {
+            type: 'object',
+            properties: {
+              page_id: { type: 'string', description: 'Page ID (optional, uses current page if not specified).' },
+            },
+            required: [],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'browser_list_pages',
+          description: 'List all open browser pages.',
+          parameters: { type: 'object', properties: {}, required: [] },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'browser_switch_page',
+          description: 'Switch to a different page.',
+          parameters: {
+            type: 'object',
+            properties: {
+              page_id: { type: 'string', description: 'Page ID to switch to.' },
+            },
+            required: ['page_id'],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'browser_close_page',
+          description: 'Close a specific page or the current page.',
+          parameters: {
+            type: 'object',
+            properties: {
+              page_id: { type: 'string', description: 'Page ID to close (optional, closes current page if not specified).' },
+            },
+            required: [],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'browser_close',
+          description: 'Close the browser and all pages.',
+          parameters: { type: 'object', properties: {}, required: [] },
         },
       }
     );
@@ -460,6 +663,67 @@ export async function buildTools(ctx: ToolContext): Promise<ToolDefinition[]> {
             required: [],
           },
         },
+      },
+      // Root-level file access tools
+      {
+        type: 'function',
+        function: {
+          name: 'self_read_root',
+          description: 'Read a file from the project root. Allowed: package.json, tsconfig.json, .gitignore, .env, and files in src/, scripts/, templates/, .agents/.',
+          parameters: {
+            type: 'object',
+            properties: {
+              path: { type: 'string', description: 'Path relative to project root (e.g., "package.json", "scripts/runner.js").' },
+            },
+            required: ['path'],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'self_write_root',
+          description: 'Write a file in the project root. Same access restrictions as self_read_root.',
+          parameters: {
+            type: 'object',
+            properties: {
+              path: { type: 'string', description: 'Path relative to project root.' },
+              content: { type: 'string', description: 'New file content.' },
+            },
+            required: ['path', 'content'],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'self_edit_root',
+          description: 'Replace a string in a file in the project root. Same access restrictions as self_read_root.',
+          parameters: {
+            type: 'object',
+            properties: {
+              path: { type: 'string', description: 'Path relative to project root.' },
+              old_string: { type: 'string', description: 'String to replace.' },
+              new_string: { type: 'string', description: 'Replacement string.' },
+            },
+            required: ['path', 'old_string', 'new_string'],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'self_exec',
+          description: 'Execute a shell command in the project root directory (e.g., npm install, npx tsc).',
+          parameters: {
+            type: 'object',
+            properties: {
+              command: { type: 'string', description: 'Shell command to run.' },
+              timeout: { type: 'number', description: 'Timeout in ms (default 60000).' },
+            },
+            required: ['command'],
+          },
+        },
       }
     );
   }
@@ -511,6 +775,49 @@ export async function executeTool(
 
     case 'web_search':
       return webSearch(args.query as string, ctx.searchConfig);
+
+    // Browser automation tools
+    case 'browser_navigate':
+      return browserNavigate(args.url as string);
+
+    case 'browser_click':
+      return browserClick(args.selector as string, args.page_id as string | undefined);
+
+    case 'browser_type':
+      return browserType(args.selector as string, args.text as string, args.page_id as string | undefined);
+
+    case 'browser_screenshot':
+      return browserScreenshot(args.page_id as string | undefined);
+
+    case 'browser_evaluate':
+      return browserEvaluate(args.script as string, args.page_id as string | undefined);
+
+    case 'browser_get_content':
+      return browserGetContent(args.selector as string | undefined, args.page_id as string | undefined);
+
+    case 'browser_wait_for':
+      return browserWaitFor(args.selector as string, args.timeout as number | undefined, args.page_id as string | undefined);
+
+    case 'browser_scroll':
+      return browserScroll(args.direction as 'up' | 'down' | 'top' | 'bottom', args.amount as number | undefined, args.page_id as string | undefined);
+
+    case 'browser_press':
+      return browserPress(args.key as string, args.page_id as string | undefined);
+
+    case 'browser_get_url':
+      return browserGetUrl(args.page_id as string | undefined);
+
+    case 'browser_list_pages':
+      return browserListPages();
+
+    case 'browser_switch_page':
+      return browserSwitchPage(args.page_id as string);
+
+    case 'browser_close_page':
+      return browserClosePage(args.page_id as string | undefined);
+
+    case 'browser_close':
+      return browserClose();
 
     case 'memory_save': {
       if (!ctx.vectorMemory) return { success: false, output: 'Memory tool not available.' };
@@ -596,6 +903,18 @@ export async function executeTool(
 
     case 'git_pull':
       return gitPull(args.remote as string | undefined, args.branch as string | undefined);
+
+    case 'self_read_root':
+      return selfReadRoot(args.path as string);
+
+    case 'self_write_root':
+      return selfWriteRoot(args.path as string, args.content as string);
+
+    case 'self_edit_root':
+      return selfEditRoot(args.path as string, args.old_string as string, args.new_string as string);
+
+    case 'self_exec':
+      return selfExec(args.command as string, args.timeout as number | undefined);
 
     default:
       // Try MCP tools
