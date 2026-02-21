@@ -118,7 +118,7 @@ export interface SessionState {
 }
 
 export interface DashboardEvent {
-  type: 'message' | 'tool_call' | 'tool_result' | 'heartbeat' | 'system' | 'memory_update';
+  type: 'message' | 'tool_call' | 'tool_result' | 'heartbeat' | 'system' | 'memory_update' | 'stream' | 'connected';
   sessionId: string;
   data: unknown;
   timestamp: string;

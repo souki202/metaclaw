@@ -1244,6 +1244,9 @@
     let availableSkills = [];
     let filteredSkills = [];
     let selectedSkillIndex = -1;
+    let currentStreamBuffer = '';
+    let currentStreamDiv = null;
+    let currentStreamText = null;
 
     async function loadSkillsList() {
       if (!currentSession) return;
@@ -1376,18 +1379,58 @@
       document.getElementById('ws-status').textContent = connected ? 'Connected' : 'Disconnected';
     }
 
+    function finishStream() {
+      if (!currentStreamDiv) return;
+      currentStreamText.innerHTML = formatMarkdown(currentStreamBuffer);
+      currentStreamDiv = null;
+      currentStreamBuffer = '';
+      currentStreamText = null;
+    }
+
     function handleEvent(event) {
       if (event.sessionId !== currentSession) return;
       if (event.type === 'tool_call') {
         removeTyping();
+        if (currentStreamDiv) finishStream();
         const names = event.data.tools.map(t => t.name).join(', ');
         appendToolEvent(`⚙ ${names}`, null);
       } else if (event.type === 'tool_result') {
+        if (currentStreamDiv) finishStream();
         const ok = event.data.success;
         appendToolEvent(`${ok ? '✓' : '✗'} ${event.data.tool}: ${event.data.output.slice(0, 100)}`, ok);
+      } else if (event.type === 'stream') {
+        removeTyping();
+        if (!currentStreamDiv) {
+          const container = document.getElementById('messages');
+          const emptyEl = container.querySelector('.empty');
+          if (emptyEl) emptyEl.remove();
+
+          currentStreamDiv = document.createElement('div');
+          currentStreamDiv.className = 'message assistant';
+          const bubble = document.createElement('div');
+          bubble.className = 'bubble';
+
+          const roleLabel = document.createElement('div');
+          roleLabel.className = 'role';
+          roleLabel.textContent = 'AI';
+          bubble.appendChild(roleLabel);
+
+          currentStreamText = document.createElement('div');
+          bubble.appendChild(currentStreamText);
+          currentStreamDiv.appendChild(bubble);
+          container.appendChild(currentStreamDiv);
+        }
+        currentStreamBuffer += event.data.chunk;
+        currentStreamText.innerHTML = formatMarkdown(currentStreamBuffer);
+        const container = document.getElementById('messages');
+        container.scrollTop = container.scrollHeight;
       } else if (event.type === 'message' && event.data.role === 'assistant') {
         removeTyping();
-        appendMessage('assistant', event.data.content);
+        if (currentStreamDiv) {
+          finishStream();
+        } else {
+          appendMessage('assistant', event.data.content);
+        }
         isThinking = false;
         document.getElementById('send-btn').disabled = false;
         document.getElementById('input').disabled = false;

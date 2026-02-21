@@ -264,6 +264,7 @@ export class Agent {
       let streamBuffer = '';
       const response = await this.provider.chat(messages, tools, (chunk) => {
         streamBuffer += chunk;
+        this.emit('stream', { chunk });
       });
 
       messages.push(response);
