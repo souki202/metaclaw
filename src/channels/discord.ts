@@ -29,7 +29,7 @@ export class DiscordChannel {
   private setupHandlers() {
     this.client.on(Events.ClientReady, (client) => {
       log.info(`Discord bot logged in as: ${client.user.tag}`);
-      client.user.setActivity('mini-claw', { type: ActivityType.Watching });
+      client.user.setActivity('meta-claw', { type: ActivityType.Watching });
     });
 
     this.client.on(Events.MessageCreate, async (message) => {

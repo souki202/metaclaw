@@ -8,7 +8,7 @@ import { logger } from './logger.js';
 import type { DashboardEvent } from './types.js';
 
 async function main() {
-  logger.info('Starting mini-claw...');
+  logger.info('Starting meta-claw...');
 
   let config;
   try {
@@ -79,7 +79,7 @@ async function main() {
     }
   });
 
-  logger.info('mini-claw ready!');
+  logger.info('meta-claw ready!');
 
   // Graceful shutdown
   const shutdown = async (signal: string) => {

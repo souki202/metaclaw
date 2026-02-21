@@ -114,7 +114,7 @@ export class Agent {
     const tmpMemory = this.tmpMemory.read();
 
     const parts = [
-      `You are an AI personal agent running in the mini-claw system.`,
+      `You are an AI personal agent running in the meta-claw system.`,
       `Session ID: ${this.sessionId}`,
       ``,
     ];

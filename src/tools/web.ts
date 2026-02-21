@@ -10,7 +10,7 @@ export async function webFetch(url: string, selector?: string): Promise<ToolResu
 
   try {
     const response = await fetch(url, {
-      headers: { 'User-Agent': 'mini-claw/1.0 (personal AI agent)' },
+      headers: { 'User-Agent': 'meta-claw/1.0 (personal AI agent)' },
       signal: AbortSignal.timeout(15000),
     });
 

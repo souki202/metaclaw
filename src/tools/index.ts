@@ -234,7 +234,7 @@ export function buildTools(ctx: ToolContext): ToolDefinition[] {
         type: 'function',
         function: {
           name: 'self_list',
-          description: 'List files in the mini-claw source code directory (src/).',
+          description: 'List files in the meta-claw source code directory (src/).',
           parameters: {
             type: 'object',
             properties: {
@@ -248,7 +248,7 @@ export function buildTools(ctx: ToolContext): ToolDefinition[] {
         type: 'function',
         function: {
           name: 'self_read',
-          description: 'Read a source file from mini-claw src/.',
+          description: 'Read a source file from meta-claw src/.',
           parameters: {
             type: 'object',
             properties: {
@@ -262,7 +262,7 @@ export function buildTools(ctx: ToolContext): ToolDefinition[] {
         type: 'function',
         function: {
           name: 'self_write',
-          description: 'Write/modify a source file in mini-claw src/. Use self_restart afterward to apply changes.',
+          description: 'Write/modify a source file in meta-claw src/. Use self_restart afterward to apply changes.',
           parameters: {
             type: 'object',
             properties: {
@@ -277,7 +277,7 @@ export function buildTools(ctx: ToolContext): ToolDefinition[] {
         type: 'function',
         function: {
           name: 'self_edit',
-          description: 'Replace a specific string in a source file in mini-claw src/. Use self_restart afterward.',
+          description: 'Replace a specific string in a source file in meta-claw src/. Use self_restart afterward.',
           parameters: {
             type: 'object',
             properties: {
@@ -293,7 +293,7 @@ export function buildTools(ctx: ToolContext): ToolDefinition[] {
         type: 'function',
         function: {
           name: 'self_restart',
-          description: 'Restart mini-claw to apply self-modifications. All sessions will restart.',
+          description: 'Restart meta-claw to apply self-modifications. All sessions will restart.',
           parameters: {
             type: 'object',
             properties: {

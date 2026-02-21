@@ -1,4 +1,4 @@
-# mini-claw
+# meta-claw
 
 A multi-session AI personal agent system with Discord integration, web dashboard, long-term vector memory, workspace sandboxing, and self-modification capabilities.
 
@@ -99,7 +99,7 @@ When `allowSelfModify: true` is set, the AI gains access to:
 - `self_list` — List source files in `src/`
 - `self_read` — Read a source file
 - `self_write` — Write/modify a source file
-- `self_restart` — Restart mini-claw to apply changes
+- `self_restart` — Restart meta-claw to apply changes
 
 The restart mechanism: when `self_restart` is called, the process exits with code `75`. The `scripts/runner.js` wrapper detects this and restarts the process automatically.
 

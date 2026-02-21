@@ -51,7 +51,7 @@ async function main() {
   }
 
   const prompt = `You are an expert TypeScript developer and auto-repair agent.
-The mini-claw application just crashed on startup or execution. Here is the stderr log:
+The meta-claw application just crashed on startup or execution. Here is the stderr log:
 
 <error_log>
 ${errorLog}

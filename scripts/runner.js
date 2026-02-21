@@ -1,5 +1,5 @@
 /**
- * Process wrapper for mini-claw.
+ * Process wrapper for meta-claw.
  * Handles graceful restarts when the AI triggers self-modification.
  * Exit code 75 = restart requested by AI
  */
