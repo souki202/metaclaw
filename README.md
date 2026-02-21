@@ -105,6 +105,19 @@ When `allowSelfModify: true` is set, the AI gains access to:
 
 The restart mechanism: when `self_restart` is called, the process exits with code `75`. The `scripts/runner.js` wrapper detects this and restarts the process automatically.
 
+### Hot Reload vs Restart
+
+With the Next.js-based architecture, hot reload automatically applies changes to:
+- **Backend code** in `src/` directory (TypeScript files)
+- **Frontend code** in `app/` directory (React components)
+
+**You should only use `self_restart` (or `npm restart`) for changes that cannot be hot-reloaded**, such as:
+- **Package installations** (`npm install`)
+- **Configuration changes** that require full process restart
+- **Native module changes** (e.g., Puppeteer, native bindings)
+
+For regular code modifications in `src/` or `app/`, hot reload will automatically detect and apply changes without needing a restart.
+
 > [!IMPORTANT]
 > Since the AI can modify its own source code, it's recommended to **fork this repository** or **change the remote URL** (`git remote set-url origin ...`) to your own private repository. This prevents your local modifications from being accidentally overwritten by upstream updates and allows you to track changes made by the AI.
 

@@ -2,7 +2,7 @@ import 'dotenv/config';
 import path from 'path';
 import { loadConfig } from './config.js';
 import { SessionManager } from './core/sessions.js';
-import { DashboardServer } from './dashboard/server.js';
+import { DashboardServer } from './dashboard/next-server.js';
 import { DiscordChannel } from './channels/discord.js';
 import { logger } from './logger.js';
 import type { DashboardEvent } from './types.js';

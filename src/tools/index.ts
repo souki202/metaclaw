@@ -499,7 +499,7 @@ export async function buildTools(ctx: ToolContext): Promise<ToolDefinition[]> {
         type: 'function',
         function: {
           name: 'self_restart',
-          description: 'Restart meta-claw to apply self-modifications. All sessions will restart.',
+          description: 'Restart meta-claw to apply self-modifications. All sessions will restart. NOTE: With Next.js hot reload, this is only needed for changes that cannot be hot-reloaded (npm install, config changes, native module updates). Regular code changes in src/ or app/ are hot-reloaded automatically.',
           parameters: {
             type: 'object',
             properties: {
