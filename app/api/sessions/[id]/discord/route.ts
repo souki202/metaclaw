@@ -1,14 +1,15 @@
 import { NextResponse } from 'next/server';
-import { getConfigSafe, handleError, notFound } from '../../../../helpers';
+import { getConfigSafe, handleError, notFound } from '../../../helpers';
 import { saveConfig } from '../../../../../src/config';
 
 export async function PUT(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const config = getConfigSafe();
-    const session = config.sessions[params.id];
+    const session = config.sessions[id];
 
     if (!session) {
       return notFound('Session not found');

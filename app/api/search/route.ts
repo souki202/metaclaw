@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
-import { getConfigSafe, handleError } from '../../../helpers';
-import { setSearchConfig, saveConfig } from '../../../../src/config';
-import type { SearchConfig } from '../../../../src/types';
+import { getConfigSafe, handleError } from '../helpers';
+import { setSearchConfig, saveConfig } from '../../../src/config';
+import type { SearchConfig } from '../../../src/types';
 
 export async function GET() {
   try {

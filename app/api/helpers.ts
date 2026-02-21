@@ -19,22 +19,14 @@ export function badRequest(message = 'Bad request') {
 }
 
 export function getSessionManagerSafe() {
-  try {
-    return getSessionManager();
-  } catch (error) {
-    throw new Error('Backend not initialized. Make sure npm run dev is starting the backend first.');
-  }
+  return getSessionManager();
 }
 
 export function getConfigSafe() {
   try {
-    // Try global state first, fallback to loading from file
-    try {
-      return getConfig();
-    } catch {
-      return loadConfig();
-    }
-  } catch (error) {
-    throw new Error('Could not load configuration');
+    return getConfig();
+  } catch {
+    // フォールバック: グローバルステート未初期化時はファイルから読む
+    return loadConfig();
   }
 }

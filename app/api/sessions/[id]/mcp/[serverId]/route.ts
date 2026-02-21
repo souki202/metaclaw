@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getSessionManagerSafe, getConfigSafe, handleError, notFound, badRequest } from '../../../../../helpers';
+import { getSessionManagerSafe, getConfigSafe, handleError, notFound, badRequest } from '../../../../helpers';
 import { saveConfig } from '../../../../../../src/config';
 import { createLogger } from '../../../../../../src/logger';
 
@@ -7,28 +7,29 @@ const log = createLogger('api');
 
 export async function PUT(
   request: Request,
-  { params }: { params: { id: string; serverId: string } }
+  { params }: { params: Promise<{ id: string; serverId: string }> }
 ) {
   try {
+    const { id, serverId } = await params;
     const config = getConfigSafe();
-    const session = config.sessions[params.id];
+    const session = config.sessions[id];
 
     if (!session) {
       return notFound('Session not found');
     }
 
-    if (!session.mcpServers?.[params.serverId]) {
+    if (!session.mcpServers?.[serverId]) {
       return notFound('MCP server not found');
     }
 
     const body = await request.json();
-    session.mcpServers[params.serverId] = {
-      ...session.mcpServers[params.serverId],
+    session.mcpServers[serverId] = {
+      ...session.mcpServers[serverId],
       ...body,
     };
 
     saveConfig(config);
-    return NextResponse.json({ ok: true, server: session.mcpServers[params.serverId] });
+    return NextResponse.json({ ok: true, server: session.mcpServers[serverId] });
   } catch (error) {
     return handleError(error);
   }
@@ -36,11 +37,10 @@ export async function PUT(
 
 export async function DELETE(
   request: Request,
-  { params }: { params: { id: string; serverId: string } }
+  { params }: { params: Promise<{ id: string; serverId: string }> }
 ) {
   try {
-    const sessionId = params.id;
-    const serverId = params.serverId;
+    const { id: sessionId, serverId } = await params;
     const sessions = getSessionManagerSafe();
     const config = getConfigSafe();
 

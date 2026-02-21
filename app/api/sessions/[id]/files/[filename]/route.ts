@@ -7,17 +7,17 @@ const ALLOWED_FILES = ['IDENTITY.md', 'USER.md', 'MEMORY.md', 'HEARTBEAT.md'];
 
 export async function GET(
   request: Request,
-  { params }: { params: { id: string; filename: string } }
+  { params }: { params: Promise<{ id: string; filename: string }> }
 ) {
   try {
+    const { id, filename } = await params;
     const sessions = getSessionManagerSafe();
-    const agent = sessions.getAgent(params.id);
+    const agent = sessions.getAgent(id);
 
     if (!agent) {
       return notFound('Session not found');
     }
 
-    const filename = params.filename;
     if (!ALLOWED_FILES.includes(filename)) {
       return badRequest('Not allowed');
     }
@@ -36,17 +36,17 @@ export async function GET(
 
 export async function PUT(
   request: Request,
-  { params }: { params: { id: string; filename: string } }
+  { params }: { params: Promise<{ id: string; filename: string }> }
 ) {
   try {
+    const { id, filename } = await params;
     const sessions = getSessionManagerSafe();
-    const agent = sessions.getAgent(params.id);
+    const agent = sessions.getAgent(id);
 
     if (!agent) {
       return notFound('Session not found');
     }
 
-    const filename = params.filename;
     if (!ALLOWED_FILES.includes(filename)) {
       return badRequest('Not allowed');
     }

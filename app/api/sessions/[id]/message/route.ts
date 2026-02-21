@@ -3,11 +3,12 @@ import { getSessionManagerSafe, handleError, notFound, badRequest } from '../../
 
 export async function POST(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const sessions = getSessionManagerSafe();
-    const agent = sessions.getAgent(params.id);
+    const agent = sessions.getAgent(id);
 
     if (!agent) {
       return notFound('Session not found');

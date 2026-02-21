@@ -1239,7 +1239,7 @@
   <script>
     let currentSession = null;
     let sessions = [];
-    let ws = null;
+    let es = null;
     let isThinking = false;
     let availableSkills = [];
     let filteredSkills = [];
@@ -1360,13 +1360,13 @@
     }
 
     function connectWS() {
-      const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-      ws = new WebSocket(`${proto}//${location.host}`);
-      ws.onopen = () => { setWsStatus(true); };
-      ws.onclose = () => { setWsStatus(false); setTimeout(connectWS, 3000); };
-      ws.onerror = () => setWsStatus(false);
-      ws.onmessage = (e) => {
+      if (es) es.close();
+      es = new EventSource('/api/events');
+      es.onopen = () => { setWsStatus(true); };
+      es.onerror = () => { setWsStatus(false); setTimeout(connectWS, 3000); };
+      es.onmessage = (e) => {
         const event = JSON.parse(e.data);
+        if (event.type === 'connected') return;
         handleEvent(event);
       };
     }

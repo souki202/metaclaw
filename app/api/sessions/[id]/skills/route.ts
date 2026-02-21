@@ -1,14 +1,15 @@
 import { NextResponse } from 'next/server';
 import { getSessionManagerSafe, handleError, notFound } from '../../../helpers';
-import { loadSkills } from '../../../../src/core/skills';
+import { loadSkills } from '../../../../../src/core/skills';
 
 export async function GET(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const sessions = getSessionManagerSafe();
-    const agent = sessions.getAgent(params.id);
+    const agent = sessions.getAgent(id);
 
     if (!agent) {
       return notFound('Session not found');

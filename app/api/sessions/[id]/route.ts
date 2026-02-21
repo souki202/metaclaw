@@ -4,16 +4,16 @@ import { deleteSession, saveConfig } from '../../../../src/config';
 
 export async function DELETE(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const config = getConfigSafe();
     const sessions = getSessionManagerSafe();
-    const sessionId = params.id;
 
-    if (deleteSession(config, sessionId)) {
+    if (deleteSession(config, id)) {
       saveConfig(config);
-      sessions.stopSession(sessionId);
+      sessions.stopSession(id);
       return NextResponse.json({ ok: true });
     } else {
       return notFound('Session not found');

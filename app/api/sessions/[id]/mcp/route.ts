@@ -4,11 +4,12 @@ import { saveConfig } from '../../../../../src/config';
 
 export async function GET(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const config = getConfigSafe();
-    const session = config.sessions[params.id];
+    const session = config.sessions[id];
 
     if (!session) {
       return notFound('Session not found');
@@ -22,11 +23,12 @@ export async function GET(
 
 export async function POST(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const config = getConfigSafe();
-    const session = config.sessions[params.id];
+    const session = config.sessions[id];
 
     if (!session) {
       return notFound('Session not found');
