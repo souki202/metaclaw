@@ -1,9 +1,0 @@
-node_modules/
-dist/
-config.json
-data/
-*.log
-.env
-
-.agents/
-.claude/
