@@ -23,7 +23,8 @@
     "react-dom": "^19.0.0",
     "skills": "^1.4.1",
     "uuid": "^11.0.5",
-    "ws": "^8.18.0"
+    "ws": "^8.18.0",
+    "zlib-sync": "^0.1.10"
   },
   "devDependencies": {
     "@types/node": "^22.13.4",
