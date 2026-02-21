@@ -67,6 +67,32 @@ export class Agent {
     this.log = createLogger(`agent:${sessionId}`);
     this.onEvent = onEvent;
     this.globalConfig = globalConfig;
+    
+    this.loadHistory();
+  }
+
+  private loadHistory() {
+    const historyPath = path.join(this.workspace, 'history.jsonl');
+    if (fs.existsSync(historyPath)) {
+      try {
+        const content = fs.readFileSync(historyPath, 'utf-8');
+        const lines = content.split('\n').filter(l => l.trim().length > 0);
+        this.history = lines.map(l => {
+          const parsed = JSON.parse(l);
+          return {
+            role: parsed.role,
+            content: parsed.content,
+            name: parsed.name,
+            tool_call_id: parsed.tool_call_id,
+            tool_calls: parsed.tool_calls
+          } as ChatMessage;
+        });
+        this.log.info(`Loaded ${this.history.length} messages from history`);
+      } catch (e) {
+        this.log.error('Failed to load history:', e);
+        this.history = [];
+      }
+    }
   }
 
   private resolveProviderConfig(): ProviderConfig {
@@ -271,6 +297,15 @@ export class Agent {
 
   clearHistory() {
     this.history = [];
+    const historyPath = path.join(this.workspace, 'history.jsonl');
+    if (fs.existsSync(historyPath)) {
+      try {
+        fs.unlinkSync(historyPath);
+        this.log.info('History file cleared');
+      } catch (e) {
+        this.log.error('Failed to delete history file:', e);
+      }
+    }
   }
 
   getSessionId(): string {
