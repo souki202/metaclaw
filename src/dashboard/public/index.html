@@ -1135,36 +1135,55 @@
             <button class="btn add-btn" onclick="showAddMcpForm()">+ Add Server</button>
           </div>
 
+          <!-- Template Selection -->
           <div id="mcp-add-form"
-            style="display:none; margin-bottom:16px; background:var(--surface2); border:1px solid var(--border); border-radius:var(--radius); padding:12px;">
+            style="display:none; margin-bottom:16px; background:var(--surface2); border:1px solid var(--border); border-radius:var(--radius); padding:16px;">
             <div class="form-group">
-              <label class="form-label">Server ID</label>
-              <input type="text" class="form-input mono" id="mcp-new-id" placeholder="e.g. filesystem">
+              <label class="form-label">Template</label>
+              <select class="form-input" id="mcp-template" onchange="applyMcpTemplate()">
+                <option value="">Custom (blank)</option>
+                <option value="figma">Figma</option>
+                <option value="filesystem">Filesystem</option>
+                <option value="brave-search">Brave Search</option>
+                <option value="google-maps">Google Maps</option>
+                <option value="github">GitHub</option>
+              </select>
             </div>
-            <div class="form-group">
-              <label class="form-label">Command</label>
-              <input type="text" class="form-input mono" id="mcp-new-command" placeholder="e.g. npx">
+
+            <div class="form-row">
+              <div class="form-group" style="flex:0 0 140px">
+                <label class="form-label">Server ID</label>
+                <input type="text" class="form-input mono" id="mcp-new-id" placeholder="my-server">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Command</label>
+                <input type="text" class="form-input mono" id="mcp-new-command" placeholder="npx">
+              </div>
             </div>
+
             <div class="form-group">
               <label class="form-label">Arguments (one per line)</label>
-              <textarea class="file-editor" id="mcp-new-args" rows="3"
-                placeholder="-y\n@modelcontextprotocol/server-filesystem\n/path/to/dir"></textarea>
+              <textarea class="file-editor" id="mcp-new-args" rows="3" style="min-height:56px;"
+                placeholder="e.g.&#10;-y&#10;@modelcontextprotocol/server-filesystem&#10;/path/to/dir"></textarea>
             </div>
+
             <div class="form-group">
-              <label class="form-label">Environment Variables (JSON)</label>
-              <input type="text" class="form-input mono" id="mcp-new-env" placeholder='{"KEY": "value"}'>
+              <label class="form-label" style="display:flex; align-items:center; justify-content:space-between;">
+                Environment Variables
+                <button class="btn" style="font-size:10px; padding:2px 8px;" onclick="addMcpEnvRow()">+ Add</button>
+              </label>
+              <div id="mcp-env-rows"></div>
             </div>
+
             <div style="display:flex; gap:8px; justify-content:flex-end;">
               <button class="btn" onclick="hideAddMcpForm()">Cancel</button>
-              <button class="btn primary" onclick="addMcpServer()">Add</button>
+              <button class="btn primary" onclick="addMcpServer()">Add Server</button>
             </div>
           </div>
 
           <div id="mcp-server-list" class="env-list">
             <div class="empty">No MCP servers configured.</div>
           </div>
-          <div class="form-hint" style="margin-top:10px;">MCP servers provide additional tools to the AI agent. Changes
-            take effect after restart.</div>
         </div>
       </div>
       <div class="modal-footer">
@@ -1489,8 +1508,17 @@
 
     async function clearHistory() {
       if (!currentSession || !confirm('Clear conversation history?')) return;
-      await fetch(`/api/sessions/${currentSession}/history`, { method: 'DELETE' });
-      document.getElementById('messages').innerHTML = '<div class="empty">History cleared</div>';
+      try {
+        const res = await fetch(`/api/sessions/${currentSession}/history`, { method: 'DELETE' });
+        if (res.ok) {
+          document.getElementById('messages').innerHTML = '<div class="empty">History cleared</div>';
+        } else {
+          const err = await res.json();
+          alert('Error clearing history: ' + err.error);
+        }
+      } catch (e) {
+        alert('Request failed: ' + e.message);
+      }
     }
 
     const FILES = ['IDENTITY.md', 'USER.md', 'MEMORY.md', 'HEARTBEAT.md'];
@@ -1715,84 +1743,244 @@
 
     // ==================== MCP Servers ====================
 
+    const MCP_TEMPLATES = {
+      'figma': {
+        id: 'figma',
+        command: 'npx',
+        args: '-y\nfigma-developer-mcp',
+        env: [{ key: 'FIGMA_API_KEY', value: '', placeholder: 'figd_xxxxx...' }],
+      },
+      'filesystem': {
+        id: 'filesystem',
+        command: 'npx',
+        args: '-y\n@modelcontextprotocol/server-filesystem\n/path/to/allowed/dir',
+        env: [],
+      },
+      'brave-search': {
+        id: 'brave-search',
+        command: 'npx',
+        args: '-y\n@modelcontextprotocol/server-brave-search',
+        env: [{ key: 'BRAVE_API_KEY', value: '', placeholder: 'BSAxxxxx...' }],
+      },
+      'google-maps': {
+        id: 'google-maps',
+        command: 'npx',
+        args: '-y\n@modelcontextprotocol/server-google-maps',
+        env: [{ key: 'GOOGLE_MAPS_API_KEY', value: '', placeholder: 'AIzaxxxxx...' }],
+      },
+      'github': {
+        id: 'github',
+        command: 'npx',
+        args: '-y\n@modelcontextprotocol/server-github',
+        env: [{ key: 'GITHUB_PERSONAL_ACCESS_TOKEN', value: '', placeholder: 'ghp_xxxxx...' }],
+      },
+    };
+
+    function applyMcpTemplate() {
+      const tpl = MCP_TEMPLATES[document.getElementById('mcp-template').value];
+      if (!tpl) {
+        document.getElementById('mcp-new-id').value = '';
+        document.getElementById('mcp-new-command').value = '';
+        document.getElementById('mcp-new-args').value = '';
+        document.getElementById('mcp-env-rows').innerHTML = '';
+        return;
+      }
+      document.getElementById('mcp-new-id').value = tpl.id;
+      document.getElementById('mcp-new-command').value = tpl.command;
+      document.getElementById('mcp-new-args').value = tpl.args;
+      // Build env rows
+      document.getElementById('mcp-env-rows').innerHTML = '';
+      (tpl.env || []).forEach(e => addMcpEnvRow(e.key, e.value, e.placeholder));
+    }
+
+    function addMcpEnvRow(key = '', value = '', placeholder = '') {
+      const container = document.getElementById('mcp-env-rows');
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex; gap:6px; margin-bottom:6px; align-items:center;';
+      row.innerHTML = `
+        <input type="text" class="form-input mono" placeholder="KEY" value="${escapeHtml(key)}" style="flex:0 0 40%; font-size:11px; padding:6px 8px;">
+        <input type="text" class="form-input mono" placeholder="${escapeHtml(placeholder || 'value')}" value="${escapeHtml(value)}" style="flex:1; font-size:11px; padding:6px 8px;">
+        <button class="btn" style="padding:4px 8px; font-size:11px; flex-shrink:0;" onclick="this.parentElement.remove()">✕</button>
+      `;
+      container.appendChild(row);
+    }
+
+    function getMcpEnvFromRows() {
+      const rows = document.querySelectorAll('#mcp-env-rows > div');
+      const env = {};
+      rows.forEach(row => {
+        const inputs = row.querySelectorAll('input');
+        const key = inputs[0].value.trim();
+        const val = inputs[1].value.trim();
+        if (key) env[key] = val;
+      });
+      return env;
+    }
+
+    function getStatusBadge(status, error) {
+      const colors = { connected: 'var(--green)', connecting: 'var(--yellow)', error: 'var(--red)', stopped: 'var(--text2)' };
+      const labels = { connected: 'Connected', connecting: 'Connecting...', error: 'Error', stopped: 'Stopped' };
+      const color = colors[status] || 'var(--text2)';
+      const label = labels[status] || status;
+      let html = `<span style="color:${color}; font-size:11px; font-weight:500;">● ${escapeHtml(label)}</span>`;
+      if (status === 'error' && error) {
+        html += `<div style="color:var(--red); font-size:10px; margin-top:3px; font-family:var(--mono); word-break:break-all; max-height:40px; overflow:auto;">${escapeHtml(error)}</div>`;
+      }
+      return html;
+    }
+
+    let mcpServersCache = {}; // Store fetched config for editing
+    let mcpEditingId = null; // If non-null, we're editing rather than adding
+
     async function loadMcpServers() {
       if (!currentSession) return;
       const list = document.getElementById('mcp-server-list');
       list.innerHTML = '<div class="empty">Loading...</div>';
 
       try {
-        const res = await fetch(`/api/sessions/${currentSession}/mcp`);
-        const servers = await res.json();
-        const entries = Object.entries(servers);
+        // Fetch config and status in parallel
+        const [cfgRes, statusRes] = await Promise.all([
+          fetch(`/api/sessions/${currentSession}/mcp`),
+          fetch(`/api/sessions/${currentSession}/mcp/status`),
+        ]);
+        const servers = await cfgRes.json();
+        mcpServersCache = servers;
+        let statuses = [];
+        try { statuses = await statusRes.json(); } catch { /* ignore */ }
 
+        const entries = Object.entries(servers);
         if (entries.length === 0) {
-          list.innerHTML = '<div class="empty">No MCP servers configured.</div>';
+          list.innerHTML = '<div class="empty">No MCP servers configured. Click "+ Add Server" to get started.</div>';
           return;
         }
 
-        list.innerHTML = entries.map(([id, cfg]) => `
-          <div class="env-item">
-            <div class="env-info">
-              <div class="env-name">${escapeHtml(id)}</div>
-              <div class="env-detail" style="font-family:var(--mono);">${escapeHtml(cfg.command)} ${(cfg.args || []).map(a => escapeHtml(a)).join(' ')}</div>
-              <div class="env-detail" style="margin-top:2px; color: ${cfg.enabled !== false ? 'var(--green)' : 'var(--text2)'};">
-                ${cfg.enabled !== false ? '● Enabled' : '○ Disabled'}
+        // Build a status map
+        const statusMap = {};
+        if (Array.isArray(statuses)) {
+          statuses.forEach(s => { statusMap[s.id] = s; });
+        }
+
+        list.innerHTML = entries.map(([id, cfg]) => {
+          const st = statusMap[id] || {};
+          const status = cfg.enabled === false ? 'stopped' : (st.status || 'stopped');
+          const error = st.error || '';
+          const toolCount = st.toolCount;
+
+          return `
+          <div class="env-item" style="flex-direction:column; align-items:stretch; gap:8px;">
+            <div style="display:flex; align-items:flex-start; gap:12px;">
+              <div class="env-info" style="flex:1;">
+                <div class="env-name" style="display:flex; align-items:center; gap:8px;">
+                  ${escapeHtml(id)}
+                  ${toolCount != null ? `<span style="font-size:10px; color:var(--text2); font-weight:normal;">${toolCount} tools</span>` : ''}
+                </div>
+                <div class="env-detail" style="font-family:var(--mono); margin-top:3px;">${escapeHtml(cfg.command)} ${(cfg.args || []).map(a => escapeHtml(a)).join(' ')}</div>
+                <div style="margin-top:4px;">${getStatusBadge(status, error)}</div>
+              </div>
+              <div class="env-actions" style="flex-shrink:0; display:flex; gap:4px;">
+                <button class="btn" onclick="startEditMcpServer('${escapeHtml(id)}')" title="Edit">✎</button>
+                <button class="btn" onclick="restartMcpServer('${escapeHtml(id)}')" title="Restart" ${cfg.enabled === false ? 'disabled' : ''}>↻</button>
+                <button class="btn" onclick="toggleMcpServer('${escapeHtml(id)}', ${cfg.enabled === false})" title="${cfg.enabled !== false ? 'Disable' : 'Enable'}">${cfg.enabled !== false ? '⏸' : '▶'}</button>
+                <button class="btn danger" onclick="deleteMcpServer('${escapeHtml(id)}')" title="Delete">✕</button>
               </div>
             </div>
-            <div class="env-actions">
-              <button class="btn" onclick="toggleMcpServer('${escapeHtml(id)}', ${cfg.enabled === false})" title="${cfg.enabled !== false ? 'Disable' : 'Enable'}">${cfg.enabled !== false ? '⏸' : '▶'}</button>
-              <button class="btn danger" onclick="deleteMcpServer('${escapeHtml(id)}')" title="Delete">✕</button>
-            </div>
-          </div>
-        `).join('');
+          </div>`;
+        }).join('');
       } catch (e) {
         list.innerHTML = '<div class="empty" style="color:var(--red)">Error loading MCP servers.</div>';
       }
     }
 
     function showAddMcpForm() {
+      mcpEditingId = null;
       document.getElementById('mcp-add-form').style.display = 'block';
+      document.getElementById('mcp-template').value = '';
+      document.getElementById('mcp-template').disabled = false;
       document.getElementById('mcp-new-id').value = '';
+      document.getElementById('mcp-new-id').disabled = false;
       document.getElementById('mcp-new-command').value = '';
       document.getElementById('mcp-new-args').value = '';
-      document.getElementById('mcp-new-env').value = '';
+      document.getElementById('mcp-env-rows').innerHTML = '';
+      // Update button text
+      document.querySelector('#mcp-add-form .btn.primary').textContent = 'Add Server';
+    }
+
+    function startEditMcpServer(serverId) {
+      const cfg = mcpServersCache[serverId];
+      if (!cfg) return;
+
+      mcpEditingId = serverId;
+      document.getElementById('mcp-add-form').style.display = 'block';
+      document.getElementById('mcp-template').value = '';
+      document.getElementById('mcp-template').disabled = true;
+      document.getElementById('mcp-new-id').value = serverId;
+      document.getElementById('mcp-new-id').disabled = true;
+      document.getElementById('mcp-new-command').value = cfg.command || '';
+      document.getElementById('mcp-new-args').value = (cfg.args || []).join('\n');
+      // Build env rows from config
+      document.getElementById('mcp-env-rows').innerHTML = '';
+      if (cfg.env) {
+        Object.entries(cfg.env).forEach(([k, v]) => addMcpEnvRow(k, v));
+      }
+      // Update button text
+      document.querySelector('#mcp-add-form .btn.primary').textContent = 'Save Changes';
     }
 
     function hideAddMcpForm() {
       document.getElementById('mcp-add-form').style.display = 'none';
+      mcpEditingId = null;
     }
 
     async function addMcpServer() {
       const id = document.getElementById('mcp-new-id').value.trim();
       const command = document.getElementById('mcp-new-command').value.trim();
       const argsRaw = document.getElementById('mcp-new-args').value.trim();
-      const envRaw = document.getElementById('mcp-new-env').value.trim();
 
       if (!id) return alert('Server ID is required');
       if (!command) return alert('Command is required');
 
       const args = argsRaw ? argsRaw.split('\n').map(s => s.trim()).filter(Boolean) : [];
-      let env = {};
-      if (envRaw) {
-        try {
-          env = JSON.parse(envRaw);
-        } catch {
-          return alert('Environment variables must be valid JSON');
-        }
-      }
+      const env = getMcpEnvFromRows();
 
       try {
-        const res = await fetch(`/api/sessions/${currentSession}/mcp`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id, command, args, env, enabled: true }),
-        });
-        if (res.ok) {
-          hideAddMcpForm();
-          loadMcpServers();
+        if (mcpEditingId) {
+          // Edit existing server via PUT
+          const res = await fetch(`/api/sessions/${currentSession}/mcp/${mcpEditingId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ command, args, env }),
+          });
+          if (res.ok) {
+            hideAddMcpForm();
+            // Auto-restart after edit
+            try {
+              await fetch(`/api/sessions/${currentSession}/mcp/${mcpEditingId}/restart`, { method: 'POST' });
+            } catch { /* ignore */ }
+            loadMcpServers();
+          } else {
+            const err = await res.json();
+            alert('Error: ' + err.error);
+          }
         } else {
-          const err = await res.json();
-          alert('Error: ' + err.error);
+          // Add new server via POST
+          if (!/^[a-zA-Z0-9_-]+$/.test(id)) return alert('Server ID must be alphanumeric (dashes and underscores allowed)');
+
+          const res = await fetch(`/api/sessions/${currentSession}/mcp`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id, command, args, env, enabled: true }),
+          });
+          if (res.ok) {
+            hideAddMcpForm();
+            // Auto-restart the server to apply immediately
+            try {
+              await fetch(`/api/sessions/${currentSession}/mcp/${id}/restart`, { method: 'POST' });
+            } catch { /* ignore */ }
+            loadMcpServers();
+          } else {
+            const err = await res.json();
+            alert('Error: ' + err.error);
+          }
         }
       } catch (e) {
         alert('Request failed: ' + e.message);
@@ -1806,9 +1994,28 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ enabled: enable }),
         });
+        if (enable) {
+          // If enabling, try to restart
+          try {
+            await fetch(`/api/sessions/${currentSession}/mcp/${serverId}/restart`, { method: 'POST' });
+          } catch { /* ignore */ }
+        }
         loadMcpServers();
       } catch (e) {
         alert('Error toggling MCP server: ' + e.message);
+      }
+    }
+
+    async function restartMcpServer(serverId) {
+      try {
+        const res = await fetch(`/api/sessions/${currentSession}/mcp/${serverId}/restart`, { method: 'POST' });
+        if (!res.ok) {
+          const err = await res.json();
+          alert('Restart failed: ' + err.error);
+        }
+        loadMcpServers();
+      } catch (e) {
+        alert('Error restarting MCP server: ' + e.message);
       }
     }
 

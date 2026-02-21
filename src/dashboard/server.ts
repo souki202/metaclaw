@@ -255,6 +255,25 @@ export class DashboardServer {
       res.json(session.mcpServers || {});
     });
 
+    // API: MCPサーバーステータス取得 (MUST be before /:serverId routes)
+    this.app.get('/api/sessions/:id/mcp/status', (req, res) => {
+      const agent = this.sessions.getAgent(req.params.id);
+      if (!agent) {
+        const config = this.loadCurrentConfig();
+        const session = config.sessions[req.params.id];
+        if (!session) return res.status(404).json({ error: 'Session not found' });
+        const servers = session.mcpServers || {};
+        const states = Object.entries(servers).map(([id, cfg]) => ({
+          id,
+          config: cfg,
+          status: cfg.enabled === false ? 'stopped' : 'stopped',
+          error: 'Session not running',
+        }));
+        return res.json(states);
+      }
+      res.json(agent.getMcpManager().getServerStates());
+    });
+
     // API: MCPサーバー追加
     this.app.post('/api/sessions/:id/mcp', (req, res) => {
       try {
@@ -285,6 +304,29 @@ export class DashboardServer {
       }
     });
 
+    // API: MCPサーバー再起動 (MUST be before /:serverId PUT/DELETE)
+    this.app.post('/api/sessions/:id/mcp/:serverId/restart', async (req, res) => {
+      try {
+        const agent = this.sessions.getAgent(req.params.id);
+        if (!agent) return res.status(400).json({ error: 'Session not running' });
+
+        const config = this.loadCurrentConfig();
+        const session = config.sessions[req.params.id];
+        if (!session?.mcpServers?.[req.params.serverId]) {
+          return res.status(404).json({ error: 'MCP server not found in config' });
+        }
+
+        const mcpConfig = session.mcpServers[req.params.serverId];
+        await agent.getMcpManager().restartServer(req.params.serverId, mcpConfig);
+
+        const states = agent.getMcpManager().getServerStates();
+        const state = states.find(s => s.id === req.params.serverId);
+        res.json({ ok: true, state });
+      } catch (e: unknown) {
+        res.status(500).json({ error: (e as Error).message });
+      }
+    });
+
     // API: MCPサーバー更新
     this.app.put('/api/sessions/:id/mcp/:serverId', (req, res) => {
       try {
@@ -308,19 +350,39 @@ export class DashboardServer {
     });
 
     // API: MCPサーバー削除
-    this.app.delete('/api/sessions/:id/mcp/:serverId', (req, res) => {
+    this.app.delete('/api/sessions/:id/mcp/:serverId', async (req, res) => {
       try {
+        const sessionId = req.params.id;
+        const serverId = req.params.serverId;
+        
+        log.info(`Deleting MCP server "${serverId}" from session "${sessionId}"...`);
+
         const config = this.loadCurrentConfig();
-        const session = config.sessions[req.params.id];
+        const session = config.sessions[sessionId];
         if (!session) return res.status(404).json({ error: 'Session not found' });
-        if (!session.mcpServers?.[req.params.serverId]) {
+        if (!session.mcpServers?.[serverId]) {
           return res.status(404).json({ error: 'MCP server not found' });
         }
 
-        delete session.mcpServers[req.params.serverId];
+        // Also stop the running server if active
+        const agent = this.sessions.getAgent(sessionId);
+        if (agent) {
+          log.info(`Stopping running MCP server "${serverId}"...`);
+          try {
+            await agent.getMcpManager().stopServer(serverId);
+            log.info(`MCP server "${serverId}" stopped successfully.`);
+          } catch (e) {
+            log.warn(`Failed to stop MCP server "${serverId}":`, e);
+          }
+        }
+
+        delete session.mcpServers[serverId];
         saveConfig(config);
+        log.info(`MCP server "${serverId}" deleted from config.`);
+        
         res.json({ ok: true });
       } catch (e: unknown) {
+        log.error('MCP server deletion error:', e);
         res.status(500).json({ error: (e as Error).message });
       }
     });

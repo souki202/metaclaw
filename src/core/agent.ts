@@ -117,6 +117,10 @@ export class Agent {
     await this.mcpManager.stopAll();
   }
 
+  getMcpManager() {
+    return this.mcpManager;
+  }
+
   private resolveProviderConfig(): ProviderConfig {
     if (this.config.provider) {
       return this.config.provider;
@@ -165,6 +169,21 @@ export class Agent {
       `Your workspace is: ${this.workspace}`,
       `Workspace restriction: ${this.config.restrictToWorkspace ? 'ENABLED (files/exec limited to workspace)' : 'DISABLED'}`,
       `Self-modification: ${this.config.allowSelfModify ? 'ENABLED' : 'DISABLED'}`,
+    );
+
+    // Add MCP tools info
+    const mcpStates = this.mcpManager.getServerStates();
+    const connectedServers = mcpStates.filter(s => s.status === 'connected');
+    if (connectedServers.length > 0) {
+      parts.push(``, `## MCP Tools`);
+      parts.push(`You have access to external MCP (Model Context Protocol) tools from the following servers. USE THESE TOOLS when relevant — they are real, connected tools you can call directly:`);
+      for (const server of connectedServers) {
+        parts.push(`- **${server.id}** (${server.toolCount ?? 0} tools available) — Tool names are prefixed with \`mcp_${server.id}_\``);
+      }
+      parts.push(`When the user asks about functionality that matches an MCP server's capabilities, ALWAYS use the corresponding MCP tool instead of explaining how to do it manually.`);
+    }
+
+    parts.push(
       ``,
       `Use the provided tools to help the user. When you learn important facts, save them to memory.`
     );
@@ -200,13 +219,11 @@ export class Agent {
     }
   }
 
-  private saveHistory() {
+  private saveHistory(message: ChatMessage) {
     const historyPath = path.join(this.workspace, 'history.jsonl');
     fs.mkdirSync(path.dirname(historyPath), { recursive: true });
-    // Append last two messages (user + assistant)
-    const recent = this.history.slice(-2);
-    const lines = recent.map((m) => JSON.stringify({ ...m, timestamp: new Date().toISOString() }));
-    fs.appendFileSync(historyPath, lines.join('\n') + '\n', 'utf-8');
+    const line = JSON.stringify({ ...message, timestamp: new Date().toISOString() });
+    fs.appendFileSync(historyPath, line + '\n', 'utf-8');
   }
 
   async processMessage(userMessage: string, channelId?: string): Promise<string> {
@@ -217,6 +234,7 @@ export class Agent {
 
     const userMsg: ChatMessage = { role: 'user', content: userMessage };
     this.history.push(userMsg);
+    this.saveHistory(userMsg);
     this.emit('message', { role: 'user', content: userMessage, channelId });
 
     const systemPrompt = this.buildSystemPrompt();
@@ -249,6 +267,8 @@ export class Agent {
       });
 
       messages.push(response);
+      this.history.push(response);
+      this.saveHistory(response);
 
       if (response.tool_calls && response.tool_calls.length > 0) {
         this.log.info(`Tool calls: ${response.tool_calls.map((t) => t.function.name).join(', ')}`);
@@ -266,12 +286,15 @@ export class Agent {
           this.log.debug(`Tool ${tc.function.name}: ${result.success ? 'ok' : 'error'} - ${result.output.slice(0, 100)}`);
           this.emit('tool_result', { tool: tc.function.name, success: result.success, output: result.output.slice(0, 500) });
 
-          messages.push({
+          const toolMsg: ChatMessage = {
             role: 'tool',
             tool_call_id: tc.id,
             name: tc.function.name,
             content: result.success ? result.output : `Error: ${result.output}`,
-          });
+          };
+          messages.push(toolMsg);
+          this.history.push(toolMsg);
+          this.saveHistory(toolMsg);
         }
       } else {
         finalResponse = response.content ?? '';
@@ -281,12 +304,12 @@ export class Agent {
 
     if (!finalResponse) {
       finalResponse = 'I reached the maximum number of tool iterations. Please try again.';
+      const assistantMsg: ChatMessage = { role: 'assistant', content: finalResponse };
+      this.history.push(assistantMsg);
+      this.saveHistory(assistantMsg);
     }
 
-    const assistantMsg: ChatMessage = { role: 'assistant', content: finalResponse };
-    this.history.push(assistantMsg);
     this.emit('message', { role: 'assistant', content: finalResponse });
-    this.saveHistory();
 
     return finalResponse;
   }

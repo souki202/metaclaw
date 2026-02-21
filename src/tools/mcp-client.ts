@@ -5,10 +5,23 @@ import { createLogger } from '../logger.js';
 
 const log = createLogger('mcp');
 
+export type McpServerStatus = 'connecting' | 'connected' | 'error' | 'stopped';
+
+export interface McpServerState {
+  id: string;
+  config: McpServerConfig;
+  status: McpServerStatus;
+  error?: string;
+  toolCount?: number;
+}
+
 interface McpConnection {
   client: Client;
   transport: StdioClientTransport;
   config: McpServerConfig;
+  status: McpServerStatus;
+  error?: string;
+  toolCount?: number;
 }
 
 export class McpClientManager {
@@ -16,11 +29,25 @@ export class McpClientManager {
 
   async startServer(id: string, config: McpServerConfig): Promise<void> {
     if (this.connections.has(id)) {
-      log.info(`MCP server "${id}" already running, skipping.`);
-      return;
+      const existing = this.connections.get(id)!;
+      if (existing.status === 'connected' || existing.status === 'connecting') {
+        log.info(`MCP server "${id}" already running, skipping.`);
+        return;
+      }
+      // If it was in error state, clean it up first
+      try { await existing.client.close(); } catch { /* ignore */ }
+      this.connections.delete(id);
     }
 
     log.info(`Starting MCP server "${id}": ${config.command} ${(config.args || []).join(' ')}`);
+
+    const placeholder: McpConnection = {
+      client: null!,
+      transport: null!,
+      config,
+      status: 'connecting',
+    };
+    this.connections.set(id, placeholder);
 
     try {
       const transport = new StdioClientTransport({
@@ -35,11 +62,25 @@ export class McpClientManager {
       });
 
       await client.connect(transport);
-      this.connections.set(id, { client, transport, config });
-      log.info(`MCP server "${id}" connected successfully.`);
+
+      // Fetch tool count right away
+      let toolCount = 0;
+      try {
+        const result = await client.listTools();
+        toolCount = (result.tools || []).length;
+      } catch { /* ignore */ }
+
+      this.connections.set(id, { client, transport, config, status: 'connected', toolCount });
+      log.info(`MCP server "${id}" connected successfully (${toolCount} tools).`);
     } catch (e) {
-      log.error(`Failed to start MCP server "${id}":`, e);
-      throw e;
+      const errMsg = (e as Error).message || String(e);
+      log.error(`Failed to start MCP server "${id}":`, errMsg);
+      this.connections.set(id, {
+        ...placeholder,
+        status: 'error',
+        error: errMsg,
+      });
+      // Don't throw — store the error for UI consumption
     }
   }
 
@@ -49,7 +90,7 @@ export class McpClientManager {
 
     log.info(`Stopping MCP server "${id}"...`);
     try {
-      await conn.client.close();
+      if (conn.client) await conn.client.close();
     } catch (e) {
       log.warn(`Error closing MCP server "${id}":`, e);
     }
@@ -63,9 +104,28 @@ export class McpClientManager {
     }
   }
 
+  async restartServer(id: string, config: McpServerConfig): Promise<void> {
+    await this.stopServer(id);
+    await this.startServer(id, config);
+  }
+
+  getServerStates(): McpServerState[] {
+    const states: McpServerState[] = [];
+    for (const [id, conn] of this.connections) {
+      states.push({
+        id,
+        config: conn.config,
+        status: conn.status,
+        error: conn.error,
+        toolCount: conn.toolCount,
+      });
+    }
+    return states;
+  }
+
   async getTools(id: string): Promise<ToolDefinition[]> {
     const conn = this.connections.get(id);
-    if (!conn) return [];
+    if (!conn || conn.status !== 'connected') return [];
 
     try {
       const result = await conn.client.listTools();
@@ -96,6 +156,9 @@ export class McpClientManager {
     const conn = this.connections.get(serverId);
     if (!conn) {
       return { success: false, output: `MCP server "${serverId}" not found or not running.` };
+    }
+    if (conn.status !== 'connected') {
+      return { success: false, output: `MCP server "${serverId}" is not connected (status: ${conn.status}).` };
     }
 
     try {
@@ -131,6 +194,7 @@ export class McpClientManager {
   }
 
   isRunning(id: string): boolean {
-    return this.connections.has(id);
+    const conn = this.connections.get(id);
+    return conn?.status === 'connected';
   }
 }
