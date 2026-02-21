@@ -6,7 +6,7 @@
   "type": "commonjs",
   "scripts": {
     "start": "node scripts/runner.js",
-    "dev": "tsx src/index.ts",
+    "dev": "node scripts/dev.js",
     "build": "next build && tsc",
     "clean": "rimraf dist .next"
   },

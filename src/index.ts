@@ -6,6 +6,7 @@ import { DashboardServer } from './dashboard/next-server.js';
 import { DiscordChannel } from './channels/discord.js';
 import { logger } from './logger.js';
 import type { DashboardEvent } from './types.js';
+import { setGlobalState } from './global-state.js';
 
 async function main() {
   logger.info('Starting meta-claw...');
@@ -19,6 +20,9 @@ async function main() {
   }
 
   const sessions = new SessionManager(config);
+
+  // Set global state for Next.js API routes
+  setGlobalState(sessions, config);
 
   // Dashboard setup
   let dashboard: DashboardServer | null = null;
@@ -42,7 +46,12 @@ async function main() {
 
   // Start dashboard
   if (dashboard) {
-    await dashboard.start(config.dashboard.port);
+    // In Next.js dev mode, skip starting the custom server (Next.js dev server handles it)
+    if (process.env.NEXT_DEV_MODE !== 'true') {
+      await dashboard.start(config.dashboard.port);
+    } else {
+      logger.info('Running in Next.js dev mode - dashboard handled by next dev');
+    }
   }
 
   // Heartbeat notifications → Discord or log
