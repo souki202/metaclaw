@@ -26,11 +26,24 @@ npm install
 cp config.example.json config.json
 # Edit config.json with your API key and settings
 
-# 3. Start
+# 3. Start (production)
 npm start
+
+# Or for development with Next.js hot reload
+npm run dev
 ```
 
-The dashboard will be at `http://localhost:8080`.
+The dashboard will be at `http://localhost:8080` (or the port configured in `config.json`).
+
+## Development Mode
+
+For development with Next.js hot module reloading:
+
+```bash
+npm run dev
+```
+
+This starts both the backend (SessionManager, Discord bots) and the Next.js dev server. See [NEXTJS_DEV_MODE.md](NEXTJS_DEV_MODE.md) for details.
 
 ## Configuration
 
