@@ -23,7 +23,38 @@ process.on("SIGTERM", () => {
   if (currentChild) currentChild.kill("SIGTERM");
 });
 
+let fileWatcher = null;
+let restartDebounce = null;
+
+function setupWatcher() {
+  if (fileWatcher) return;
+  try {
+    fileWatcher = fs.watch(
+      path.join(ROOT, "src"),
+      { recursive: true },
+      (eventType, filename) => {
+        if (filename && filename.endsWith(".ts")) {
+          if (restartDebounce) clearTimeout(restartDebounce);
+          restartDebounce = setTimeout(() => {
+            console.log(
+              `\n[runner] Detected change in ${filename}. Hot-reloading...`,
+            );
+            if (currentChild) {
+              currentChild.killedForReload = true;
+              currentChild.kill("SIGTERM");
+            }
+          }, 500);
+        }
+      },
+    );
+    console.log("[runner] Hot-reload watcher started for src/");
+  } catch (err) {
+    console.error("[runner] Failed to start watcher:", err);
+  }
+}
+
 function startProcess() {
+  setupWatcher();
   const now = Date.now();
   if (now - windowStart > QUICK_RESTART_WINDOW_MS) {
     quickRestarts = 0;
@@ -54,6 +85,12 @@ function startProcess() {
   const startTime = Date.now();
 
   child.on("close", (code) => {
+    if (child.killedForReload) {
+      console.log(`[runner] Restarting for hot-reload...`);
+      setTimeout(startProcess, 1000);
+      return;
+    }
+
     if (code === RESTART_CODE) {
       const uptime = Date.now() - startTime;
       if (uptime < QUICK_RESTART_WINDOW_MS) {

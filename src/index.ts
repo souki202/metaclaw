@@ -84,11 +84,22 @@ async function main() {
   // Graceful shutdown
   const shutdown = async (signal: string, code = 0) => {
     logger.info(`Received ${signal}. Shutting down...`);
-    sessions.stopAll();
-    for (const bot of discordBots.values()) {
-      await bot.stop();
+    
+    // Force exit after 3s if hanging
+    setTimeout(() => {
+      logger.error('Shutdown timed out. Forcing exit.');
+      process.exit(code);
+    }, 3000);
+
+    try {
+      await sessions.stopAll();
+      for (const bot of discordBots.values()) {
+        await bot.stop().catch(e => logger.error('Discord stop error:', e));
+      }
+      dashboard?.stop();
+    } catch (e: unknown) {
+      logger.error('Shutdown error:', (e as Error).message);
     }
-    dashboard?.stop();
     process.exit(code);
   };
 

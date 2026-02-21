@@ -93,8 +93,16 @@ export class SessionManager {
     return path.resolve(process.cwd(), ws);
   }
 
-  stopAll() {
+  async stopAll() {
     this.heartbeat.cancelAll();
+    const promises = Array.from(this.agents.keys()).map(id => {
+      const agent = this.agents.get(id);
+      if (agent) {
+        return agent.stopMcpServers().catch(e => log.error(`Error stopping MCP servers for ${id}:`, e));
+      }
+      return Promise.resolve();
+    });
+    await Promise.all(promises);
     this.agents.clear();
   }
 
