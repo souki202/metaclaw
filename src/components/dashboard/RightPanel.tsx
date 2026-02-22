@@ -362,6 +362,7 @@ export const RightPanel: React.FC<RightPanelProps> = ({ currentSession }) => {
                       memo: e.target.value,
                     }))
                   }
+                  placeholder="トリガー時に実行するタスクの説明"
                 />
               </div>
               <div className="form-checkbox" style={{ marginBottom: 10 }}>

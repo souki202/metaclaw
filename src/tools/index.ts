@@ -3,6 +3,7 @@ import { execTool } from './exec.js';
 import { readFile, writeFile, editFile, listDir, deleteFile } from './fs.js';
 import { webFetch, webSearch } from './web.js';
 import { selfRead, selfWrite, selfEdit, selfList, selfRestart, readConfigFile, selfReadRoot, selfWriteRoot, selfEditRoot, selfExec } from './self.js';
+import { fileSearch, textSearch, selfFileSearch, selfTextSearch } from './search.js';
 import { gitStatus, gitDiff, gitDiffStaged, gitLog, gitCommit, gitBranch, gitCheckout, gitStash, gitReset, gitPush, gitPull } from './git.js';
 import {
   browserSnapshot, browserNavigate, browserClick, browserType, browserSelect,
@@ -124,6 +125,40 @@ export async function buildTools(ctx: ToolContext): Promise<ToolDefinition[]> {
             path: { type: 'string', description: 'File path relative to workspace.' },
           },
           required: ['path'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'file_search',
+        description: 'Find files in the workspace by name or path pattern. Pattern examples: "*.ts" (any TS file), "config" (name contains "config"), "src/tools/*.ts" (specific directory), "**/*.json" (recursive). Returns results sorted by most recently modified.',
+        parameters: {
+          type: 'object',
+          properties: {
+            pattern: { type: 'string', description: 'Filename pattern or glob (e.g. "*.ts", "config", "src/**/*.json").' },
+            max_results: { type: 'number', description: 'Max files to return (default 60).' },
+          },
+          required: ['pattern'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'text_search',
+        description: 'Search file contents in the workspace for a query string or regex. Like grep. Returns file paths and matching lines with optional surrounding context.',
+        parameters: {
+          type: 'object',
+          properties: {
+            query: { type: 'string', description: 'Text or regex pattern to search for.' },
+            pattern: { type: 'string', description: 'Glob to restrict which files are searched (e.g. "*.ts", "src/**/*.ts").' },
+            is_regex: { type: 'boolean', description: 'Treat query as a regular expression (default false).' },
+            case_sensitive: { type: 'boolean', description: 'Case-sensitive matching (default false).' },
+            context_lines: { type: 'number', description: 'Lines of context before/after each match, 0–5 (default 0).' },
+            max_matches: { type: 'number', description: 'Maximum matching lines to return (default 50).' },
+          },
+          required: ['query'],
         },
       },
     }
@@ -833,6 +868,40 @@ export async function buildTools(ctx: ToolContext): Promise<ToolDefinition[]> {
       {
         type: 'function',
         function: {
+          name: 'self_file_search',
+          description: 'Find files in the mini-claw project (src/, scripts/, templates/, root configs) by name or path pattern. Same pattern semantics as file_search. Use for self-modification tasks to locate source files quickly.',
+          parameters: {
+            type: 'object',
+            properties: {
+              pattern: { type: 'string', description: 'Filename pattern or glob (e.g. "*.ts", "agent", "src/tools/*.ts").' },
+              max_results: { type: 'number', description: 'Max files to return (default 60).' },
+            },
+            required: ['pattern'],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'self_text_search',
+          description: 'Search the mini-claw project source code for a query string or regex. Like grep over the whole codebase. Use for self-modification tasks to find function definitions, usages, or config values.',
+          parameters: {
+            type: 'object',
+            properties: {
+              query: { type: 'string', description: 'Text or regex pattern to search for.' },
+              pattern: { type: 'string', description: 'Glob to restrict which files are searched (e.g. "*.ts", "src/tools/*.ts").' },
+              is_regex: { type: 'boolean', description: 'Treat query as a regular expression (default false).' },
+              case_sensitive: { type: 'boolean', description: 'Case-sensitive matching (default false).' },
+              context_lines: { type: 'number', description: 'Lines of context before/after each match, 0–5 (default 0).' },
+              max_matches: { type: 'number', description: 'Maximum matching lines to return (default 50).' },
+            },
+            required: ['query'],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
           name: 'self_exec',
           description: `Execute a shell command in the project root directory (e.g., npm install, npx tsc). Current runtime OS: ${CURRENT_OS}.`,
           parameters: {
@@ -880,6 +949,30 @@ export async function executeTool(
 
     case 'delete_file':
       return deleteFile(workspace, args.path as string, restrict);
+
+    case 'file_search':
+      return fileSearch(args.pattern as string, workspace, { maxResults: args.max_results as number | undefined });
+
+    case 'text_search':
+      return textSearch(args.query as string, workspace, {
+        pattern: args.pattern as string | undefined,
+        isRegex: args.is_regex as boolean | undefined,
+        caseSensitive: args.case_sensitive as boolean | undefined,
+        contextLines: args.context_lines as number | undefined,
+        maxMatches: args.max_matches as number | undefined,
+      });
+
+    case 'self_file_search':
+      return selfFileSearch(args.pattern as string, { maxResults: args.max_results as number | undefined });
+
+    case 'self_text_search':
+      return selfTextSearch(args.query as string, {
+        pattern: args.pattern as string | undefined,
+        isRegex: args.is_regex as boolean | undefined,
+        caseSensitive: args.case_sensitive as boolean | undefined,
+        contextLines: args.context_lines as number | undefined,
+        maxMatches: args.max_matches as number | undefined,
+      });
 
     case 'exec':
       return execTool({
