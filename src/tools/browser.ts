@@ -19,7 +19,7 @@ async function ensureBrowser(): Promise<Browser> {
         '--disable-dev-shm-usage',
         '--disable-accelerated-2d-canvas',
         '--no-first-run',
-        '--start-maximized',
+        '--window-size=1280,900',
       ],
     });
     
