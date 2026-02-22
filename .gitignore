@@ -1,0 +1,14 @@
+node_modules/
+dist/
+config.json
+data/
+*.log
+.env
+
+.agents/
+.claude/
+# Next.js
+.next/
+out/
+
+skills-lock.json
