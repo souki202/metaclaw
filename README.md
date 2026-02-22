@@ -26,10 +26,7 @@ npm install
 cp config.example.json config.json
 # Edit config.json with your API key and settings
 
-# 3. Start (production)
-npm start
-
-# Or for development with Next.js hot reload
+# 3. Start
 npm run dev
 ```
 
