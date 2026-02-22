@@ -411,6 +411,8 @@ header .status {
   font-family: var(--mono);
   align-self: center;
   max-width: 600px;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .tool-event .tool-name {

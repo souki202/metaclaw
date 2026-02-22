@@ -98,8 +98,26 @@ export default function DashboardClient() {
 
     if (event.type === "tool_call") {
       setIsThinking(true);
-      const names = event.data.tools.map((t: any) => t.name).join(", ");
-      newMsgs.push({ toolEvents: [{ text: `⚙ ${names}`, success: null }] });
+      const toolLines = event.data.tools.map((t: any) => {
+        let line = `⚙ ${t.name}`;
+        if (t.args) {
+          try {
+            const parsed =
+              typeof t.args === "string" ? JSON.parse(t.args) : t.args;
+            const summary = Object.entries(parsed)
+              .map(([k, v]) => {
+                const val = typeof v === "string" ? v : JSON.stringify(v);
+                return `${k}: ${val.length > 60 ? val.slice(0, 57) + "..." : val}`;
+              })
+              .join(", ");
+            if (summary) line += `\n  ${summary.slice(0, 120)}`;
+          } catch {}
+        }
+        return line;
+      });
+      newMsgs.push({
+        toolEvents: toolLines.map((text: string) => ({ text, success: null })),
+      });
     } else if (event.type === "tool_result") {
       const ok = event.data.success;
       const textToAppend = `${ok ? "✓" : "✗"} ${event.data.tool}: ${event.data.output?.slice(0, 100)}`;
@@ -225,10 +243,29 @@ export default function DashboardClient() {
           m.tool_calls &&
           m.tool_calls.length > 0
         ) {
-          const names = m.tool_calls
-            .map((t: any) => t.function.name)
-            .join(", ");
-          currentToolEvents = [{ text: `⚙ ${names}`, success: null }];
+          const toolLines = m.tool_calls.map((t: any) => {
+            let line = `⚙ ${t.function.name}`;
+            if (t.function.arguments) {
+              try {
+                const parsed =
+                  typeof t.function.arguments === "string"
+                    ? JSON.parse(t.function.arguments)
+                    : t.function.arguments;
+                const summary = Object.entries(parsed)
+                  .map(([k, v]) => {
+                    const val = typeof v === "string" ? v : JSON.stringify(v);
+                    return `${k}: ${val.length > 60 ? val.slice(0, 57) + "..." : val}`;
+                  })
+                  .join(", ");
+                if (summary) line += `\n  ${summary.slice(0, 120)}`;
+              } catch {}
+            }
+            return line;
+          });
+          currentToolEvents = toolLines.map((text: string) => ({
+            text,
+            success: null,
+          }));
           formatted.push({ toolEvents: currentToolEvents });
           const assistantText = contentToText(m.content);
           if (assistantText) {

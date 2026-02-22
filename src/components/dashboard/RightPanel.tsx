@@ -26,7 +26,9 @@ export const RightPanel: React.FC<RightPanelProps> = ({ currentSession }) => {
   const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
   const [schedules, setSchedules] = useState<ScheduleItem[]>([]);
   const [scheduleStatus, setScheduleStatus] = useState("");
-  const [editingScheduleId, setEditingScheduleId] = useState<string | null>(null);
+  const [editingScheduleId, setEditingScheduleId] = useState<string | null>(
+    null,
+  );
   const [scheduleForm, setScheduleForm] = useState({
     startAt: "",
     repeatCron: "none",
@@ -362,7 +364,6 @@ export const RightPanel: React.FC<RightPanelProps> = ({ currentSession }) => {
                       memo: e.target.value,
                     }))
                   }
-                  placeholder="トリガー時に実行するタスクの説明"
                 />
               </div>
               <div className="form-checkbox" style={{ marginBottom: 10 }}>
@@ -390,7 +391,9 @@ export const RightPanel: React.FC<RightPanelProps> = ({ currentSession }) => {
                   </button>
                 )}
               </div>
-              {scheduleStatus && <div className="memory-meta">{scheduleStatus}</div>}
+              {scheduleStatus && (
+                <div className="memory-meta">{scheduleStatus}</div>
+              )}
 
               {schedules.length === 0 ? (
                 <div className="empty">No schedules registered</div>
@@ -400,13 +403,18 @@ export const RightPanel: React.FC<RightPanelProps> = ({ currentSession }) => {
                     <div key={s.id} className="memory-entry">
                       <div>{s.memo}</div>
                       <div className="memory-meta">
-                        Next: {formatLocalDateTime(s.nextRunAt)} · Start: {formatLocalDateTime(s.startAt)}
+                        Next: {formatLocalDateTime(s.nextRunAt)} · Start:{" "}
+                        {formatLocalDateTime(s.startAt)}
                       </div>
                       <div className="memory-meta">
-                        Repeat: {s.repeatCron || "none"} · {s.enabled ? "enabled" : "disabled"}
+                        Repeat: {s.repeatCron || "none"} ·{" "}
+                        {s.enabled ? "enabled" : "disabled"}
                       </div>
                       <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-                        <button className="btn" onClick={() => startEditSchedule(s)}>
+                        <button
+                          className="btn"
+                          onClick={() => startEditSchedule(s)}
+                        >
                           Edit
                         </button>
                         <button
