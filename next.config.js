@@ -11,9 +11,8 @@ const nextConfig = {
   },
   // Node.js ネイティブ機能を使うサーバーパッケージをバンドルから除外
   serverExternalPackages: [
-    "puppeteer",
-    "puppeteer-core",
-    "@puppeteer/browsers",
+    "playwright",
+    "playwright-core",
     "discord.js",
     "@discordjs/ws",
     "@discordjs/rest",

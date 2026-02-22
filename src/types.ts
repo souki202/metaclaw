@@ -39,7 +39,8 @@ export interface ToolDefinition {
 export interface ToolResult {
   success: boolean;
   output: string;
-  image?: string;  // base64 data URL (e.g., "data:image/png;base64,...")
+  image?: string;     // base64 data URL for vision-capable models
+  imageUrl?: string;  // server URL path (/api/sessions/:id/images/:file) for dashboard display
 }
 
 export interface MemoryEntry {
