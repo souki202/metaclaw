@@ -536,6 +536,13 @@ export async function setupApiRoutes(
     return true;
   }
 
+  // GET /api/skills
+  if (method === 'GET' && pathname === '/api/skills') {
+    const skills = loadSkills([process.cwd()]);
+    sendJson(res, skills.map((s: Skill) => ({ name: s.name, description: s.description })));
+    return true;
+  }
+
   // GET /api/search
   if (method === 'GET' && pathname === '/api/search') {
     const config = loadConfig();

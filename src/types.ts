@@ -111,6 +111,7 @@ export interface SessionConfig {
     keepRecentMessages?: number;
   };
   mcpServers?: Record<string, McpServerConfig>;
+  disabledTools?: string[];
 }
 
 export interface Config {

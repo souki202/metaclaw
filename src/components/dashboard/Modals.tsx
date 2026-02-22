@@ -46,15 +46,21 @@ export const GlobalSettingsModal = ({ onClose, onSave }: any) => {
 
   const loadSkills = async () => {
     setSkillsLoading(true);
-    // Ideally requires a session to query, but fallback to a standard list if available.
-    // As per dashboard.html, it used currentSession. We will skip deep implementation
-    // for this stub if no session is active.
+    try {
+      const res = await fetch("/api/skills");
+      if (res.ok) {
+        const data = await res.json();
+        setSkills(data);
+      }
+    } catch (e) {
+      console.error("Failed to load skills", e);
+    }
     setSkillsLoading(false);
   };
 
   return (
-    <div className="modal-overlay active">
-      <div className="modal">
+    <div className="modal-overlay active" onClick={handleSave}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2>⚙️ Settings</h2>
           <button className="close-btn" onClick={onClose}>
@@ -149,10 +155,40 @@ export const GlobalSettingsModal = ({ onClose, onSave }: any) => {
 
           {tab === "skills" && (
             <div className="settings-section" style={{ marginTop: 20 }}>
-              <p className="form-hint">
-                Skills require an active session context to list. Use{" "}
-                <code>npx skills add</code> to install them.
-              </p>
+              {skillsLoading ? (
+                <div className="empty" style={{ padding: "24px 0" }}>
+                  Loading skills...
+                </div>
+              ) : skills.length === 0 ? (
+                <div className="empty" style={{ padding: "24px 0" }}>
+                  No skills installed. Use <code>npx skills add</code> to
+                  install them.
+                </div>
+              ) : (
+                <div className="env-list">
+                  {skills.map((skill: any, idx) => (
+                    <div
+                      key={idx}
+                      className="env-item"
+                      style={{
+                        flexDirection: "column",
+                        alignItems: "flex-start",
+                        gap: 6,
+                      }}
+                    >
+                      <div className="env-name">{skill.name}</div>
+                      {skill.description && (
+                        <div
+                          className="env-detail"
+                          style={{ fontSize: "13px", color: "var(--text-dim)" }}
+                        >
+                          {skill.description}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -196,8 +232,12 @@ export const SessionSettingsModal = ({
   onSave,
   onDelete,
 }: any) => {
-  const [tab, setTab] = useState<"general" | "discord" | "mcp">("general");
+  const [tab, setTab] = useState<"general" | "discord" | "mcp" | "tools">(
+    "general",
+  );
   const [config, setConfig] = useState<any>({});
+  const [toolsList, setToolsList] = useState<any[]>([]);
+  const [toolsLoading, setToolsLoading] = useState(false);
   const [mcpConfig, setMcpConfig] = useState<Record<string, McpServerConfig>>(
     {},
   );
@@ -224,12 +264,24 @@ export const SessionSettingsModal = ({
       .catch(() => {});
   };
 
+  const loadTools = () => {
+    setToolsLoading(true);
+    fetch(`/api/sessions/${sessionId}/tools`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.tools) setToolsList(data.tools);
+      })
+      .catch((err) => console.error("Failed to load tools", err))
+      .finally(() => setToolsLoading(false));
+  };
+
   useEffect(() => {
     if (!sessionId) return;
     fetch(`/api/sessions/${sessionId}/config`)
       .then((r) => r.json())
       .then(setConfig);
     loadMcp();
+    loadTools();
 
     // Auto-poll MCP status while the modal is open
     const interval = setInterval(loadMcp, 5000);
@@ -362,9 +414,45 @@ export const SessionSettingsModal = ({
     setNested(["discord", field], arr);
   };
 
+  const groupedTools = React.useMemo(() => {
+    const groups: Record<string, any[]> = {};
+    toolsList.forEach((t) => {
+      const name = t.function.name;
+      if (name.startsWith("mcp_")) {
+        const serverId = Object.keys(mcpConfig).find((id) =>
+          name.startsWith(`mcp_${id}_`),
+        );
+        if (serverId) {
+          const groupName = `MCP: ${serverId}`;
+          if (!groups[groupName]) groups[groupName] = [];
+          groups[groupName].push(t);
+        } else {
+          const groupName = "MCP: Other";
+          groups[groupName] = groups[groupName] || [];
+          groups[groupName].push(t);
+        }
+      } else {
+        let groupName = "Built-in: Other";
+        if (name.endsWith("_file") || name === "list_dir")
+          groupName = "Built-in: Filesystem";
+        else if (name.startsWith("memory_")) groupName = "Built-in: Memory";
+        else if (name === "exec") groupName = "Built-in: Execution";
+        else if (name.startsWith("web_")) groupName = "Built-in: Web";
+        else if (name.startsWith("browser_")) groupName = "Built-in: Browser";
+        else if (name.startsWith("self_") || name.startsWith("read_config"))
+          groupName = "Built-in: System/Self";
+        else if (name.startsWith("git_")) groupName = "Built-in: Git";
+
+        if (!groups[groupName]) groups[groupName] = [];
+        groups[groupName].push(t);
+      }
+    });
+    return groups;
+  }, [toolsList, mcpConfig]);
+
   return (
-    <div className="modal-overlay active">
-      <div className="modal">
+    <div className="modal-overlay active" onClick={handleSave}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2>Session Settings</h2>
           <button className="close-btn" onClick={onClose}>
@@ -390,6 +478,12 @@ export const SessionSettingsModal = ({
               onClick={() => setTab("mcp")}
             >
               MCP Servers
+            </div>
+            <div
+              className={`modal-tab ${tab === "tools" ? "active" : ""}`}
+              onClick={() => setTab("tools")}
+            >
+              Tools
             </div>
           </div>
 
@@ -796,6 +890,165 @@ export const SessionSettingsModal = ({
               </div>
             </div>
           )}
+
+          {tab === "tools" && (
+            <div>
+              <div className="settings-title">Configure Tools</div>
+              <p
+                style={{
+                  color: "var(--text-dim)",
+                  fontSize: "13px",
+                  marginBottom: 16,
+                }}
+              >
+                Select tools that are available to this session.
+              </p>
+              {toolsLoading ? (
+                <div className="empty">Loading tools...</div>
+              ) : (
+                <div
+                  style={{ display: "flex", flexDirection: "column", gap: 16 }}
+                >
+                  {Object.entries(groupedTools).map(
+                    ([groupName, groupTools]: any) => {
+                      if (groupTools.length === 0) return null;
+                      return (
+                        <div key={groupName}>
+                          <div
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 8,
+                              marginBottom: 8,
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={groupTools.every(
+                                (t: any) =>
+                                  !(config.disabledTools || []).includes(
+                                    t.function.name,
+                                  ),
+                              )}
+                              ref={(el) => {
+                                if (el) {
+                                  const enabledCount = groupTools.filter(
+                                    (t: any) =>
+                                      !(config.disabledTools || []).includes(
+                                        t.function.name,
+                                      ),
+                                  ).length;
+                                  el.indeterminate =
+                                    enabledCount > 0 &&
+                                    enabledCount < groupTools.length;
+                                }
+                              }}
+                              onChange={(e) => {
+                                const checked = e.target.checked;
+                                const toolNames = groupTools.map(
+                                  (t: any) => t.function.name,
+                                );
+                                let disabled = config.disabledTools || [];
+                                if (checked) {
+                                  disabled = disabled.filter(
+                                    (x: string) => !toolNames.includes(x),
+                                  );
+                                } else {
+                                  const toAdd = toolNames.filter(
+                                    (x: string) => !disabled.includes(x),
+                                  );
+                                  disabled = [...disabled, ...toAdd];
+                                }
+                                setNested(["disabledTools"], disabled);
+                              }}
+                            />
+                            <h3
+                              style={{
+                                fontSize: "14px",
+                                textTransform: "capitalize",
+                                margin: 0,
+                              }}
+                            >
+                              {groupName}
+                            </h3>
+                          </div>
+                          <div
+                            style={{
+                              display: "flex",
+                              flexDirection: "column",
+                              gap: 8,
+                              paddingLeft: 8,
+                            }}
+                          >
+                            {groupTools.map((t: any) => {
+                              const name = t.function.name;
+                              const enabled = !(
+                                config.disabledTools || []
+                              ).includes(name);
+                              return (
+                                <label
+                                  key={name}
+                                  className="form-checkbox"
+                                  style={{
+                                    display: "flex",
+                                    alignItems: "flex-start",
+                                    gap: 8,
+                                  }}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={enabled}
+                                    onChange={(e) => {
+                                      const checked = e.target.checked;
+                                      const disabled =
+                                        config.disabledTools || [];
+                                      if (checked) {
+                                        setNested(
+                                          ["disabledTools"],
+                                          disabled.filter(
+                                            (x: string) => x !== name,
+                                          ),
+                                        );
+                                      } else {
+                                        if (!disabled.includes(name)) {
+                                          setNested(
+                                            ["disabledTools"],
+                                            [...disabled, name],
+                                          );
+                                        }
+                                      }
+                                    }}
+                                  />
+                                  <div>
+                                    <div
+                                      style={{
+                                        fontWeight: "bold",
+                                        fontSize: "13px",
+                                      }}
+                                    >
+                                      {name}
+                                    </div>
+                                    <div
+                                      style={{
+                                        fontSize: "12px",
+                                        color: "var(--text-dim)",
+                                      }}
+                                    >
+                                      {t.function.description}
+                                    </div>
+                                  </div>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    },
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </div>
         <div className="modal-footer">
           <button className="btn" onClick={onClose}>
@@ -837,8 +1090,8 @@ export const NewSessionModal = ({ onClose, onSuccess }: any) => {
   };
 
   return (
-    <div className="modal-overlay active">
-      <div className="modal">
+    <div className="modal-overlay active" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2>+ New Session</h2>
           <button className="close-btn" onClick={onClose}>

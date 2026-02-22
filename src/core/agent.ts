@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import type { ChatMessage, SessionConfig, Config, ProviderConfig, ContentPart, ContentPartText } from '../types.js';
+import type { ChatMessage, SessionConfig, Config, ProviderConfig, ContentPart, ContentPartText, ToolDefinition } from '../types.js';
 import { OpenAIProvider } from '../providers/openai.js';
 import { VectorMemory } from '../memory/vector.js';
 import { QuickMemory, WorkspaceFiles } from '../memory/quick.js';
@@ -202,11 +202,32 @@ export class Agent {
     // Add MCP tools info
     const mcpStates = this.mcpManager.getServerStates();
     const connectedServers = mcpStates.filter(s => s.status === 'connected');
-    if (connectedServers.length > 0) {
-      parts.push(``, `## MCP Tools`);
-      parts.push(`You have access to external MCP (Model Context Protocol) tools from the following servers. USE THESE TOOLS when relevant — they are real, connected tools you can call directly:`);
-      for (const server of connectedServers) {
-        parts.push(`- **${server.id}** (${server.toolCount ?? 0} tools available) — Tool names are prefixed with \`mcp_${server.id}_\``);
+    
+    // Determine which tools are actually active to avoid hallucination
+    const disabledTools = new Set(this.config.disabledTools || []);
+    
+    // We only want to list servers that actually have at least 1 enabled tool
+    const activeServersInfo = [];
+    for (const server of connectedServers) {
+      if (!server.toolCount || server.toolCount === 0) continue;
+      
+      // We don't have the exact tool list here without fetching, but we know the prefix is mcp_{id}_
+      // In a real scenario we'd count exactly, but as a heuristic, if we have disabledTools, we just
+      // warn the model that SOME tools might be disabled. Let's actually fetch the exact list to be perfectly safe.
+      // Wait, buildSystemPrompt is synchronous. We can't await this.mcpManager.getTools().
+      // Instead, we just list the servers and add a strict note about disabled tools.
+      activeServersInfo.push({
+        id: server.id,
+        count: server.toolCount
+      });
+    }
+
+    if (activeServersInfo.length > 0) {
+      parts.push(``, `## Available Tools`);
+      parts.push(`You have access to a variety of tools. ONLY EXPECT THE TOOLS PROVIDED IN THE FUNCTION CALLING SCHEMA TO ACTUALLY WORK. Do not attempt to use tools if they are not defined in your tool_calls schema (some may be disabled by the user).`);
+      parts.push(`You also have access to external MCP (Model Context Protocol) tools from the following servers:`);
+      for (const info of activeServersInfo) {
+        parts.push(`- **${info.id}** — Tool names are prefixed with \`mcp_${info.id}_\``);
       }
       parts.push(`When the user asks about functionality that matches an MCP server's capabilities, ALWAYS use the corresponding MCP tool instead of explaining how to do it manually.`);
     }
@@ -324,7 +345,12 @@ export class Agent {
       searchConfig: this.globalConfig?.search,
       mcpManager: this.mcpManager,
     };
-    const tools = await buildTools(toolCtx);
+    let tools = await buildTools(toolCtx);
+
+    // Filter out disabled tools
+    if (this.config.disabledTools && this.config.disabledTools.length > 0) {
+      tools = tools.filter(t => !this.config.disabledTools!.includes(t.function.name));
+    }
 
     const messages: ChatMessage[] = [
       { role: 'system', content: systemPrompt },
@@ -519,5 +545,19 @@ export class Agent {
 
   getWorkspace(): string {
     return this.workspace;
+  }
+
+  async getAvailableTools(): Promise<ToolDefinition[]> {
+    const toolCtx: ToolContext = {
+      sessionId: this.sessionId,
+      config: this.config,
+      workspace: this.workspace,
+      vectorMemory: this.vectorMemory,
+      quickMemory: this.quickMemory,
+      tmpMemory: this.tmpMemory,
+      searchConfig: this.globalConfig?.search,
+      mcpManager: this.mcpManager,
+    };
+    return buildTools(toolCtx);
   }
 }
