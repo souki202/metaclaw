@@ -5,9 +5,9 @@
   "license": "ISC",
   "type": "commonjs",
   "scripts": {
-    "dev": "next dev -p 3020",
+    "dev": "node scripts/dev.js",
     "build": "next build",
-    "start": "next start -p 3020",
+    "start": "node scripts/with-restart.js npx next start -p 3020",
     "clean": "rimraf .next"
   },
   "dependencies": {

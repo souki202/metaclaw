@@ -1,6 +1,7 @@
 /**
  * バックエンド初期化モジュール
  * Next.js の instrumentation.ts から呼び出され、SessionManager・Discord・Heartbeat を起動する
+ * 再起動時は process.exit() を呼ばず、インプロセスで再初期化する
  */
 import 'dotenv/config';
 import { loadConfig } from './config.js';
@@ -11,9 +12,35 @@ import type { DashboardEvent } from './types.js';
 import { setGlobalState, broadcastSseEvent } from './global-state.js';
 
 let started = false;
+let currentSessions: SessionManager | null = null;
+let currentDiscordBots: Map<string, DiscordChannel> = new Map();
+let signalHandlersRegistered = false;
+
+/**
+ * バックエンドの停止（セッション + Discord）
+ * process.exit() は呼ばない
+ */
+async function stopBackend() {
+  logger.info('Stopping backend services...');
+  try {
+    if (currentSessions) {
+      await currentSessions.stopAll();
+    }
+    for (const bot of currentDiscordBots.values()) {
+      await bot.stop().catch((e) => logger.error('Discord stop error:', e));
+    }
+  } catch (e: unknown) {
+    logger.error('Stop error:', (e as Error).message);
+  }
+  currentSessions = null;
+  currentDiscordBots.clear();
+}
 
 export async function initializeBackend() {
-  if (started) return;
+  // 再起動の場合、先に既存のものを停止
+  if (started) {
+    await stopBackend();
+  }
   started = true;
 
   logger.info('Initializing meta-claw backend...');
@@ -27,6 +54,7 @@ export async function initializeBackend() {
   }
 
   const sessions = new SessionManager(config);
+  currentSessions = sessions;
 
   // グローバルステートにセット（Next.js APIルートから参照される）
   setGlobalState(sessions, config);
@@ -47,6 +75,7 @@ export async function initializeBackend() {
 
   // Discord ボット起動
   const discordBots = new Map<string, DiscordChannel>();
+  currentDiscordBots = discordBots;
   const activeTokens = new Set<string>();
 
   for (const s of Object.values(config.sessions)) {
@@ -80,36 +109,41 @@ export async function initializeBackend() {
     }
   });
 
-  // グレースフルシャットダウン
-  const shutdown = async (signal: string, code = 0) => {
-    logger.info(`Received ${signal}. Shutting down...`);
-    setTimeout(() => {
-      logger.error('Shutdown timed out. Forcing exit.');
-      process.exit(code);
-    }, 3000);
+  // プロセスシグナルハンドラは一度だけ登録する（再登録するとリーク）
+  if (!signalHandlersRegistered) {
+    signalHandlersRegistered = true;
 
-    try {
-      await sessions.stopAll();
-      for (const bot of discordBots.values()) {
-        await bot.stop().catch((e) => logger.error('Discord stop error:', e));
-      }
-    } catch (e: unknown) {
-      logger.error('Shutdown error:', (e as Error).message);
-    }
-    process.exit(code);
-  };
+    // グレースフルシャットダウン（SIGINT/SIGTERM → プロセス終了）
+    const shutdown = async (signal: string) => {
+      logger.info(`Received ${signal}. Shutting down...`);
+      setTimeout(() => {
+        logger.error('Shutdown timed out. Forcing exit.');
+        process.exit(1);
+      }, 3000);
 
-  process.on('SIGINT', () => shutdown('SIGINT', 0));
-  process.on('SIGTERM', () => shutdown('SIGTERM', 0));
-  process.on('meta-claw-restart', () => shutdown('RESTART', 75));
+      await stopBackend();
+      process.exit(0);
+    };
 
-  process.on('uncaughtException', (err) => {
-    logger.error('Uncaught exception:', err);
-  });
+    process.on('SIGINT', () => shutdown('SIGINT'));
+    process.on('SIGTERM', () => shutdown('SIGTERM'));
 
-  process.on('unhandledRejection', (reason) => {
-    logger.error('Unhandled rejection:', reason);
-  });
+    // AI再起動リクエスト → process.exit() せず、インプロセスで再初期化
+    process.on('meta-claw-restart', () => {
+      logger.info('Received RESTART. Reinitializing backend in-process...');
+      initializeBackend().catch((err) => {
+        logger.error('Failed to reinitialize backend:', err);
+      });
+    });
+
+    process.on('uncaughtException', (err) => {
+      logger.error('Uncaught exception:', err);
+    });
+
+    process.on('unhandledRejection', (reason) => {
+      logger.error('Unhandled rejection:', reason);
+    });
+  }
 
   logger.info('meta-claw backend ready!');
 }

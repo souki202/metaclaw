@@ -201,6 +201,7 @@ export const SessionSettingsModal = ({
   const [mcpConfig, setMcpConfig] = useState<Record<string, McpServerConfig>>(
     {},
   );
+  const [mcpStatus, setMcpStatus] = useState<Record<string, any>>({});
   const [mcpFormVisible, setMcpFormVisible] = useState(false);
   const [mcpForm, setMcpForm] = useState({ id: "", command: "npx", args: "" });
   const [mcpEditId, setMcpEditId] = useState<string | null>(null);
@@ -210,6 +211,17 @@ export const SessionSettingsModal = ({
       .then((r) => r.json())
       .then(setMcpConfig)
       .catch(() => {});
+
+    fetch(`/api/sessions/${sessionId}/mcp/status`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (Array.isArray(data)) {
+          const map: Record<string, any> = {};
+          for (const item of data) map[item.id] = item;
+          setMcpStatus(map);
+        }
+      })
+      .catch(() => {});
   };
 
   useEffect(() => {
@@ -218,14 +230,31 @@ export const SessionSettingsModal = ({
       .then((r) => r.json())
       .then(setConfig);
     loadMcp();
+
+    // Auto-poll MCP status while the modal is open
+    const interval = setInterval(loadMcp, 5000);
+    return () => clearInterval(interval);
   }, [sessionId]);
 
   const handleSave = async () => {
+    const configToSave = { ...config };
+    delete configToSave.mcpServers; // Prevent overwriting MCP configurations managed separately
+
     await fetch(`/api/sessions/${sessionId}/config`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(config),
+      body: JSON.stringify(configToSave),
     });
+
+    // Also save Discord settings directly via the discord endpoint for consistency
+    if (configToSave.discord) {
+      await fetch(`/api/sessions/${sessionId}/discord`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(configToSave.discord),
+      });
+    }
+
     onSave();
   };
 
@@ -236,7 +265,7 @@ export const SessionSettingsModal = ({
       body: JSON.stringify({ enabled }),
     });
     if (enabled) {
-      fetch(`/api/sessions/${sessionId}/mcp/${id}/restart`, {
+      await fetch(`/api/sessions/${sessionId}/mcp/${id}/restart`, {
         method: "POST",
       }).catch(() => {});
     }
@@ -323,6 +352,14 @@ export const SessionSettingsModal = ({
       curr[path[path.length - 1]] = value;
       return copy;
     });
+  };
+
+  const setDiscordArray = (field: string, csv: string) => {
+    const arr = csv
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    setNested(["discord", field], arr);
   };
 
   return (
@@ -454,6 +491,73 @@ export const SessionSettingsModal = ({
                   <span>Enable Discord integration</span>
                 </label>
               </div>
+
+              {config.discord?.enabled && (
+                <>
+                  <div className="form-group">
+                    <label className="form-label">Bot Token</label>
+                    <input
+                      type="password"
+                      className="form-input mono"
+                      value={config.discord?.token || ""}
+                      onChange={(e) =>
+                        setNested(["discord", "token"], e.target.value)
+                      }
+                      placeholder="MTIzNDU2Nzg5..."
+                    />
+                  </div>
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label className="form-label">
+                        Target Channels (CSV)
+                      </label>
+                      <input
+                        className="form-input mono"
+                        value={(config.discord?.channels || []).join(", ")}
+                        onChange={(e) =>
+                          setDiscordArray("channels", e.target.value)
+                        }
+                        placeholder="123456789, 987654321"
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Target Guilds (CSV)</label>
+                      <input
+                        className="form-input mono"
+                        value={(config.discord?.guilds || []).join(", ")}
+                        onChange={(e) =>
+                          setDiscordArray("guilds", e.target.value)
+                        }
+                        placeholder="123456789"
+                      />
+                    </div>
+                  </div>
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label className="form-label">Allowed Users (CSV)</label>
+                      <input
+                        className="form-input mono"
+                        value={(config.discord?.allowFrom || []).join(", ")}
+                        onChange={(e) =>
+                          setDiscordArray("allowFrom", e.target.value)
+                        }
+                        placeholder="user_id1, user_id2"
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Command Prefix</label>
+                      <input
+                        className="form-input mono"
+                        value={config.discord?.prefix || ""}
+                        onChange={(e) =>
+                          setNested(["discord", "prefix"], e.target.value)
+                        }
+                        placeholder="!chat "
+                      />
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           )}
 
@@ -553,34 +657,100 @@ export const SessionSettingsModal = ({
                 {Object.keys(mcpConfig).length === 0 ? (
                   <div className="empty">No MCP servers</div>
                 ) : (
-                  Object.entries(mcpConfig).map(([id, cfg]) => (
-                    <div
-                      key={id}
-                      className="env-item"
-                      style={{
-                        flexDirection: "column",
-                        alignItems: "stretch",
-                        gap: 8,
-                      }}
-                    >
+                  Object.entries(mcpConfig).map(([id, cfg]) => {
+                    const statusData = mcpStatus[id];
+                    const isConnected = statusData?.status === "connected";
+                    const isError = statusData?.status === "error";
+                    const isConnecting = statusData?.status === "connecting";
+
+                    let statusColor = "var(--text-dim)";
+                    let statusText = "Stopped";
+                    if (isConnecting) {
+                      statusColor = "var(--accent)";
+                      statusText = "Connecting...";
+                    } else if (isConnected) {
+                      statusColor = "var(--success)";
+                      statusText = `Connected ${typeof statusData.toolCount === "number" ? `(${statusData.toolCount} tools)` : ""}`;
+                    } else if (isError) {
+                      statusColor = "var(--danger)";
+                      statusText = "Error";
+                    }
+
+                    return (
                       <div
+                        key={id}
+                        className="env-item"
                         style={{
-                          display: "flex",
-                          alignItems: "flex-start",
-                          gap: 12,
+                          flexDirection: "column",
+                          alignItems: "stretch",
+                          gap: 8,
                         }}
                       >
-                        <div className="env-info" style={{ flex: 1 }}>
-                          <div className="env-name">{id}</div>
-                          <div className="env-detail mono">
-                            {cfg.command}{" "}
-                            {cfg.args
-                              ?.map((a) =>
-                                a.includes(" ") && !a.startsWith('"')
-                                  ? `"${a}"`
-                                  : a,
-                              )
-                              .join(" ")}
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "flex-start",
+                            gap: 12,
+                          }}
+                        >
+                          <div className="env-info" style={{ flex: 1 }}>
+                            <div
+                              className="env-name"
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 8,
+                              }}
+                            >
+                              {id}
+                              <span
+                                style={{
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: 4,
+                                  fontSize: "12px",
+                                  fontWeight: "normal",
+                                  color: statusColor,
+                                  background: "var(--surface2)",
+                                  padding: "2px 6px",
+                                  borderRadius: "12px",
+                                }}
+                              >
+                                <span
+                                  style={{
+                                    display: "inline-block",
+                                    width: 6,
+                                    height: 6,
+                                    borderRadius: "50%",
+                                    backgroundColor: statusColor,
+                                  }}
+                                ></span>
+                                {statusText}
+                              </span>
+                            </div>
+                            <div className="env-detail mono">
+                              {cfg.command}{" "}
+                              {cfg.args
+                                ?.map((a) =>
+                                  a.includes(" ") && !a.startsWith('"')
+                                    ? `"${a}"`
+                                    : a,
+                                )
+                                .join(" ")}
+                            </div>
+                            {isError && statusData.error && (
+                              <div
+                                style={{
+                                  color: "var(--danger)",
+                                  fontSize: "12px",
+                                  marginTop: 4,
+                                  whiteSpace: "pre-wrap",
+                                  wordBreak: "break-all",
+                                }}
+                              >
+                                {statusData.error}
+                              </div>
+                            )}
                           </div>
                         </div>
                         <div
@@ -620,8 +790,8 @@ export const SessionSettingsModal = ({
                           </button>
                         </div>
                       </div>
-                    </div>
-                  ))
+                    );
+                  })
                 )}
               </div>
             </div>

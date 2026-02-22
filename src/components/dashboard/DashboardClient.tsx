@@ -96,21 +96,20 @@ export default function DashboardClient() {
       newMsgs.push({ toolEvents: [{ text: `⚙ ${names}`, success: null }] });
     } else if (event.type === "tool_result") {
       const ok = event.data.success;
-      // Append to the last toolEvents if possible
+      const textToAppend = `${ok ? "✓" : "✗"} ${event.data.tool}: ${event.data.output?.slice(0, 100)}`;
+
       const lastMsg = newMsgs[newMsgs.length - 1];
       if (lastMsg && lastMsg.toolEvents) {
-        lastMsg.toolEvents.push({
-          text: `${ok ? "✓" : "✗"} ${event.data.tool}: ${event.data.output?.slice(0, 100)}`,
-          success: ok,
-        });
+        // Prevent duplicate appending
+        const isDuplicate = lastMsg.toolEvents.some(
+          (e: any) => e.text === textToAppend,
+        );
+        if (!isDuplicate) {
+          lastMsg.toolEvents.push({ text: textToAppend, success: ok });
+        }
       } else {
         newMsgs.push({
-          toolEvents: [
-            {
-              text: `${ok ? "✓" : "✗"} ${event.data.tool}: ${event.data.output?.slice(0, 100)}`,
-              success: ok,
-            },
-          ],
+          toolEvents: [{ text: textToAppend, success: ok }],
         });
       }
     } else if (event.type === "stream") {
