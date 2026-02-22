@@ -6,7 +6,7 @@
   "type": "commonjs",
   "scripts": {
     "dev": "node scripts/dev.js",
-    "build": "next build",
+    "build": "next build --webpack",
     "start": "node scripts/with-restart.js npx next start -p 3020",
     "clean": "rimraf .next",
     "test": "tsx --test src/**/*.test.ts"
@@ -17,9 +17,9 @@
     "discord.js": "^14.16.3",
     "dotenv": "^16.4.7",
     "google-auth-library": "^10.5.0",
-    "next": "^15.1.6",
+    "next": "^16.1.6",
     "node-cron": "^3.0.3",
-    "openai": "^4.104.0",
+    "openai": "^6.22.0",
     "playwright": "^1.50.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

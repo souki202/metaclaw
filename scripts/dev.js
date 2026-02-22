@@ -29,7 +29,7 @@ try {
 console.log(`[dev] Starting Next.js dev server on port ${port}...`);
 const nextDev = spawn(
   isWindows ? "npx.cmd" : "npx",
-  ["next", "dev", "-p", String(port)],
+  ["next", "dev", "--webpack", "-p", String(port)],
   {
     stdio: "inherit",
     cwd: ROOT,

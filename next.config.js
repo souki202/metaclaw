@@ -6,9 +6,6 @@ const nextConfig = {
   typescript: {
     ignoreBuildErrors: true,
   },
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
   // Node.js ネイティブ機能を使うサーバーパッケージをバンドルから除外
   serverExternalPackages: [
     "playwright",
