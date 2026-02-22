@@ -12,6 +12,25 @@ import { createLogger } from '../logger.js';
 const MAX_ITERATIONS = 20;
 const RESTART_CODE = 75;
 
+// Remove image_url content parts from messages for models that don't support vision.
+// If a message becomes empty after stripping, keep it with an empty string.
+function stripImageUrls(messages: ChatMessage[]): ChatMessage[] {
+  return messages.map(m => {
+    if (!Array.isArray(m.content)) return m;
+    const textParts = (m.content as ContentPart[]).filter(
+      (p): p is ContentPartText => p.type === 'text',
+    );
+    if (textParts.length === m.content.length) return m; // nothing to strip
+    return {
+      ...m,
+      content:
+        textParts.length === 0 ? '' :
+        textParts.length === 1 ? textParts[0].text :
+        textParts,
+    };
+  });
+}
+
 // Rough token estimation: ~4 chars per token, ~765 tokens per high-detail image
 function estimateTokens(messages: ChatMessage[]): number {
   return messages.reduce((sum, m) => {
@@ -375,10 +394,26 @@ export class Agent {
 
       let streamBuffer = '';
       try {
-        const response = await this.provider.chat(messages, tools, (chunk) => {
+        let response = await this.provider.chat(messages, tools, (chunk) => {
           streamBuffer += chunk;
           this.emit('stream', { chunk });
-        }, signal);
+        }, signal).catch(async (err: unknown) => {
+          // Retry without images if the model reports it doesn't support vision.
+          // Error example: "404 No endpoints found that support image input"
+          const msg = String((err as Error)?.message ?? '').toLowerCase();
+          const isVisionError =
+            ((err as { status?: number })?.status === 404 || msg.includes('404')) &&
+            (msg.includes('image') || msg.includes('vision') || msg.includes('endpoint'));
+          if (isVisionError) {
+            this.log.warn('Model does not support image input – retrying without images');
+            streamBuffer = '';
+            return this.provider.chat(stripImageUrls(messages), tools, (chunk) => {
+              streamBuffer += chunk;
+              this.emit('stream', { chunk });
+            }, signal);
+          }
+          throw err;
+        });
 
         // Check again after chat completes
         if (signal.aborted) {
@@ -416,7 +451,12 @@ export class Agent {
 
             const result = await executeTool(tc.function.name, args, toolCtx);
             this.log.debug(`Tool ${tc.function.name}: ${result.success ? 'ok' : 'error'} - ${result.output.slice(0, 100)}`);
-            this.emit('tool_result', { tool: tc.function.name, success: result.success, output: result.output.slice(0, 500) });
+            this.emit('tool_result', {
+              tool: tc.function.name,
+              success: result.success,
+              output: result.output.slice(0, 500),
+              ...(result.imageUrl && { imageUrl: result.imageUrl }),
+            });
 
             if (result.output === "__META_CLAW_RESTART__") {
               const toolMsg: ChatMessage = {
@@ -428,7 +468,7 @@ export class Agent {
               messages.push(toolMsg);
               this.history.push(toolMsg);
               this.saveHistory(toolMsg);
-              
+
               // Drop resume marker
               const resumePath = path.join(this.workspace, '.resume');
               fs.writeFileSync(resumePath, 'resume', 'utf-8');
@@ -440,16 +480,17 @@ export class Agent {
               break;
             }
 
+            const toolText = result.success ? result.output : `Error: ${result.output}`;
             const toolMsg: ChatMessage = {
               role: 'tool',
               tool_call_id: tc.id,
               name: tc.function.name,
               content: result.image
                 ? [
-                    { type: 'text' as const, text: result.success ? result.output : `Error: ${result.output}` },
+                    { type: 'text' as const, text: toolText },
                     { type: 'image_url' as const, image_url: { url: result.image, detail: 'high' as const } },
                   ]
-                : (result.success ? result.output : `Error: ${result.output}`),
+                : toolText,
             };
             messages.push(toolMsg);
             this.history.push(toolMsg);

@@ -5,8 +5,9 @@ import { webFetch, webSearch } from './web.js';
 import { selfRead, selfWrite, selfEdit, selfList, selfRestart, readConfigFile, selfReadRoot, selfWriteRoot, selfEditRoot, selfExec } from './self.js';
 import { gitStatus, gitDiff, gitDiffStaged, gitLog, gitCommit, gitBranch, gitCheckout, gitStash, gitReset, gitPush, gitPull } from './git.js';
 import {
-  browserNavigate, browserClick, browserType, browserScreenshot, browserEvaluate,
-  browserGetContent, browserWaitFor, browserScroll, browserPress, browserGetUrl,
+  browserSnapshot, browserNavigate, browserClick, browserType, browserSelect,
+  browserScreenshot, browserEvaluate, browserGetContent, browserWaitFor,
+  browserScroll, browserPress, browserGetUrl,
   browserListPages, browserSwitchPage, browserClosePage, browserClose
 } from './browser.js';
 import type { VectorMemory } from '../memory/vector.js';
@@ -235,16 +236,17 @@ export async function buildTools(ctx: ToolContext): Promise<ToolDefinition[]> {
     );
     
     // Browser automation tools
+    // Workflow: browser_navigate (open page) → read snapshot refs → browser_click/type/select
     tools.push(
       {
         type: 'function',
         function: {
           name: 'browser_navigate',
-          description: 'Open a URL in a browser. Creates a new page.',
+          description: 'Open a URL in a new browser tab. Always call this first before any other browser tool. Returns a page snapshot listing all interactive elements as [1] link "...", [2] button "...", [3] input[text] "..." etc. Use those numbers with browser_click, browser_type, and browser_select.',
           parameters: {
             type: 'object',
             properties: {
-              url: { type: 'string', description: 'URL to navigate to.' },
+              url: { type: 'string', description: 'Full URL to navigate to (must include https://).' },
             },
             required: ['url'],
           },
@@ -254,14 +256,14 @@ export async function buildTools(ctx: ToolContext): Promise<ToolDefinition[]> {
         type: 'function',
         function: {
           name: 'browser_click',
-          description: 'Click an element on the page using a CSS selector.',
+          description: 'Click an element using its reference number [N] from the snapshot. Re-injects refs automatically so this works even after SPA re-renders. Returns an updated snapshot.',
           parameters: {
             type: 'object',
             properties: {
-              selector: { type: 'string', description: 'CSS selector for the element to click.' },
-              page_id: { type: 'string', description: 'Page ID (optional, uses current page if not specified).' },
+              ref: { type: 'number', description: 'Reference number of the element to click, e.g. 3 for [3].' },
+              page_id: { type: 'string', description: 'Page ID (optional, uses current page if omitted).' },
             },
-            required: ['selector'],
+            required: ['ref'],
           },
         },
       },
@@ -269,15 +271,76 @@ export async function buildTools(ctx: ToolContext): Promise<ToolDefinition[]> {
         type: 'function',
         function: {
           name: 'browser_type',
-          description: 'Type text into an input field.',
+          description: 'Clear an input or textarea and type new text, targeting it by reference number [N] from the snapshot. Returns an updated snapshot.',
           parameters: {
             type: 'object',
             properties: {
-              selector: { type: 'string', description: 'CSS selector for the input field.' },
-              text: { type: 'string', description: 'Text to type.' },
-              page_id: { type: 'string', description: 'Page ID (optional, uses current page if not specified).' },
+              ref: { type: 'number', description: 'Reference number of the input element, e.g. 5 for [5].' },
+              text: { type: 'string', description: 'Text to enter (replaces any existing value).' },
+              page_id: { type: 'string', description: 'Page ID (optional, uses current page if omitted).' },
             },
-            required: ['selector', 'text'],
+            required: ['ref', 'text'],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'browser_select',
+          description: 'Choose an option from a <select> dropdown by reference number [N] from the snapshot. Returns an updated snapshot.',
+          parameters: {
+            type: 'object',
+            properties: {
+              ref: { type: 'number', description: 'Reference number of the select element.' },
+              value: { type: 'string', description: 'Option value attribute or visible label text to select.' },
+              page_id: { type: 'string', description: 'Page ID (optional, uses current page if omitted).' },
+            },
+            required: ['ref', 'value'],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'browser_snapshot',
+          description: 'Refresh the page snapshot to get current [N] reference numbers for all visible interactive elements. Call this after page changes or if your refs feel stale. Requires an open page (call browser_navigate first).',
+          parameters: {
+            type: 'object',
+            properties: {
+              page_id: { type: 'string', description: 'Page ID (optional, uses current page if omitted).' },
+            },
+            required: [],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'browser_press',
+          description: 'Press a keyboard key (e.g. Enter, Tab, Escape, ArrowDown). Returns an updated snapshot.',
+          parameters: {
+            type: 'object',
+            properties: {
+              key: { type: 'string', description: 'Key name: Enter, Tab, Escape, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Backspace, Delete, etc.' },
+              page_id: { type: 'string', description: 'Page ID (optional, uses current page if omitted).' },
+            },
+            required: ['key'],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'browser_scroll',
+          description: 'Scroll the page to reveal more content. Returns an updated snapshot with newly visible elements.',
+          parameters: {
+            type: 'object',
+            properties: {
+              direction: { type: 'string', enum: ['up', 'down', 'top', 'bottom'], description: 'Scroll direction.' },
+              amount: { type: 'number', description: 'Pixels to scroll for up/down (default 300).' },
+              page_id: { type: 'string', description: 'Page ID (optional, uses current page if omitted).' },
+            },
+            required: ['direction'],
           },
         },
       },
@@ -285,11 +348,11 @@ export async function buildTools(ctx: ToolContext): Promise<ToolDefinition[]> {
         type: 'function',
         function: {
           name: 'browser_screenshot',
-          description: 'Take a screenshot of the current page.',
+          description: 'Capture a screenshot as an image. Use only when the text snapshot is insufficient (e.g. charts, images, CAPTCHA, visual layout questions).',
           parameters: {
             type: 'object',
             properties: {
-              page_id: { type: 'string', description: 'Page ID (optional, uses current page if not specified).' },
+              page_id: { type: 'string', description: 'Page ID (optional, uses current page if omitted).' },
             },
             required: [],
           },
@@ -299,12 +362,12 @@ export async function buildTools(ctx: ToolContext): Promise<ToolDefinition[]> {
         type: 'function',
         function: {
           name: 'browser_evaluate',
-          description: 'Execute JavaScript in the browser console.',
+          description: 'Run arbitrary JavaScript in the page and return the result. Use for reading data or making programmatic changes not covered by other tools.',
           parameters: {
             type: 'object',
             properties: {
-              script: { type: 'string', description: 'JavaScript code to execute.' },
-              page_id: { type: 'string', description: 'Page ID (optional, uses current page if not specified).' },
+              script: { type: 'string', description: 'JavaScript to execute. May use return statements.' },
+              page_id: { type: 'string', description: 'Page ID (optional, uses current page if omitted).' },
             },
             required: ['script'],
           },
@@ -314,12 +377,12 @@ export async function buildTools(ctx: ToolContext): Promise<ToolDefinition[]> {
         type: 'function',
         function: {
           name: 'browser_get_content',
-          description: 'Get the text content of the page or a specific element.',
+          description: 'Extract plain text from the page body or a specific element. Useful for scraping content without the noise of interactive element refs.',
           parameters: {
             type: 'object',
             properties: {
-              selector: { type: 'string', description: 'CSS selector (optional, gets full page if not specified).' },
-              page_id: { type: 'string', description: 'Page ID (optional, uses current page if not specified).' },
+              selector: { type: 'string', description: 'CSS selector of the element to extract (optional, uses main content area if omitted).' },
+              page_id: { type: 'string', description: 'Page ID (optional, uses current page if omitted).' },
             },
             required: [],
           },
@@ -329,13 +392,13 @@ export async function buildTools(ctx: ToolContext): Promise<ToolDefinition[]> {
         type: 'function',
         function: {
           name: 'browser_wait_for',
-          description: 'Wait for an element to appear on the page.',
+          description: 'Wait until a CSS selector becomes visible on the page, then return a fresh snapshot. Use when content loads asynchronously after an action.',
           parameters: {
             type: 'object',
             properties: {
               selector: { type: 'string', description: 'CSS selector to wait for.' },
-              timeout: { type: 'number', description: 'Timeout in milliseconds (default 10000).' },
-              page_id: { type: 'string', description: 'Page ID (optional, uses current page if not specified).' },
+              timeout: { type: 'number', description: 'Max wait time in milliseconds (default 10000).' },
+              page_id: { type: 'string', description: 'Page ID (optional, uses current page if omitted).' },
             },
             required: ['selector'],
           },
@@ -344,43 +407,12 @@ export async function buildTools(ctx: ToolContext): Promise<ToolDefinition[]> {
       {
         type: 'function',
         function: {
-          name: 'browser_scroll',
-          description: 'Scroll the page in a direction.',
-          parameters: {
-            type: 'object',
-            properties: {
-              direction: { type: 'string', enum: ['up', 'down', 'top', 'bottom'], description: 'Scroll direction.' },
-              amount: { type: 'number', description: 'Pixels to scroll (for up/down, default 300).' },
-              page_id: { type: 'string', description: 'Page ID (optional, uses current page if not specified).' },
-            },
-            required: ['direction'],
-          },
-        },
-      },
-      {
-        type: 'function',
-        function: {
-          name: 'browser_press',
-          description: 'Press a keyboard key.',
-          parameters: {
-            type: 'object',
-            properties: {
-              key: { type: 'string', description: 'Key to press (e.g., Enter, Tab, Escape, ArrowDown).' },
-              page_id: { type: 'string', description: 'Page ID (optional, uses current page if not specified).' },
-            },
-            required: ['key'],
-          },
-        },
-      },
-      {
-        type: 'function',
-        function: {
           name: 'browser_get_url',
-          description: 'Get the current URL and title of the page.',
+          description: 'Get the current URL and page title.',
           parameters: {
             type: 'object',
             properties: {
-              page_id: { type: 'string', description: 'Page ID (optional, uses current page if not specified).' },
+              page_id: { type: 'string', description: 'Page ID (optional, uses current page if omitted).' },
             },
             required: [],
           },
@@ -390,7 +422,7 @@ export async function buildTools(ctx: ToolContext): Promise<ToolDefinition[]> {
         type: 'function',
         function: {
           name: 'browser_list_pages',
-          description: 'List all open browser pages.',
+          description: 'List all open browser tabs with their IDs, titles, and URLs.',
           parameters: { type: 'object', properties: {}, required: [] },
         },
       },
@@ -398,11 +430,11 @@ export async function buildTools(ctx: ToolContext): Promise<ToolDefinition[]> {
         type: 'function',
         function: {
           name: 'browser_switch_page',
-          description: 'Switch to a different page.',
+          description: 'Switch the active tab to a different open page.',
           parameters: {
             type: 'object',
             properties: {
-              page_id: { type: 'string', description: 'Page ID to switch to.' },
+              page_id: { type: 'string', description: 'Page ID to switch to (from browser_list_pages).' },
             },
             required: ['page_id'],
           },
@@ -777,17 +809,23 @@ export async function executeTool(
       return webSearch(args.query as string, ctx.searchConfig);
 
     // Browser automation tools
+    case 'browser_snapshot':
+      return browserSnapshot(args.page_id as string | undefined);
+
     case 'browser_navigate':
       return browserNavigate(args.url as string);
 
     case 'browser_click':
-      return browserClick(args.selector as string, args.page_id as string | undefined);
+      return browserClick(args.ref as number, args.page_id as string | undefined);
 
     case 'browser_type':
-      return browserType(args.selector as string, args.text as string, args.page_id as string | undefined);
+      return browserType(args.ref as number, args.text as string, args.page_id as string | undefined);
+
+    case 'browser_select':
+      return browserSelect(args.ref as number, args.value as string, args.page_id as string | undefined);
 
     case 'browser_screenshot':
-      return browserScreenshot(args.page_id as string | undefined, workspace);
+      return browserScreenshot(args.page_id as string | undefined, ctx.sessionId, workspace);
 
     case 'browser_evaluate':
       return browserEvaluate(args.script as string, args.page_id as string | undefined);

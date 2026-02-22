@@ -1,5 +1,5 @@
 import OpenAI from 'openai';
-import type { ChatMessage, ToolDefinition, ProviderConfig, ContentPart, ContentPartText } from '../types.js';
+import type { ChatMessage, ToolDefinition, ProviderConfig, ContentPart, ContentPartText, ContentPartImageUrl } from '../types.js';
 
 // Helper: extract text from potentially multi-part content
 function extractText(content: string | ContentPart[] | null): string {
@@ -9,6 +9,137 @@ function extractText(content: string | ContentPart[] | null): string {
     .filter((p): p is ContentPartText => p.type === 'text')
     .map(p => p.text)
     .join('\n');
+}
+
+function toInputContentParts(content: string | ContentPart[] | null): Array<Record<string, unknown>> {
+  if (!content) {
+    return [{ type: 'input_text', text: '' }];
+  }
+
+  if (typeof content === 'string') {
+    return [{ type: 'input_text', text: content }];
+  }
+
+  const parts: Array<Record<string, unknown>> = [];
+  for (const part of content) {
+    if (part.type === 'text') {
+      parts.push({ type: 'input_text', text: part.text });
+    } else if (part.type === 'image_url') {
+      const imagePart = part as ContentPartImageUrl;
+      parts.push({
+        type: 'input_image',
+        image_url: imagePart.image_url.url,
+        ...(imagePart.image_url.detail && { detail: imagePart.image_url.detail }),
+      });
+    }
+  }
+
+  return parts.length > 0 ? parts : [{ type: 'input_text', text: '' }];
+}
+
+function toFunctionCallOutput(content: string | ContentPart[] | null): string {
+  if (!content) return '';
+  if (typeof content === 'string') return content;
+
+  const text = content
+    .filter((part): part is ContentPartText => part.type === 'text')
+    .map((part) => part.text)
+    .join('\n');
+
+  const images = content
+    .filter((part): part is ContentPartImageUrl => part.type === 'image_url')
+    .map((part) => ({
+      image_url: part.image_url.url,
+      ...(part.image_url.detail && { detail: part.image_url.detail }),
+    }));
+
+  if (images.length === 0) {
+    return text;
+  }
+
+  return JSON.stringify({
+    text,
+    images,
+  });
+}
+
+function toResponsesInput(messages: ChatMessage[]): Array<Record<string, unknown>> {
+  const input: Array<Record<string, unknown>> = [];
+
+  for (const message of messages) {
+    if (message.role === 'tool') {
+      input.push({
+        type: 'function_call_output',
+        call_id: message.tool_call_id ?? message.name ?? `tool_${Date.now()}`,
+        output: toFunctionCallOutput(message.content),
+      });
+      continue;
+    }
+
+    input.push({
+      role: message.role,
+      content: toInputContentParts(message.content),
+    });
+
+    if (message.role === 'assistant' && message.tool_calls && message.tool_calls.length > 0) {
+      for (const toolCall of message.tool_calls) {
+        input.push({
+          type: 'function_call',
+          call_id: toolCall.id,
+          name: toolCall.function.name,
+          arguments: toolCall.function.arguments,
+        });
+      }
+    }
+  }
+
+  return input;
+}
+
+function toResponsesTools(tools?: ToolDefinition[]): Array<Record<string, unknown>> | undefined {
+  if (!tools || tools.length === 0) return undefined;
+  return tools.map((tool) => ({
+    type: 'function',
+    name: tool.function.name,
+    description: tool.function.description,
+    parameters: tool.function.parameters,
+  }));
+}
+
+function extractResponseText(response: any): string {
+  if (typeof response?.output_text === 'string') {
+    return response.output_text;
+  }
+
+  const texts: string[] = [];
+  for (const item of response?.output ?? []) {
+    if (item?.type !== 'message') continue;
+    for (const content of item.content ?? []) {
+      if (content?.type === 'output_text' && typeof content.text === 'string') {
+        texts.push(content.text);
+      }
+      if (content?.type === 'text' && typeof content.text === 'string') {
+        texts.push(content.text);
+      }
+    }
+  }
+  return texts.join('');
+}
+
+function extractResponseToolCalls(response: any): ChatMessage['tool_calls'] {
+  const toolCalls = (response?.output ?? [])
+    .filter((item: any) => item?.type === 'function_call')
+    .map((item: any) => ({
+      id: item.call_id ?? item.id ?? '',
+      type: 'function' as const,
+      function: {
+        name: item.name ?? '',
+        arguments: typeof item.arguments === 'string' ? item.arguments : JSON.stringify(item.arguments ?? {}),
+      },
+    }))
+    .filter((item: { id: string; function: { name: string } }) => item.id && item.function.name);
+
+  return toolCalls.length > 0 ? toolCalls : undefined;
 }
 
 export class OpenAIProvider {
@@ -29,43 +160,37 @@ export class OpenAIProvider {
     onStream?: (chunk: string) => void,
     signal?: AbortSignal
   ): Promise<ChatMessage> {
-    const params: OpenAI.Chat.ChatCompletionCreateParams = {
+    const params = {
       model: this.config.model,
-      messages: messages as OpenAI.Chat.ChatCompletionMessageParam[],
-      ...(tools && tools.length > 0 && { tools: tools as OpenAI.Chat.ChatCompletionTool[], tool_choice: 'auto' }),
-      stream: !!onStream,
+      input: toResponsesInput(messages),
+      ...(toResponsesTools(tools) && { tools: toResponsesTools(tools), tool_choice: 'auto' as const }),
     };
 
     const requestOpts = signal ? { signal } : undefined;
 
     if (onStream) {
-      const stream = await this.client.chat.completions.create({
-        ...params,
-        stream: true,
-      }, requestOpts);
+      const stream = this.client.responses.stream(params, requestOpts);
 
       let fullContent = '';
-      const toolCallsMap: Record<number, { id: string; name: string; arguments: string }> = {};
 
       try {
-        for await (const chunk of stream) {
+        for await (const event of stream) {
           if (signal?.aborted) break;
-          const delta = chunk.choices[0]?.delta;
-          if (delta?.content) {
-            fullContent += delta.content;
-            onStream(delta.content);
-          }
-          if (delta?.tool_calls) {
-            for (const tc of delta.tool_calls) {
-              if (!toolCallsMap[tc.index]) {
-                toolCallsMap[tc.index] = { id: tc.id ?? '', name: '', arguments: '' };
-              }
-              if (tc.id) toolCallsMap[tc.index].id = tc.id;
-              if (tc.function?.name) toolCallsMap[tc.index].name += tc.function.name;
-              if (tc.function?.arguments) toolCallsMap[tc.index].arguments += tc.function.arguments;
-            }
+          if (event.type === 'response.output_text.delta' && typeof event.delta === 'string') {
+            fullContent += event.delta;
+            onStream(event.delta);
           }
         }
+
+        const finalResponse = await stream.finalResponse();
+        const toolCalls = extractResponseToolCalls(finalResponse);
+        const content = fullContent || extractResponseText(finalResponse);
+
+        return {
+          role: 'assistant',
+          content: content || null,
+          ...(toolCalls && { tool_calls: toolCalls }),
+        };
       } catch (e: any) {
         // If aborted, return partial content gracefully
         if (signal?.aborted || e?.name === 'AbortError') {
@@ -76,35 +201,15 @@ export class OpenAIProvider {
         }
         throw e;
       }
-
-      const toolCalls = Object.values(toolCallsMap);
-      return {
-        role: 'assistant',
-        content: fullContent || null,
-        ...(toolCalls.length > 0 && {
-          tool_calls: toolCalls.map((tc) => ({
-            id: tc.id,
-            type: 'function' as const,
-            function: { name: tc.name, arguments: tc.arguments },
-          })),
-        }),
-      };
     } else {
-      const response = await this.client.chat.completions.create({
-        ...params,
-        stream: false,
-      }, requestOpts);
-      const choice = response.choices[0];
+      const response = await this.client.responses.create(params, requestOpts);
+      const text = extractResponseText(response);
+      const toolCalls = extractResponseToolCalls(response);
+
       return {
         role: 'assistant',
-        content: choice.message.content ?? null,
-        ...(choice.message.tool_calls && {
-          tool_calls: choice.message.tool_calls.map((tc) => ({
-            id: tc.id,
-            type: 'function' as const,
-            function: { name: tc.function.name, arguments: tc.function.arguments },
-          })),
-        }),
+        content: text || null,
+        ...(toolCalls && { tool_calls: toolCalls }),
       };
     }
   }
@@ -124,17 +229,29 @@ export class OpenAIProvider {
       .map((m) => `${m.role}: ${extractText(m.content)}`)
       .join('\n');
 
-    const response = await this.client.chat.completions.create({
+    const response = await this.client.responses.create({
       model: this.config.model,
-      messages: [
+      input: [
         {
           role: 'system',
-          content: 'Summarize the following conversation history concisely, preserving key facts, decisions, and context that would be needed to continue the conversation.',
+          content: [
+            {
+              type: 'input_text',
+              text: 'Summarize the following conversation history concisely, preserving key facts, decisions, and context that would be needed to continue the conversation.',
+            },
+          ],
         },
-        { role: 'user', content: text },
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'input_text',
+              text,
+            },
+          ],
+        },
       ],
-      stream: false,
     });
-    return response.choices[0].message.content ?? '';
+    return extractResponseText(response);
   }
 }
