@@ -45,8 +45,18 @@ export function selfEdit(filePath: string, oldString: string, newString: string)
 
   try {
     const content = fs.readFileSync(resolved, 'utf-8');
-    if (!content.includes(oldString)) return { success: false, output: 'Old string not found in file.' };
-    const updated = content.replace(oldString, newString);
+    const hasCRLF = content.includes('\r\n');
+    const normContent = content.replace(/\r\n/g, '\n');
+    const normOld = oldString.replace(/\r\n/g, '\n');
+    const normNew = newString.replace(/\r\n/g, '\n');
+
+    if (!normContent.includes(normOld)) return { success: false, output: 'Old string not found in file.' };
+    
+    let updated = normContent.replace(normOld, normNew);
+    if (hasCRLF) {
+      updated = updated.replace(/\n/g, '\r\n');
+    }
+
     fs.writeFileSync(resolved, updated, 'utf-8');
     return { success: true, output: `Edited: src/${filePath}` };
   } catch (e: unknown) {
@@ -179,8 +189,18 @@ export function selfEditRoot(filePath: string, oldString: string, newString: str
 
   try {
     const content = fs.readFileSync(resolved, 'utf-8');
-    if (!content.includes(oldString)) return { success: false, output: 'Old string not found in file.' };
-    const updated = content.replace(oldString, newString);
+    const hasCRLF = content.includes('\r\n');
+    const normContent = content.replace(/\r\n/g, '\n');
+    const normOld = oldString.replace(/\r\n/g, '\n');
+    const normNew = newString.replace(/\r\n/g, '\n');
+
+    if (!normContent.includes(normOld)) return { success: false, output: 'Old string not found in file.' };
+    
+    let updated = normContent.replace(normOld, normNew);
+    if (hasCRLF) {
+      updated = updated.replace(/\n/g, '\r\n');
+    }
+
     fs.writeFileSync(resolved, updated, 'utf-8');
     return { success: true, output: `Edited: ${filePath}` };
   } catch (e: unknown) {
