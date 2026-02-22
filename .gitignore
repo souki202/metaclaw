@@ -10,3 +10,5 @@ data/
 # Next.js
 .next/
 out/
+
+skills-lock.json
