@@ -414,7 +414,177 @@ textarea::placeholder {
   cursor: default;
 }
 
-/* Right panel */
+/* Chat images */
+.chat-image-wrapper {
+  margin: 8px 0;
+}
+
+.chat-image {
+  max-width: 400px;
+  max-height: 300px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: opacity 0.15s;
+  display: block;
+}
+
+.chat-image:hover {
+  opacity: 0.85;
+}
+
+.chat-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.chat-images .chat-image {
+  max-width: 200px;
+  max-height: 150px;
+}
+
+.chat-image-placeholder {
+  padding: 6px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 12px;
+  color: var(--text2);
+  display: inline-block;
+  margin: 4px 0;
+}
+
+.message.user .chat-image {
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.message.user .chat-image-placeholder {
+  background: rgba(0, 0, 0, 0.15);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: rgba(0, 0, 0, 0.7);
+}
+
+/* Drag and drop overlay */
+.chat-area {
+  position: relative;
+}
+
+.drag-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(88, 166, 255, 0.12);
+  backdrop-filter: blur(2px);
+  border: 3px dashed var(--accent);
+  border-radius: var(--radius);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: dragFadeIn 0.15s ease-out;
+}
+
+@keyframes dragFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.drag-overlay-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  color: var(--accent);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.drag-icon {
+  font-size: 40px;
+  animation: dragBounce 0.6s ease infinite alternate;
+}
+
+@keyframes dragBounce {
+  from { transform: translateY(0); }
+  to { transform: translateY(-6px); }
+}
+
+/* Pending images preview */
+.pending-images {
+  display: flex;
+  gap: 8px;
+  padding: 8px 0;
+  overflow-x: auto;
+  flex-wrap: wrap;
+}
+
+.pending-image-item {
+  position: relative;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.pending-image-item img {
+  width: 64px;
+  height: 64px;
+  object-fit: cover;
+  display: block;
+}
+
+.remove-image-btn {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.7);
+  border: none;
+  color: white;
+  font-size: 10px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  transition: background 0.15s;
+}
+
+.remove-image-btn:hover {
+  background: var(--red);
+}
+
+/* Attach button */
+.attach-btn {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  color: var(--text2);
+  width: 44px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-size: 18px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+}
+
+.attach-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.attach-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
 .right-panel {
   width: 280px;
   background: var(--surface);

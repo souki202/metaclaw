@@ -109,7 +109,7 @@ export async function setupApiRoutes(
         sendJson(res, { error: 'message required' }, 400);
         return true;
       }
-      const response = await agent.processMessage(body.message, 'dashboard');
+      const response = await agent.processMessage(body.message, 'dashboard', body.imageUrls);
       sendJson(res, { response });
     } catch (e: unknown) {
       sendJson(res, { error: (e as Error).message }, 500);

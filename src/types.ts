@@ -1,6 +1,18 @@
+export interface ContentPartText {
+  type: 'text';
+  text: string;
+}
+
+export interface ContentPartImageUrl {
+  type: 'image_url';
+  image_url: { url: string; detail?: 'low' | 'high' | 'auto' };
+}
+
+export type ContentPart = ContentPartText | ContentPartImageUrl;
+
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
-  content: string | null;
+  content: string | ContentPart[] | null;
   tool_calls?: ToolCall[];
   tool_call_id?: string;
   name?: string;
@@ -27,6 +39,7 @@ export interface ToolDefinition {
 export interface ToolResult {
   success: boolean;
   output: string;
+  image?: string;  // base64 data URL (e.g., "data:image/png;base64,...")
 }
 
 export interface MemoryEntry {

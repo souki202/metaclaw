@@ -787,7 +787,7 @@ export async function executeTool(
       return browserType(args.selector as string, args.text as string, args.page_id as string | undefined);
 
     case 'browser_screenshot':
-      return browserScreenshot(args.page_id as string | undefined);
+      return browserScreenshot(args.page_id as string | undefined, workspace);
 
     case 'browser_evaluate':
       return browserEvaluate(args.script as string, args.page_id as string | undefined);

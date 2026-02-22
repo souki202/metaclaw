@@ -151,7 +151,11 @@ export default function DashboardClient() {
         event.data.role === "user" &&
         event.data.channelId !== "dashboard"
       ) {
-        newMsgs.push({ role: "user", content: event.data.content });
+        newMsgs.push({
+          role: "user",
+          content: event.data.content,
+          imageUrls: event.data.imageUrls,
+        });
       }
     } else if (event.type === "heartbeat") {
       newMsgs.push({
@@ -177,7 +181,29 @@ export default function DashboardClient() {
 
       for (const m of history) {
         if (m.role === "user") {
-          formatted.push({ role: "user", content: m.content });
+          // Handle multi-part content with images
+          const content = m.content;
+          const imageUrls: string[] = [];
+          let textContent = "";
+          if (typeof content === "string") {
+            textContent = content;
+          } else if (Array.isArray(content)) {
+            for (const part of content) {
+              if (part.type === "text") textContent += part.text || "";
+              if (
+                part.type === "image_url" &&
+                part.image_url?.url &&
+                !part.image_url.url.startsWith("data:")
+              ) {
+                imageUrls.push(part.image_url.url);
+              }
+            }
+          }
+          formatted.push({
+            role: "user",
+            content: textContent,
+            imageUrls: imageUrls.length > 0 ? imageUrls : undefined,
+          });
           currentToolEvents = null;
         } else if (
           m.role === "assistant" &&
@@ -203,7 +229,20 @@ export default function DashboardClient() {
           const textToAppend = `${ok ? "✓" : "✗"} ${m.name}: ${contentSlice}`;
           currentToolEvents.push({ text: textToAppend, success: ok });
         } else if (m.role === "assistant" && m.content) {
-          formatted.push({ role: "assistant", content: m.content });
+          // Extract text from multi-part assistant content
+          const content = m.content;
+          let textContent = "";
+          if (typeof content === "string") {
+            textContent = content;
+          } else if (Array.isArray(content)) {
+            textContent = content
+              .filter((p: any) => p.type === "text")
+              .map((p: any) => p.text)
+              .join("\n");
+          }
+          if (textContent) {
+            formatted.push({ role: "assistant", content: textContent });
+          }
           currentToolEvents = null;
         }
       }
@@ -231,16 +270,16 @@ export default function DashboardClient() {
     loadSkillsList(id);
   };
 
-  const handleSendMessage = async (msg: string) => {
+  const handleSendMessage = async (msg: string, imageUrls?: string[]) => {
     if (!currentSession) return;
-    setMessages((prev) => [...prev, { role: "user", content: msg }]);
+    setMessages((prev) => [...prev, { role: "user", content: msg, imageUrls }]);
     setIsThinking(true);
 
     try {
       await fetch(`/api/sessions/${currentSession}/message`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: msg }),
+        body: JSON.stringify({ message: msg, imageUrls }),
       });
     } catch (e: any) {
       setIsThinking(false);

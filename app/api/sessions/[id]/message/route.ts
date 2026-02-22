@@ -19,7 +19,7 @@ export async function POST(
       return badRequest('message required');
     }
 
-    const response = await agent.processMessage(body.message, 'dashboard');
+    const response = await agent.processMessage(body.message, 'dashboard', body.imageUrls);
     return NextResponse.json({ response });
   } catch (error) {
     return handleError(error);

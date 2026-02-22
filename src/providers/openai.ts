@@ -1,5 +1,15 @@
 import OpenAI from 'openai';
-import type { ChatMessage, ToolDefinition, ProviderConfig } from '../types.js';
+import type { ChatMessage, ToolDefinition, ProviderConfig, ContentPart, ContentPartText } from '../types.js';
+
+// Helper: extract text from potentially multi-part content
+function extractText(content: string | ContentPart[] | null): string {
+  if (!content) return '';
+  if (typeof content === 'string') return content;
+  return content
+    .filter((p): p is ContentPartText => p.type === 'text')
+    .map(p => p.text)
+    .join('\n');
+}
 
 export class OpenAIProvider {
   private client: OpenAI;
@@ -96,7 +106,7 @@ export class OpenAIProvider {
   async summarize(messages: ChatMessage[]): Promise<string> {
     const text = messages
       .filter((m) => m.role !== 'system' && m.content)
-      .map((m) => `${m.role}: ${m.content}`)
+      .map((m) => `${m.role}: ${extractText(m.content)}`)
       .join('\n');
 
     const response = await this.client.chat.completions.create({

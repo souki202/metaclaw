@@ -1,5 +1,7 @@
 import type { ToolResult } from '../types.js';
 import puppeteer, { Browser, Page, BrowserContext, KeyInput } from 'puppeteer';
+import fs from 'fs';
+import path from 'path';
 
 // Browser session management
 let browser: Browser | null = null;
@@ -136,7 +138,7 @@ export async function browserType(selector: string, text: string, pageId?: strin
   }
 }
 
-export async function browserScreenshot(pageId?: string): Promise<ToolResult> {
+export async function browserScreenshot(pageId?: string, workspace?: string): Promise<ToolResult> {
   const targetId = pageId || currentPageId;
   if (!targetId) {
     return { success: false, output: 'No active page. Navigate to a URL first.' };
@@ -153,12 +155,24 @@ export async function browserScreenshot(pageId?: string): Promise<ToolResult> {
       fullPage: false,
     });
     
-    // Return as data URL
     const dataUrl = `data:image/png;base64,${screenshot}`;
+    const url = page.url();
+    const title = await page.title().catch(() => 'Unknown');
+    
+    // Save to workspace if available
+    let savedPath = '';
+    if (workspace) {
+      const dir = path.join(workspace, 'screenshots');
+      fs.mkdirSync(dir, { recursive: true });
+      const filename = `screenshot_${Date.now()}.png`;
+      fs.writeFileSync(path.join(dir, filename), screenshot as unknown as string, 'base64');
+      savedPath = `screenshots/${filename}`;
+    }
     
     return { 
       success: true, 
-      output: `Screenshot captured. Data URL (first 100 chars): ${dataUrl.substring(0, 100)}...`
+      output: `Screenshot captured.\nPage: ${url}\nTitle: ${title}${savedPath ? `\nSaved: ${savedPath}` : ''}`,
+      image: dataUrl,
     };
   } catch (e: unknown) {
     return { success: false, output: `Screenshot error: ${(e as Error).message}` };

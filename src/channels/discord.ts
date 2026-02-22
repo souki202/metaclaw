@@ -86,9 +86,18 @@ export class DiscordChannel {
       content = content.replace(`<@${this.client.user.id}>`, '').trim();
       content = content.replace(`<@!${this.client.user.id}>`, '').trim();
     }
-    if (!content) return;
 
-    log.info(`Message from ${message.author.tag} in ${isDM ? 'DM' : `#${(message.channel as TextChannel).name}`}: ${content.slice(0, 80)}`);
+    // Extract image attachment URLs
+    const imageUrls = message.attachments
+      .filter(a => a.contentType?.startsWith('image/'))
+      .map(a => a.url);
+
+    // Skip if no text and no images
+    if (!content && imageUrls.length === 0) return;
+    // If only images, provide a default prompt
+    if (!content && imageUrls.length > 0) content = 'この画像を確認してください。';
+
+    log.info(`Message from ${message.author.tag} in ${isDM ? 'DM' : `#${(message.channel as TextChannel).name}`}: ${content.slice(0, 80)}${imageUrls.length > 0 ? ` [${imageUrls.length} images]` : ''}`);
 
     // Show typing indicator (only for channels that support it)
     const typable = message.channel instanceof BaseGuildTextChannel || message.channel.isDMBased();
@@ -97,7 +106,7 @@ export class DiscordChannel {
     sendTyping();
 
     try {
-      const response = await agent.processMessage(content, channelId);
+      const response = await agent.processMessage(content, channelId, imageUrls.length > 0 ? imageUrls : undefined);
       clearInterval(typingTimer);
 
       // Split long responses (Discord 2000 char limit)

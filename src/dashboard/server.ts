@@ -68,7 +68,7 @@ export class DashboardServer {
       if (!message) return res.status(400).json({ error: 'message required' });
 
       try {
-        const response = await agent.processMessage(message, 'dashboard');
+        const response = await agent.processMessage(message, 'dashboard', req.body.imageUrls);
         res.json({ response });
       } catch (e: unknown) {
         res.status(500).json({ error: (e as Error).message });

@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import type { ChatMessage, SessionConfig, Config, ProviderConfig } from '../types.js';
+import type { ChatMessage, SessionConfig, Config, ProviderConfig, ContentPart, ContentPartText } from '../types.js';
 import { OpenAIProvider } from '../providers/openai.js';
 import { VectorMemory } from '../memory/vector.js';
 import { QuickMemory, WorkspaceFiles } from '../memory/quick.js';
@@ -12,12 +12,31 @@ import { createLogger } from '../logger.js';
 const MAX_ITERATIONS = 20;
 const RESTART_CODE = 75;
 
-// Rough token estimation: ~4 chars per token
+// Rough token estimation: ~4 chars per token, ~765 tokens per high-detail image
 function estimateTokens(messages: ChatMessage[]): number {
   return messages.reduce((sum, m) => {
-    const content = typeof m.content === 'string' ? m.content : '';
-    return sum + Math.ceil(content.length / 4) + 10;
+    if (!m.content) return sum + 10;
+    if (typeof m.content === 'string') {
+      return sum + Math.ceil(m.content.length / 4) + 10;
+    }
+    // Multi-part content
+    let tokens = 10;
+    for (const part of m.content) {
+      if (part.type === 'text') tokens += Math.ceil(part.text.length / 4);
+      else tokens += 765; // high detail image
+    }
+    return sum + tokens;
   }, 0);
+}
+
+// Helper: extract text from potentially multi-part content
+function extractText(content: string | ContentPart[] | null): string {
+  if (!content) return '';
+  if (typeof content === 'string') return content;
+  return content
+    .filter((p): p is ContentPartText => p.type === 'text')
+    .map(p => p.text)
+    .join('\n');
 }
 
 export interface AgentMessage {
@@ -226,16 +245,60 @@ export class Agent {
     fs.appendFileSync(historyPath, line + '\n', 'utf-8');
   }
 
-  async processMessage(userMessage: string, channelId?: string): Promise<string> {
+  // Convert relative image URLs to base64 data URLs (OpenAI can't access local server)
+  private resolveImageUrl(url: string): string {
+    // Already a data URL or external URL — pass through
+    if (url.startsWith('data:') || url.startsWith('http://') || url.startsWith('https://')) {
+      return url;
+    }
+
+    // Relative URL like /api/sessions/:id/uploads/:filename or /api/sessions/:id/images/:filename
+    const uploadsMatch = url.match(/\/api\/sessions\/[^/]+\/uploads\/(.+)$/);
+    const imagesMatch = url.match(/\/api\/sessions\/[^/]+\/images\/(.+)$/);
+
+    let filePath: string | null = null;
+    if (uploadsMatch) {
+      filePath = path.join(this.workspace, 'uploads', uploadsMatch[1]);
+    } else if (imagesMatch) {
+      filePath = path.join(this.workspace, 'screenshots', imagesMatch[1]);
+    }
+
+    if (filePath && fs.existsSync(filePath)) {
+      const base64 = fs.readFileSync(filePath).toString('base64');
+      const ext = path.extname(filePath).toLowerCase().replace('.', '');
+      const mime = ext === 'jpg' ? 'jpeg' : ext;
+      return `data:image/${mime};base64,${base64}`;
+    }
+
+    // Fallback: return as-is
+    this.log.warn(`Could not resolve image URL: ${url}`);
+    return url;
+  }
+
+  async processMessage(userMessage: string, channelId?: string, imageUrls?: string[]): Promise<string> {
     this.log.info(`Processing message from ${channelId ?? 'unknown'}: ${userMessage.slice(0, 80)}...`);
 
     // Compress context if needed
     await this.compressContext();
 
-    const userMsg: ChatMessage = { role: 'user', content: userMessage };
+    // Build user message with optional images
+    // Resolve relative URLs to base64 data URLs for LLM
+    const resolvedImageUrls = imageUrls?.map(url => this.resolveImageUrl(url));
+    const userMsg: ChatMessage = {
+      role: 'user',
+      content: resolvedImageUrls && resolvedImageUrls.length > 0
+        ? [
+            { type: 'text' as const, text: userMessage },
+            ...resolvedImageUrls.map(url => ({
+              type: 'image_url' as const,
+              image_url: { url, detail: 'high' as const },
+            })),
+          ]
+        : userMessage,
+    };
     this.history.push(userMsg);
     this.saveHistory(userMsg);
-    this.emit('message', { role: 'user', content: userMessage, channelId });
+    this.emit('message', { role: 'user', content: userMessage, channelId, imageUrls });
 
     const systemPrompt = this.buildSystemPrompt();
     const toolCtx: ToolContext = {
@@ -315,14 +378,19 @@ export class Agent {
             role: 'tool',
             tool_call_id: tc.id,
             name: tc.function.name,
-            content: result.success ? result.output : `Error: ${result.output}`,
+            content: result.image
+              ? [
+                  { type: 'text' as const, text: result.success ? result.output : `Error: ${result.output}` },
+                  { type: 'image_url' as const, image_url: { url: result.image, detail: 'high' as const } },
+                ]
+              : (result.success ? result.output : `Error: ${result.output}`),
           };
           messages.push(toolMsg);
           this.history.push(toolMsg);
           this.saveHistory(toolMsg);
         }
       } else {
-        finalResponse = response.content ?? '';
+        finalResponse = extractText(response.content);
         break;
       }
 

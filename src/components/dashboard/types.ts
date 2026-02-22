@@ -10,9 +10,16 @@ export interface Skill {
   description: string;
 }
 
+export interface ContentPart {
+  type: 'text' | 'image_url';
+  text?: string;
+  image_url?: { url: string; detail?: string };
+}
+
 export interface ChatMessage {
   role: 'user' | 'assistant';
-  content: string;
+  content: string | ContentPart[];
+  imageUrls?: string[];
 }
 
 export interface SystemInfo {
