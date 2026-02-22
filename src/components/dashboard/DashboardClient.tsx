@@ -166,6 +166,8 @@ export default function DashboardClient() {
           },
         ],
       });
+    } else if (event.type === "cancelled") {
+      setIsThinking(false);
     }
 
     return newMsgs;
@@ -290,6 +292,18 @@ export default function DashboardClient() {
     }
   };
 
+  const handleCancelGeneration = async () => {
+    if (!currentSession) return;
+    try {
+      await fetch(`/api/sessions/${currentSession}/cancel`, {
+        method: "POST",
+      });
+      setIsThinking(false);
+    } catch (e) {
+      console.error("Failed to cancel", e);
+    }
+  };
+
   const handleClearHistory = async () => {
     if (!currentSession || !confirm("Clear conversation history?")) return;
     try {
@@ -362,6 +376,7 @@ export default function DashboardClient() {
           isThinking={isThinking}
           availableSkills={availableSkills}
           onSendMessage={handleSendMessage}
+          onCancel={handleCancelGeneration}
           onClearHistory={handleClearHistory}
           onOpenSessionSettings={() => setActiveModal("session")}
         />

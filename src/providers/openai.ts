@@ -26,7 +26,8 @@ export class OpenAIProvider {
   async chat(
     messages: ChatMessage[],
     tools?: ToolDefinition[],
-    onStream?: (chunk: string) => void
+    onStream?: (chunk: string) => void,
+    signal?: AbortSignal
   ): Promise<ChatMessage> {
     const params: OpenAI.Chat.ChatCompletionCreateParams = {
       model: this.config.model,
@@ -35,31 +36,45 @@ export class OpenAIProvider {
       stream: !!onStream,
     };
 
+    const requestOpts = signal ? { signal } : undefined;
+
     if (onStream) {
       const stream = await this.client.chat.completions.create({
         ...params,
         stream: true,
-      });
+      }, requestOpts);
 
       let fullContent = '';
       const toolCallsMap: Record<number, { id: string; name: string; arguments: string }> = {};
 
-      for await (const chunk of stream) {
-        const delta = chunk.choices[0]?.delta;
-        if (delta?.content) {
-          fullContent += delta.content;
-          onStream(delta.content);
-        }
-        if (delta?.tool_calls) {
-          for (const tc of delta.tool_calls) {
-            if (!toolCallsMap[tc.index]) {
-              toolCallsMap[tc.index] = { id: tc.id ?? '', name: '', arguments: '' };
+      try {
+        for await (const chunk of stream) {
+          if (signal?.aborted) break;
+          const delta = chunk.choices[0]?.delta;
+          if (delta?.content) {
+            fullContent += delta.content;
+            onStream(delta.content);
+          }
+          if (delta?.tool_calls) {
+            for (const tc of delta.tool_calls) {
+              if (!toolCallsMap[tc.index]) {
+                toolCallsMap[tc.index] = { id: tc.id ?? '', name: '', arguments: '' };
+              }
+              if (tc.id) toolCallsMap[tc.index].id = tc.id;
+              if (tc.function?.name) toolCallsMap[tc.index].name += tc.function.name;
+              if (tc.function?.arguments) toolCallsMap[tc.index].arguments += tc.function.arguments;
             }
-            if (tc.id) toolCallsMap[tc.index].id = tc.id;
-            if (tc.function?.name) toolCallsMap[tc.index].name += tc.function.name;
-            if (tc.function?.arguments) toolCallsMap[tc.index].arguments += tc.function.arguments;
           }
         }
+      } catch (e: any) {
+        // If aborted, return partial content gracefully
+        if (signal?.aborted || e?.name === 'AbortError') {
+          return {
+            role: 'assistant',
+            content: fullContent || null,
+          };
+        }
+        throw e;
       }
 
       const toolCalls = Object.values(toolCallsMap);
@@ -78,7 +93,7 @@ export class OpenAIProvider {
       const response = await this.client.chat.completions.create({
         ...params,
         stream: false,
-      });
+      }, requestOpts);
       const choice = response.choices[0];
       return {
         role: 'assistant',

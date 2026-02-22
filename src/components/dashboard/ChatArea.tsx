@@ -26,6 +26,7 @@ interface ChatAreaProps {
   isThinking: boolean;
   availableSkills: Skill[];
   onSendMessage: (msg: string, imageUrls?: string[]) => void;
+  onCancel: () => void;
   onClearHistory: () => void;
   onOpenSessionSettings: () => void;
 }
@@ -37,6 +38,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   isThinking,
   availableSkills,
   onSendMessage,
+  onCancel,
   onClearHistory,
   onOpenSessionSettings,
 }) => {
@@ -454,17 +456,26 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
               }
             }}
           />
-          <button
-            className="send-btn"
-            onClick={handleSend}
-            disabled={
-              !currentSession ||
-              isThinking ||
-              (!inputValue.trim() && pendingImages.length === 0)
-            }
-          >
-            ➤
-          </button>
+          {isThinking ? (
+            <button
+              className="send-btn cancel"
+              onClick={onCancel}
+              title="Stop generation"
+            >
+              ■
+            </button>
+          ) : (
+            <button
+              className="send-btn"
+              onClick={handleSend}
+              disabled={
+                !currentSession ||
+                (!inputValue.trim() && pendingImages.length === 0)
+              }
+            >
+              ➤
+            </button>
+          )}
         </div>
       </div>
     </div>

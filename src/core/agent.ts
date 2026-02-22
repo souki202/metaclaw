@@ -66,6 +66,7 @@ export class Agent {
   private log: ReturnType<typeof createLogger>;
   private onEvent?: EventCallback;
   private globalConfig?: Config;
+  private abortController: AbortController | null = null;
 
   constructor(
     sessionId: string,
@@ -134,6 +135,14 @@ export class Agent {
 
   async stopMcpServers() {
     await this.mcpManager.stopAll();
+  }
+
+  cancelProcessing() {
+    if (this.abortController) {
+      this.log.info('Cancelling ongoing AI processing');
+      this.abortController.abort();
+      this.abortController = null;
+    }
   }
 
   getMcpManager() {
@@ -278,6 +287,10 @@ export class Agent {
   async processMessage(userMessage: string, channelId?: string, imageUrls?: string[]): Promise<string> {
     this.log.info(`Processing message from ${channelId ?? 'unknown'}: ${userMessage.slice(0, 80)}...`);
 
+    // Set up abort controller for this processing run
+    this.abortController = new AbortController();
+    const signal = this.abortController.signal;
+
     // Compress context if needed
     await this.compressContext();
 
@@ -320,82 +333,130 @@ export class Agent {
 
     let iterations = 0;
     let finalResponse = '';
+    let lastStreamBuffer = '';
 
     while (iterations < MAX_ITERATIONS) {
+      // Check if cancelled before each iteration
+      if (signal.aborted) {
+        this.log.info('Processing cancelled by user');
+        finalResponse = lastStreamBuffer
+          ? lastStreamBuffer + '\n\n[cancelled]'
+          : '[cancelled]';
+        break;
+      }
+
       iterations++;
 
       let streamBuffer = '';
-      const response = await this.provider.chat(messages, tools, (chunk) => {
-        streamBuffer += chunk;
-        this.emit('stream', { chunk });
-      });
+      try {
+        const response = await this.provider.chat(messages, tools, (chunk) => {
+          streamBuffer += chunk;
+          this.emit('stream', { chunk });
+        }, signal);
 
-      messages.push(response);
-      this.history.push(response);
-      this.saveHistory(response);
+        // Check again after chat completes
+        if (signal.aborted) {
+          finalResponse = streamBuffer
+            ? streamBuffer + '\n\n[cancelled]'
+            : '[cancelled]';
+          // Save partial response
+          const partialMsg: ChatMessage = { role: 'assistant', content: finalResponse };
+          this.history.push(partialMsg);
+          this.saveHistory(partialMsg);
+          break;
+        }
 
-      let shouldRestart = false;
+        lastStreamBuffer = streamBuffer;
+        messages.push(response);
+        this.history.push(response);
+        this.saveHistory(response);
 
-      if (response.tool_calls && response.tool_calls.length > 0) {
-        this.log.info(`Tool calls: ${response.tool_calls.map((t) => t.function.name).join(', ')}`);
-        this.emit('tool_call', { tools: response.tool_calls.map((t) => ({ name: t.function.name, args: t.function.arguments })) });
+        let shouldRestart = false;
 
-        for (const tc of response.tool_calls) {
-          let args: Record<string, unknown> = {};
-          try {
-            args = JSON.parse(tc.function.arguments);
-          } catch {
-            args = {};
-          }
+        if (response.tool_calls && response.tool_calls.length > 0) {
+          this.log.info(`Tool calls: ${response.tool_calls.map((t) => t.function.name).join(', ')}`);
+          this.emit('tool_call', { tools: response.tool_calls.map((t) => ({ name: t.function.name, args: t.function.arguments })) });
 
-          const result = await executeTool(tc.function.name, args, toolCtx);
-          this.log.debug(`Tool ${tc.function.name}: ${result.success ? 'ok' : 'error'} - ${result.output.slice(0, 100)}`);
-          this.emit('tool_result', { tool: tc.function.name, success: result.success, output: result.output.slice(0, 500) });
+          for (const tc of response.tool_calls) {
+            // Check cancellation between tool executions
+            if (signal.aborted) break;
 
-          if (result.output === "__META_CLAW_RESTART__") {
+            let args: Record<string, unknown> = {};
+            try {
+              args = JSON.parse(tc.function.arguments);
+            } catch {
+              args = {};
+            }
+
+            const result = await executeTool(tc.function.name, args, toolCtx);
+            this.log.debug(`Tool ${tc.function.name}: ${result.success ? 'ok' : 'error'} - ${result.output.slice(0, 100)}`);
+            this.emit('tool_result', { tool: tc.function.name, success: result.success, output: result.output.slice(0, 500) });
+
+            if (result.output === "__META_CLAW_RESTART__") {
+              const toolMsg: ChatMessage = {
+                role: 'tool',
+                tool_call_id: tc.id,
+                name: tc.function.name,
+                content: "Server restarting... The system will reboot and you will resume this task.",
+              };
+              messages.push(toolMsg);
+              this.history.push(toolMsg);
+              this.saveHistory(toolMsg);
+              
+              // Drop resume marker
+              const resumePath = path.join(this.workspace, '.resume');
+              fs.writeFileSync(resumePath, 'resume', 'utf-8');
+
+              // Set final response and break
+              finalResponse = "Rebooting system... Please wait.";
+              shouldRestart = true;
+              process.emit('meta-claw-restart' as any);
+              break;
+            }
+
             const toolMsg: ChatMessage = {
               role: 'tool',
               tool_call_id: tc.id,
               name: tc.function.name,
-              content: "Server restarting... The system will reboot and you will resume this task.",
+              content: result.image
+                ? [
+                    { type: 'text' as const, text: result.success ? result.output : `Error: ${result.output}` },
+                    { type: 'image_url' as const, image_url: { url: result.image, detail: 'high' as const } },
+                  ]
+                : (result.success ? result.output : `Error: ${result.output}`),
             };
             messages.push(toolMsg);
             this.history.push(toolMsg);
             this.saveHistory(toolMsg);
-            
-            // Drop resume marker
-            const resumePath = path.join(this.workspace, '.resume');
-            fs.writeFileSync(resumePath, 'resume', 'utf-8');
-
-            // Set final response and break
-            finalResponse = "Rebooting system... Please wait.";
-            shouldRestart = true;
-            process.emit('meta-claw-restart' as any);
-            break;
           }
 
-          const toolMsg: ChatMessage = {
-            role: 'tool',
-            tool_call_id: tc.id,
-            name: tc.function.name,
-            content: result.image
-              ? [
-                  { type: 'text' as const, text: result.success ? result.output : `Error: ${result.output}` },
-                  { type: 'image_url' as const, image_url: { url: result.image, detail: 'high' as const } },
-                ]
-              : (result.success ? result.output : `Error: ${result.output}`),
-          };
-          messages.push(toolMsg);
-          this.history.push(toolMsg);
-          this.saveHistory(toolMsg);
+          // If cancelled during tool execution, save and break
+          if (signal.aborted) {
+            finalResponse = '[cancelled]';
+            const cancelledMsg: ChatMessage = { role: 'assistant', content: finalResponse };
+            this.history.push(cancelledMsg);
+            this.saveHistory(cancelledMsg);
+            break;
+          }
+        } else {
+          finalResponse = extractText(response.content);
+          break;
         }
-      } else {
-        finalResponse = extractText(response.content);
-        break;
-      }
 
-      if (shouldRestart) {
-        break;
+        if (shouldRestart) {
+          break;
+        }
+      } catch (e: any) {
+        if (signal.aborted || e?.name === 'AbortError') {
+          finalResponse = streamBuffer
+            ? streamBuffer + '\n\n[cancelled]'
+            : '[cancelled]';
+          const partialMsg: ChatMessage = { role: 'assistant', content: finalResponse };
+          this.history.push(partialMsg);
+          this.saveHistory(partialMsg);
+          break;
+        }
+        throw e;
       }
     }
 
@@ -406,6 +467,7 @@ export class Agent {
       this.saveHistory(assistantMsg);
     }
 
+    this.abortController = null;
     this.emit('message', { role: 'assistant', content: finalResponse });
 
     return finalResponse;

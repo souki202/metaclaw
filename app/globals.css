@@ -414,6 +414,22 @@ textarea::placeholder {
   cursor: default;
 }
 
+.send-btn.cancel {
+  background: var(--red);
+  cursor: pointer;
+  opacity: 1;
+  animation: cancelPulse 1.5s ease-in-out infinite;
+}
+
+.send-btn.cancel:hover {
+  opacity: 0.85;
+}
+
+@keyframes cancelPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
 /* Chat images */
 .chat-image-wrapper {
   margin: 8px 0;
