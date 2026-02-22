@@ -173,6 +173,15 @@ export default function DashboardClient() {
     return newMsgs;
   };
 
+  const contentToText = (content: unknown): string => {
+    if (typeof content === "string") return content;
+    if (!Array.isArray(content)) return "";
+    return content
+      .filter((part: any) => part?.type === "text")
+      .map((part: any) => part?.text ?? "")
+      .join("\n");
+  };
+
   const loadHistory = async (id: string) => {
     try {
       const res = await fetch(`/api/sessions/${id}/history`);
@@ -217,31 +226,23 @@ export default function DashboardClient() {
             .join(", ");
           currentToolEvents = [{ text: `⚙ ${names}`, success: null }];
           formatted.push({ toolEvents: currentToolEvents });
-          if (m.content) {
-            formatted.push({ role: "assistant", content: m.content });
+          const assistantText = contentToText(m.content);
+          if (assistantText) {
+            formatted.push({ role: "assistant", content: assistantText });
           }
         } else if (m.role === "tool") {
           if (!currentToolEvents) {
             currentToolEvents = [];
             formatted.push({ toolEvents: currentToolEvents });
           }
-          const isError = m.content?.startsWith("Error: ");
+          const toolText = contentToText(m.content);
+          const isError = toolText.startsWith("Error: ");
           const ok = !isError;
-          const contentSlice = m.content ? m.content.slice(0, 100) : "";
+          const contentSlice = toolText.slice(0, 100);
           const textToAppend = `${ok ? "✓" : "✗"} ${m.name}: ${contentSlice}`;
           currentToolEvents.push({ text: textToAppend, success: ok });
         } else if (m.role === "assistant" && m.content) {
-          // Extract text from multi-part assistant content
-          const content = m.content;
-          let textContent = "";
-          if (typeof content === "string") {
-            textContent = content;
-          } else if (Array.isArray(content)) {
-            textContent = content
-              .filter((p: any) => p.type === "text")
-              .map((p: any) => p.text)
-              .join("\n");
-          }
+          const textContent = contentToText(m.content);
           if (textContent) {
             formatted.push({ role: "assistant", content: textContent });
           }

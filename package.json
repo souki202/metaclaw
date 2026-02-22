@@ -8,7 +8,8 @@
     "dev": "node scripts/dev.js",
     "build": "next build",
     "start": "node scripts/with-restart.js npx next start -p 3020",
-    "clean": "rimraf .next"
+    "clean": "rimraf .next",
+    "test": "tsx --test src/**/*.test.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.26.0",
