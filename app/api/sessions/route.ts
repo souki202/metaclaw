@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import { getSessionManagerSafe, getConfigSafe, handleError, badRequest } from '../helpers';
 import { setSession, saveConfig } from '../../../src/config';
-import type { SessionConfig } from '../../../src/types';
+import type { SessionConfig, DashboardEvent } from '../../../src/types';
+import { broadcastSseEvent } from '../../../src/global-state';
 
 export async function GET() {
   try {
@@ -56,6 +57,16 @@ export async function POST(request: Request) {
 
     setSession(config, sessionId, newSession);
     saveConfig(config);
+
+    const sessions = getSessionManagerSafe();
+    sessions.startSession(sessionId, newSession, (event) => {
+      broadcastSseEvent({
+        type: event.type as DashboardEvent['type'],
+        sessionId: event.sessionId,
+        data: event.data,
+        timestamp: new Date().toISOString(),
+      });
+    });
 
     return NextResponse.json({ ok: true, id: sessionId, session: newSession });
   } catch (error) {

@@ -63,7 +63,10 @@ export default function DashboardClient() {
           const event = JSON.parse(e.data);
           if (event.type === "connected") return;
 
-          if (!event.sessionId || event.sessionId !== currentSessionRef.current) {
+          if (
+            !event.sessionId ||
+            event.sessionId !== currentSessionRef.current
+          ) {
             return;
           }
 
@@ -182,6 +185,12 @@ export default function DashboardClient() {
       const res = await fetch(`/api/sessions/${id}/history`);
       const history = await res.json();
 
+      if (!Array.isArray(history)) {
+        console.warn("History is not an array:", history);
+        setMessages([]);
+        return;
+      }
+
       const formatted: any[] = [];
       let currentToolEvents: any[] | null = null;
 
@@ -255,7 +264,7 @@ export default function DashboardClient() {
     try {
       const res = await fetch(`/api/sessions/${id}/skills`);
       const data = await res.json();
-      setAvailableSkills(data);
+      setAvailableSkills(Array.isArray(data) ? data : []);
     } catch (e) {
       setAvailableSkills([]);
     }

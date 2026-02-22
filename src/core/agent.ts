@@ -210,6 +210,13 @@ export class Agent {
     return this.mcpManager;
   }
 
+  updateConfig(newConfig: SessionConfig) {
+    this.config = newConfig;
+    this.providerConfig = this.resolveProviderConfig();
+    this.provider = new OpenAIProvider(this.providerConfig);
+    this.vectorMemory.updateProvider(this.provider);
+  }
+
   private resolveProviderConfig(): ProviderConfig {
     if (this.config.provider) {
       return this.config.provider;

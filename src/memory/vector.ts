@@ -28,6 +28,10 @@ export class VectorMemory {
     this.load();
   }
 
+  updateProvider(provider: OpenAIProvider) {
+    this.provider = provider;
+  }
+
   private load() {
     if (fs.existsSync(this.filePath)) {
       try {

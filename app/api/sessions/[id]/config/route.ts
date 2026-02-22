@@ -41,6 +41,9 @@ export async function PUT(
     setSession(config, id, updated);
     saveConfig(config);
 
+    const sessions = getSessionManagerSafe();
+    sessions.getAgent(id)?.updateConfig(updated);
+
     return NextResponse.json({ ok: true, session: updated });
   } catch (error) {
     return handleError(error);
