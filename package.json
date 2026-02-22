@@ -2,7 +2,7 @@
   "name": "meta-claw",
   "version": "1.0.0",
   "description": "Multi-session AI Personal Agent System",
-  "license": "ISC",
+  "license": "MIT",
   "type": "commonjs",
   "scripts": {
     "dev": "node scripts/dev.js",
