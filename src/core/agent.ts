@@ -438,11 +438,6 @@ export class Agent {
           this.log.info(`Tool calls: ${response.tool_calls.map((t) => t.function.name).join(', ')}`);
           this.emit('tool_call', { tools: response.tool_calls.map((t) => ({ name: t.function.name, args: t.function.arguments })) });
 
-          // Collect images from this round of tool calls to send as a follow-up user message.
-          // image_url inside a tool-role message is not widely supported by vision APIs;
-          // injecting images as a user-role message is the standard-compatible approach.
-          const pendingImages: ContentPart[] = [];
-
           for (const tc of response.tool_calls) {
             // Check cancellation between tool executions
             if (signal.aborted) break;
@@ -485,34 +480,21 @@ export class Agent {
               break;
             }
 
-            // Tool messages are text-only; image_url goes into a separate user message below
+            const toolText = result.success ? result.output : `Error: ${result.output}`;
             const toolMsg: ChatMessage = {
               role: 'tool',
               tool_call_id: tc.id,
               name: tc.function.name,
-              content: result.success ? result.output : `Error: ${result.output}`,
+              content: result.image
+                ? [
+                    { type: 'text' as const, text: toolText },
+                    { type: 'image_url' as const, image_url: { url: result.image, detail: 'high' as const } },
+                  ]
+                : toolText,
             };
             messages.push(toolMsg);
             this.history.push(toolMsg);
             this.saveHistory(toolMsg);
-
-            if (result.image) {
-              pendingImages.push({ type: 'image_url' as const, image_url: { url: result.image } });
-            }
-          }
-
-          // Inject tool images as a user-role message so vision models receive them correctly
-          if (pendingImages.length > 0 && !signal.aborted) {
-            const visionMsg: ChatMessage = {
-              role: 'user',
-              content: [
-                { type: 'text' as const, text: `[Tool screenshot${pendingImages.length > 1 ? 's' : ''}]` },
-                ...pendingImages,
-              ],
-            };
-            messages.push(visionMsg);
-            this.history.push(visionMsg);
-            this.saveHistory(visionMsg);
           }
 
           // If cancelled during tool execution, save and break

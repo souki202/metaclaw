@@ -55,7 +55,10 @@ test('chat uses responses.create and maps tools and multimodal messages', async 
       role: 'tool',
       tool_call_id: 'call_prev',
       name: 'read_file',
-      content: '{"ok":true}',
+      content: [
+        { type: 'text', text: '{"ok":true}' },
+        { type: 'image_url', image_url: { url: 'data:image/png;base64,toolimg', detail: 'high' } },
+      ],
     },
   ];
 
@@ -85,6 +88,11 @@ test('chat uses responses.create and maps tools and multimodal messages', async 
   assert.equal(capturedParams.model, baseConfig.model);
   assert.ok(Array.isArray(capturedParams.input));
   assert.ok(capturedParams.input.some((i: any) => i.type === 'function_call_output' && i.call_id === 'call_prev'));
+  const toolOutput = capturedParams.input.find((i: any) => i.type === 'function_call_output' && i.call_id === 'call_prev');
+  assert.equal(typeof toolOutput.output, 'string');
+  const parsedToolOutput = JSON.parse(toolOutput.output);
+  assert.equal(parsedToolOutput.text, '{"ok":true}');
+  assert.equal(parsedToolOutput.images[0].image_url, 'data:image/png;base64,toolimg');
   assert.ok(capturedParams.input.some((i: any) => i.role === 'user'));
   assert.ok(Array.isArray(capturedParams.tools));
   assert.equal(capturedParams.tools[0].name, 'read_file');

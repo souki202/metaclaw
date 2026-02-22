@@ -37,6 +37,32 @@ function toInputContentParts(content: string | ContentPart[] | null): Array<Reco
   return parts.length > 0 ? parts : [{ type: 'input_text', text: '' }];
 }
 
+function toFunctionCallOutput(content: string | ContentPart[] | null): string {
+  if (!content) return '';
+  if (typeof content === 'string') return content;
+
+  const text = content
+    .filter((part): part is ContentPartText => part.type === 'text')
+    .map((part) => part.text)
+    .join('\n');
+
+  const images = content
+    .filter((part): part is ContentPartImageUrl => part.type === 'image_url')
+    .map((part) => ({
+      image_url: part.image_url.url,
+      ...(part.image_url.detail && { detail: part.image_url.detail }),
+    }));
+
+  if (images.length === 0) {
+    return text;
+  }
+
+  return JSON.stringify({
+    text,
+    images,
+  });
+}
+
 function toResponsesInput(messages: ChatMessage[]): Array<Record<string, unknown>> {
   const input: Array<Record<string, unknown>> = [];
 
@@ -45,7 +71,7 @@ function toResponsesInput(messages: ChatMessage[]): Array<Record<string, unknown
       input.push({
         type: 'function_call_output',
         call_id: message.tool_call_id ?? message.name ?? `tool_${Date.now()}`,
-        output: extractText(message.content),
+        output: toFunctionCallOutput(message.content),
       });
       continue;
     }
