@@ -253,7 +253,8 @@ export class Agent {
 
     parts.push(
       ``,
-      `Use the provided tools to help the user. When you learn important facts, save them to memory.`
+      `Use the provided tools to help the user. When you learn important facts, save them to memory.`,
+      `When you need to show an image to the user, prefer standard Markdown image syntax: ![alt text](image_url).`
     );
 
     return parts.join('\n');
@@ -324,6 +325,83 @@ export class Agent {
     return url;
   }
 
+  private toPublicImageUrl(rawUrl: string): string | null {
+    if (!rawUrl) return null;
+    if (rawUrl.startsWith('/api/sessions/')) return rawUrl;
+    if (rawUrl.startsWith('http://') || rawUrl.startsWith('https://') || rawUrl.startsWith('data:')) return rawUrl;
+
+    const normalized = rawUrl.trim().replace(/\\/g, '/').replace(/^\.\//, '').replace(/^\//, '');
+
+    const screenshotsRel = normalized.match(/^screenshots\/(.+)$/);
+    if (screenshotsRel) {
+      const filename = path.basename(screenshotsRel[1]);
+      return `/api/sessions/${this.sessionId}/images/${filename}`;
+    }
+
+    const uploadsRel = normalized.match(/^uploads\/(.+)$/);
+    if (uploadsRel) {
+      const filename = path.basename(uploadsRel[1]);
+      return `/api/sessions/${this.sessionId}/uploads/${filename}`;
+    }
+
+    const screenshotsAbs = normalized.match(/[\/]screenshots[\/](.+)$/);
+    if (screenshotsAbs) {
+      const filename = path.basename(screenshotsAbs[1]);
+      return `/api/sessions/${this.sessionId}/images/${filename}`;
+    }
+
+    const uploadsAbs = normalized.match(/[\/]uploads[\/](.+)$/);
+    if (uploadsAbs) {
+      const filename = path.basename(uploadsAbs[1]);
+      return `/api/sessions/${this.sessionId}/uploads/${filename}`;
+    }
+
+    return null;
+  }
+
+  private rewriteImageUrlsForUser(text: string): string {
+    if (!text) return text;
+
+    const rewrite = (url: string): string => this.toPublicImageUrl(url) ?? url;
+
+    let updated = text.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_m, alt: string, url: string) => {
+      return `![${alt}](${rewrite(url)})`;
+    });
+
+    updated = updated.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_m, label: string, url: string) => {
+      return `[${label}](${rewrite(url)})`;
+    });
+
+    updated = updated.replace(/(^|\s)(\.?\/?(?:screenshots|uploads)\/[\w\-.\/]+(?:\?[\w=&.-]+)?)/g, (_m, lead: string, rawPath: string) => {
+      const mapped = this.toPublicImageUrl(rawPath);
+      return `${lead}${mapped ?? rawPath}`;
+    });
+
+    return updated;
+  }
+
+  private normalizeAssistantContent(content: string | ContentPart[] | null): string | ContentPart[] | null {
+    if (!content) return content;
+    if (typeof content === 'string') return this.rewriteImageUrlsForUser(content);
+
+    return content.map((part) => {
+      if (part.type === 'text') {
+        return { ...part, text: this.rewriteImageUrlsForUser(part.text) };
+      }
+      if (part.type === 'image_url') {
+        const resolved = this.toPublicImageUrl(part.image_url.url) ?? part.image_url.url;
+        return {
+          ...part,
+          image_url: {
+            ...part.image_url,
+            url: resolved,
+          },
+        };
+      }
+      return part;
+    });
+  }
+
   async processMessage(userMessage: string, channelId?: string, imageUrls?: string[]): Promise<string> {
     this.log.info(`Processing message from ${channelId ?? 'unknown'}: ${userMessage.slice(0, 80)}...`);
 
@@ -337,11 +415,14 @@ export class Agent {
     // Build user message with optional images
     // Resolve relative URLs to base64 data URLs for LLM
     const resolvedImageUrls = imageUrls?.map(url => this.resolveImageUrl(url));
+    const imageUrlReferenceText = imageUrls && imageUrls.length > 0
+      ? `\n\nAttached image URLs (these are visible to the user):\n${imageUrls.map((url) => `- ${url}`).join('\n')}`
+      : '';
     const userMsg: ChatMessage = {
       role: 'user',
       content: resolvedImageUrls && resolvedImageUrls.length > 0
         ? [
-            { type: 'text' as const, text: userMessage },
+            { type: 'text' as const, text: `${userMessage}${imageUrlReferenceText}` },
             ...resolvedImageUrls.map(url => ({
               type: 'image_url' as const,
               image_url: { url, detail: 'high' as const },
@@ -415,6 +496,13 @@ export class Agent {
           throw err;
         });
 
+        if (!response.tool_calls || response.tool_calls.length === 0) {
+          response = {
+            ...response,
+            content: this.normalizeAssistantContent(response.content),
+          };
+        }
+
         // Check again after chat completes
         if (signal.aborted) {
           finalResponse = streamBuffer
@@ -480,17 +568,20 @@ export class Agent {
               break;
             }
 
-            const toolText = result.success ? result.output : `Error: ${result.output}`;
+            const toolText = this.rewriteImageUrlsForUser(result.success ? result.output : `Error: ${result.output}`);
+            const toolTextWithImageUrl = result.imageUrl
+              ? `${toolText}\n\nImage URL: ${result.imageUrl}\nIf you show this to the user, use Markdown: ![image](${result.imageUrl})`
+              : toolText;
             const toolMsg: ChatMessage = {
               role: 'tool',
               tool_call_id: tc.id,
               name: tc.function.name,
               content: result.image
                 ? [
-                    { type: 'text' as const, text: toolText },
+                    { type: 'text' as const, text: toolTextWithImageUrl },
                     { type: 'image_url' as const, image_url: { url: result.image, detail: 'high' as const } },
                   ]
-                : toolText,
+                : toolTextWithImageUrl,
             };
             messages.push(toolMsg);
             this.history.push(toolMsg);

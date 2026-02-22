@@ -5,6 +5,8 @@ import React, {
   KeyboardEvent,
   DragEvent,
 } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { ChatMessage, Skill } from "./types";
 
 interface ContentPart {
@@ -205,23 +207,82 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
     setPendingImages((prev) => prev.filter((_, i) => i !== index));
   };
 
-  // Convert simple markdown elements (bold, code block, inline code, newline)
-  const formatMarkdown = (text: string) => {
-    if (!text) return { __html: "" };
-    const html = text
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/```([\s\S]*?)```/g, "<pre><code>$1</code></pre>")
-      .replace(/`([^`]+)`/g, "<code>$1</code>")
-      .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-      .replace(/\*(.+?)\*/g, "<em>$1</em>")
-      .replace(
-        /\[([^\]]+)\]\(([^)]+)\)/g,
-        '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>',
-      )
-      .replace(/\n/g, "<br>");
-    return { __html: html };
+  const toPublicAssetUrl = (rawUrl: string): string => {
+    if (!rawUrl) return rawUrl;
+    if (
+      rawUrl.startsWith("data:") ||
+      rawUrl.startsWith("http://") ||
+      rawUrl.startsWith("https://") ||
+      rawUrl.startsWith("/api/sessions/")
+    ) {
+      return rawUrl;
+    }
+
+    const normalized = rawUrl
+      .trim()
+      .replace(/\\\\/g, "/")
+      .replace(/^\.\//, "")
+      .replace(/^\//, "");
+
+    const screenshotsMatch = normalized.match(/^screenshots\/(.+)$/);
+    if (screenshotsMatch && currentSession) {
+      const filename = screenshotsMatch[1].split("/").pop();
+      if (filename) {
+        return `/api/sessions/${currentSession}/images/${filename}`;
+      }
+    }
+
+    const uploadsMatch = normalized.match(/^uploads\/(.+)$/);
+    if (uploadsMatch && currentSession) {
+      const filename = uploadsMatch[1].split("/").pop();
+      if (filename) {
+        return `/api/sessions/${currentSession}/uploads/${filename}`;
+      }
+    }
+
+    return rawUrl;
+  };
+
+  const renderMarkdown = (text: string) => {
+    if (!text) return null;
+
+    return (
+      <div className="chat-markdown">
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          components={{
+            a: ({ href, children }) => (
+              <a
+                href={href}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                {children}
+              </a>
+            ),
+            img: ({ src, alt }) => {
+              const url = typeof src === "string" ? toPublicAssetUrl(src) : "";
+              if (!url || url.startsWith("data:")) {
+                return <span className="chat-image-placeholder">📷 [画像]</span>;
+              }
+              return (
+                <span className="chat-image-wrapper">
+                  <img
+                    src={url}
+                    alt={alt || "Image"}
+                    className="chat-image"
+                    loading="lazy"
+                    onClick={() => window.open(url, "_blank")}
+                  />
+                </span>
+              );
+            },
+          }}
+        >
+          {text}
+        </ReactMarkdown>
+      </div>
+    );
   };
 
   // Render content that may be multi-part (with images)
@@ -229,7 +290,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
     if (!content) return null;
 
     if (typeof content === "string") {
-      return <div dangerouslySetInnerHTML={formatMarkdown(content)} />;
+      return renderMarkdown(content);
     }
 
     // Multi-part content
@@ -237,15 +298,10 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
       <>
         {content.map((part, i) => {
           if (part.type === "text" && part.text) {
-            return (
-              <div
-                key={i}
-                dangerouslySetInnerHTML={formatMarkdown(part.text)}
-              />
-            );
+            return <div key={i}>{renderMarkdown(part.text)}</div>;
           }
           if (part.type === "image_url" && part.image_url?.url) {
-            const url = part.image_url.url;
+            const url = toPublicAssetUrl(part.image_url.url);
             // Don't render base64 data URLs inline (too large for chat history)
             // Only render file-served URLs
             if (url.startsWith("data:")) {
@@ -344,10 +400,12 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                       {m.imageUrls.map((url, i) => (
                         <div key={i} className="chat-image-wrapper">
                           <img
-                            src={url}
+                            src={toPublicAssetUrl(url)}
                             alt={`Attached ${i + 1}`}
                             className="chat-image"
-                            onClick={() => window.open(url, "_blank")}
+                            onClick={() =>
+                              window.open(toPublicAssetUrl(url), "_blank")
+                            }
                           />
                         </div>
                       ))}
@@ -397,7 +455,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
           <div className="pending-images">
             {pendingImages.map((url, i) => (
               <div key={i} className="pending-image-item">
-                <img src={url} alt={`Pending ${i + 1}`} />
+                <img src={toPublicAssetUrl(url)} alt={`Pending ${i + 1}`} />
                 <button
                   className="remove-image-btn"
                   onClick={() => removePendingImage(i)}
