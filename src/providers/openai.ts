@@ -157,7 +157,7 @@ export class OpenAIProvider {
   async chat(
     messages: ChatMessage[],
     tools?: ToolDefinition[],
-    onStream?: (chunk: string) => void,
+    onStream?: (chunk: string, type?: 'content' | 'reasoning') => void,
     signal?: AbortSignal
   ): Promise<ChatMessage> {
     const params = {
@@ -172,23 +172,45 @@ export class OpenAIProvider {
       const stream = this.client.responses.stream(params, requestOpts);
 
       let fullContent = '';
+      let fullReasoning = '';
 
       try {
         for await (const event of stream) {
           if (signal?.aborted) break;
+          
           if (event.type === 'response.output_text.delta' && typeof event.delta === 'string') {
             fullContent += event.delta;
-            onStream(event.delta);
+            onStream(event.delta, 'content');
+          } else if (event.type === 'response.reasoning_text.delta' && typeof event.delta === 'string') {
+            fullReasoning += event.delta;
+            onStream(event.delta, 'reasoning');
+          } else if ((event as any).type === 'response.content_part.delta' && (event as any).delta?.type === 'text') {
+            // Some models might use different event types for reasoning depending on the specific API implementation
+            const delta = (event as any).delta;
+            if (delta.text) {
+              fullContent += delta.text;
+              onStream(delta.text, 'content');
+            }
           }
         }
 
         const finalResponse = await stream.finalResponse();
         const toolCalls = extractResponseToolCalls(finalResponse);
         const content = fullContent || extractResponseText(finalResponse);
+        
+        // Extract reasoning from final response if available
+        let reasoning = fullReasoning;
+        if (!reasoning && (finalResponse as any).output?.[0]?.content) {
+          const reasoningPart = (finalResponse as any).output[0].content.find((p: any) => p.type === 'reasoning_text');
+          if (reasoningPart) {
+            reasoning = reasoningPart.text;
+          }
+        }
 
         return {
           role: 'assistant',
           content: content || null,
+          ...(reasoning && { reasoning }),
           ...(toolCalls && { tool_calls: toolCalls }),
         };
       } catch (e: any) {
@@ -197,6 +219,7 @@ export class OpenAIProvider {
           return {
             role: 'assistant',
             content: fullContent || null,
+            ...(fullReasoning && { reasoning: fullReasoning }),
           };
         }
         throw e;
@@ -205,10 +228,17 @@ export class OpenAIProvider {
       const response = await this.client.responses.create(params, requestOpts);
       const text = extractResponseText(response);
       const toolCalls = extractResponseToolCalls(response);
+      
+      let reasoning: string | undefined;
+      const reasoningPart = (response as any).output?.[0]?.content?.find((p: any) => p.type === 'reasoning_text');
+      if (reasoningPart) {
+        reasoning = reasoningPart.text;
+      }
 
       return {
         role: 'assistant',
         content: text || null,
+        ...(reasoning && { reasoning }),
         ...(toolCalls && { tool_calls: toolCalls }),
       };
     }

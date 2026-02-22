@@ -141,14 +141,22 @@ export default function DashboardClient() {
       const lastIdx = newMsgs.length - 1;
       const lastMsg = newMsgs[lastIdx];
       if (lastMsg && lastMsg.isStreaming && lastMsg.role === "assistant") {
-        newMsgs[lastIdx] = {
-          ...lastMsg,
-          content: lastMsg.content + event.data.chunk,
-        };
+        if (event.data.type === "reasoning") {
+          newMsgs[lastIdx] = {
+            ...lastMsg,
+            reasoning: (lastMsg.reasoning || "") + event.data.chunk,
+          };
+        } else {
+          newMsgs[lastIdx] = {
+            ...lastMsg,
+            content: lastMsg.content + event.data.chunk,
+          };
+        }
       } else {
         newMsgs.push({
           role: "assistant",
-          content: event.data.chunk,
+          content: event.data.type === "reasoning" ? "" : event.data.chunk,
+          reasoning: event.data.type === "reasoning" ? event.data.chunk : "",
           isStreaming: true,
         });
       }
@@ -167,9 +175,14 @@ export default function DashboardClient() {
             ...newMsgs[streamIdx],
             isStreaming: false,
             content: event.data.content,
+            reasoning: event.data.reasoning,
           };
         } else {
-          newMsgs.push({ role: "assistant", content: event.data.content });
+          newMsgs.push({
+            role: "assistant",
+            content: event.data.content,
+            reasoning: event.data.reasoning,
+          });
         }
       } else if (
         event.data.role === "user" &&
@@ -269,7 +282,11 @@ export default function DashboardClient() {
           formatted.push({ toolEvents: currentToolEvents });
           const assistantText = contentToText(m.content);
           if (assistantText) {
-            formatted.push({ role: "assistant", content: assistantText });
+            formatted.push({
+              role: "assistant",
+              content: assistantText,
+              reasoning: m.reasoning,
+            });
           }
         } else if (m.role === "tool") {
           if (!currentToolEvents) {
@@ -282,11 +299,13 @@ export default function DashboardClient() {
           const contentSlice = toolText.slice(0, 100);
           const textToAppend = `${ok ? "✓" : "✗"} ${m.name}: ${contentSlice}`;
           currentToolEvents.push({ text: textToAppend, success: ok });
-        } else if (m.role === "assistant" && m.content) {
+        } else if (m.role === "assistant" && (m.content || m.reasoning)) {
           const textContent = contentToText(m.content);
-          if (textContent) {
-            formatted.push({ role: "assistant", content: textContent });
-          }
+          formatted.push({
+            role: "assistant",
+            content: textContent,
+            reasoning: m.reasoning,
+          });
           currentToolEvents = null;
         }
       }

@@ -137,6 +137,7 @@ export class Agent {
           return {
             role: parsed.role,
             content: parsed.content,
+            reasoning: parsed.reasoning,
             name: parsed.name,
             tool_call_id: parsed.tool_call_id,
             tool_calls: parsed.tool_calls
@@ -534,9 +535,13 @@ export class Agent {
 
       let streamBuffer = '';
       try {
-        let response = await this.provider.chat(messages, tools, (chunk) => {
-          streamBuffer += chunk;
-          this.emit('stream', { chunk });
+        let response = await this.provider.chat(messages, tools, (chunk, type) => {
+          if (type === 'reasoning') {
+            this.emit('stream', { chunk, type: 'reasoning' });
+          } else {
+            streamBuffer += chunk;
+            this.emit('stream', { chunk, type: 'content' });
+          }
         }, signal).catch(async (err: unknown) => {
           // Retry without images if the model reports it doesn't support vision.
           // Error example: "404 No endpoints found that support image input"
@@ -546,10 +551,13 @@ export class Agent {
             (msg.includes('image') || msg.includes('vision') || msg.includes('endpoint'));
           if (isVisionError) {
             this.log.warn('Model does not support image input – retrying without images');
-            streamBuffer = '';
-            return this.provider.chat(stripImageUrls(messages), tools, (chunk) => {
-              streamBuffer += chunk;
-              this.emit('stream', { chunk });
+            return this.provider.chat(stripImageUrls(messages), tools, (chunk, type) => {
+              if (type === 'reasoning') {
+                this.emit('stream', { chunk, type: 'reasoning' });
+              } else {
+                streamBuffer += chunk;
+                this.emit('stream', { chunk, type: 'content' });
+              }
             }, signal);
           }
           throw err;
@@ -685,7 +693,11 @@ export class Agent {
     }
 
     this.abortController = null;
-    this.emit('message', { role: 'assistant', content: finalResponse });
+    this.emit('message', { 
+      role: 'assistant', 
+      content: finalResponse,
+      reasoning: this.history[this.history.length - 1]?.reasoning
+    });
 
     return finalResponse;
     } finally {

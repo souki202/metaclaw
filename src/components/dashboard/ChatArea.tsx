@@ -19,7 +19,53 @@ interface ExtendedChatMessage extends ChatMessage {
   isStreaming?: boolean;
   toolEvents?: { text: string; success: boolean | null }[];
   imageUrls?: string[];
+  reasoning?: string;
 }
+
+const ReasoningBlock: React.FC<{
+  reasoning: string;
+  isStreaming?: boolean;
+  autoCollapseTriggered?: boolean;
+}> = ({ reasoning, isStreaming, autoCollapseTriggered }) => {
+  // 以前のセッションからの復元時は collapsed (false) にする。
+  // 新規ストリーミング中のみ例外的に思考内容が見えるようにする。
+  const [isExpanded, setIsExpanded] = useState(
+    !!(isStreaming && !autoCollapseTriggered),
+  );
+
+  useEffect(() => {
+    if (autoCollapseTriggered) {
+      setIsExpanded(false);
+    }
+  }, [autoCollapseTriggered]);
+
+  if (!reasoning) return null;
+
+  return (
+    <div className="reasoning-block">
+      <div
+        className={`reasoning-header ${isExpanded ? "expanded" : ""}`}
+        onClick={() => setIsExpanded(!isExpanded)}
+      >
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+            overflow: "hidden",
+          }}
+        >
+          <span>{isStreaming ? "Thinking..." : "Reasoning"}</span>
+          {!isExpanded && (
+            <div className="reasoning-preview">{reasoning.slice(-100)}</div>
+          )}
+        </div>
+        <span className="toggle-icon">▶</span>
+      </div>
+      {isExpanded && <div className="reasoning-content">{reasoning}</div>}
+    </div>
+  );
+};
 
 interface ChatAreaProps {
   currentSession: string | null;
@@ -252,18 +298,16 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
           remarkPlugins={[remarkGfm]}
           components={{
             a: ({ href, children }) => (
-              <a
-                href={href}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
+              <a href={href} target="_blank" rel="noopener noreferrer">
                 {children}
               </a>
             ),
             img: ({ src, alt }) => {
               const url = typeof src === "string" ? toPublicAssetUrl(src) : "";
               if (!url || url.startsWith("data:")) {
-                return <span className="chat-image-placeholder">📷 [画像]</span>;
+                return (
+                  <span className="chat-image-placeholder">📷 [画像]</span>
+                );
               }
               return (
                 <span className="chat-image-wrapper">
@@ -387,10 +431,19 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                 </div>
               ))}
 
-            {(m.content || m.isStreaming || m.imageUrls) && (
+            {(m.content || m.isStreaming || m.imageUrls || m.reasoning) && (
               <div className={`message ${m.role}`}>
                 <div className="bubble">
                   {m.role === "assistant" && <div className="role">AI</div>}
+                  {m.role === "assistant" && m.reasoning && (
+                    <ReasoningBlock
+                      reasoning={m.reasoning}
+                      isStreaming={m.isStreaming && !m.content}
+                      autoCollapseTriggered={
+                        !!(m.isStreaming && m.content && m.reasoning)
+                      }
+                    />
+                  )}
                   {renderContent(
                     m.content as string | ContentPart[] | undefined,
                   )}

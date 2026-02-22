@@ -420,6 +420,74 @@ header .status {
   font-weight: 600;
 }
 
+.tool-event span.tool-ok {
+  color: #4caf50;
+}
+
+.tool-event span.tool-err {
+  color: #f44336;
+}
+
+/* Reasoning Block */
+.reasoning-block {
+  margin-bottom: 8px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+  font-size: 0.9em;
+}
+
+.reasoning-header {
+  padding: 6px 12px;
+  background: rgba(255, 255, 255, 0.03);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  user-select: none;
+  color: #aaa;
+  transition: background 0.2s;
+}
+
+.reasoning-header:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.reasoning-header .toggle-icon {
+  font-size: 0.8em;
+  transition: transform 0.2s;
+}
+
+.reasoning-header.expanded .toggle-icon {
+  transform: rotate(90deg);
+}
+
+.reasoning-content {
+  padding: 10px 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  color: #ccc;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.reasoning-preview {
+  font-style: italic;
+  font-size: 0.85em;
+  color: #888;
+  max-width: 80%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message.assistant .bubble {
+  background: #2a2a2a;
+  color: #eee;
+}
+
 .tool-event .tool-ok {
   color: var(--green);
 }
