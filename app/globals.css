@@ -307,6 +307,30 @@ header .status {
   border-radius: 3px;
 }
 
+.message.user pre {
+  background: rgba(0, 0, 0, 0.15);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: var(--bg);
+}
+
+.message.user code {
+  background: rgba(0, 0, 0, 0.15);
+  color: var(--bg);
+}
+
+.message a {
+  color: var(--accent);
+  text-decoration: none;
+}
+.message a:hover {
+  text-decoration: underline;
+}
+
+.message.user a {
+  color: #0d1117;
+  text-decoration: underline;
+}
+
 .tool-event {
   background: var(--surface);
   border: 1px solid var(--border);

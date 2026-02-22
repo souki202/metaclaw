@@ -128,23 +128,30 @@ export default function DashboardClient() {
           isStreaming: true,
         });
       }
-    } else if (event.type === "message" && event.data.role === "assistant") {
-      setIsThinking(false);
-      let streamIdx = -1;
-      for (let i = newMsgs.length - 1; i >= 0; i--) {
-        if (newMsgs[i].role === "assistant" && newMsgs[i].isStreaming) {
-          streamIdx = i;
-          break;
+    } else if (event.type === "message") {
+      if (event.data.role === "assistant") {
+        setIsThinking(false);
+        let streamIdx = -1;
+        for (let i = newMsgs.length - 1; i >= 0; i--) {
+          if (newMsgs[i].role === "assistant" && newMsgs[i].isStreaming) {
+            streamIdx = i;
+            break;
+          }
         }
-      }
-      if (streamIdx !== -1) {
-        newMsgs[streamIdx] = {
-          ...newMsgs[streamIdx],
-          isStreaming: false,
-          content: event.data.content,
-        };
-      } else {
-        newMsgs.push({ role: "assistant", content: event.data.content });
+        if (streamIdx !== -1) {
+          newMsgs[streamIdx] = {
+            ...newMsgs[streamIdx],
+            isStreaming: false,
+            content: event.data.content,
+          };
+        } else {
+          newMsgs.push({ role: "assistant", content: event.data.content });
+        }
+      } else if (
+        event.data.role === "user" &&
+        event.data.channelId !== "dashboard"
+      ) {
+        newMsgs.push({ role: "user", content: event.data.content });
       }
     } else if (event.type === "heartbeat") {
       newMsgs.push({

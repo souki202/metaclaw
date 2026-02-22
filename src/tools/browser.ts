@@ -23,9 +23,11 @@ async function ensureBrowser(): Promise<Browser> {
     
     try {
       const dirs = fs.readdirSync(headlessShellBase);
-      const targetDir = dirs.find((d: string) => d.startsWith(platform === 'win32' ? 'win64' : platform));
+      const sysPlatform = platform === 'darwin' ? 'mac' : platform === 'win32' ? 'win64' : platform;
+      const targetDir = dirs.find((d: string) => d.startsWith(sysPlatform));
       if (targetDir) {
-        headlessShellDir = path.join(headlessShellBase, targetDir);
+        const prefix = targetDir.split('-')[0];
+        headlessShellDir = path.join(headlessShellBase, targetDir, `chrome-headless-shell-${prefix}`);
       }
     } catch {
       // ディレクトリが見つからない

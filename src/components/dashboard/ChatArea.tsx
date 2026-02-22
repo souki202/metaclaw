@@ -113,6 +113,10 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
       .replace(/`([^`]+)`/g, "<code>$1</code>")
       .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
       .replace(/\*(.+?)\*/g, "<em>$1</em>")
+      .replace(
+        /\[([^\]]+)\]\(([^)]+)\)/g,
+        '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>',
+      )
       .replace(/\n/g, "<br>");
     return { __html: html };
   };
