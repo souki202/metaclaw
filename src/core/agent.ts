@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import type { ChatMessage, SessionConfig, Config, ProviderConfig, ContentPart, ContentPartText, ToolDefinition } from '../types.js';
+import type { ChatMessage, SessionConfig, Config, ProviderConfig, ContentPart, ContentPartText, ToolDefinition, ScheduleUpsertInput, SessionSchedule } from '../types.js';
 import { OpenAIProvider } from '../providers/openai.js';
 import { VectorMemory } from '../memory/vector.js';
 import { QuickMemory, WorkspaceFiles } from '../memory/quick.js';
@@ -70,6 +70,13 @@ export type EventCallback = (event: {
   data: unknown;
 }) => void;
 
+export interface AgentScheduleAccess {
+  list: () => SessionSchedule[];
+  create: (input: ScheduleUpsertInput) => SessionSchedule;
+  update: (scheduleId: string, patch: Partial<ScheduleUpsertInput>) => SessionSchedule;
+  remove: (scheduleId: string) => boolean;
+}
+
 export class Agent {
   private sessionId: string;
   private config: SessionConfig;
@@ -85,14 +92,18 @@ export class Agent {
   private log: ReturnType<typeof createLogger>;
   private onEvent?: EventCallback;
   private globalConfig?: Config;
+  private scheduleAccess?: AgentScheduleAccess;
   private abortController: AbortController | null = null;
+  private activeProcessingCount = 0;
+  private idleWaiters: Array<() => void> = [];
 
   constructor(
     sessionId: string,
     config: SessionConfig,
     workspace: string,
     onEvent?: EventCallback,
-    globalConfig?: Config
+    globalConfig?: Config,
+    scheduleAccess?: AgentScheduleAccess,
   ) {
     this.sessionId = sessionId;
     this.config = config;
@@ -109,6 +120,7 @@ export class Agent {
     this.log = createLogger(`agent:${sessionId}`);
     this.onEvent = onEvent;
     this.globalConfig = globalConfig;
+    this.scheduleAccess = scheduleAccess;
     
     this.loadHistory();
     this.initMcpServers();
@@ -164,6 +176,36 @@ export class Agent {
     }
   }
 
+  isProcessing(): boolean {
+    return this.activeProcessingCount > 0;
+  }
+
+  waitForIdle(): Promise<void> {
+    if (!this.isProcessing()) {
+      return Promise.resolve();
+    }
+    return new Promise((resolve) => {
+      this.idleWaiters.push(resolve);
+    });
+  }
+
+  private beginProcessing() {
+    this.activeProcessingCount += 1;
+  }
+
+  private endProcessing() {
+    if (this.activeProcessingCount > 0) {
+      this.activeProcessingCount -= 1;
+    }
+
+    if (this.activeProcessingCount === 0 && this.idleWaiters.length > 0) {
+      const waiters = this.idleWaiters.splice(0, this.idleWaiters.length);
+      for (const resolve of waiters) {
+        resolve();
+      }
+    }
+  }
+
   getMcpManager() {
     return this.mcpManager;
   }
@@ -185,10 +227,14 @@ export class Agent {
     const user = this.files.read('USER.md');
     const memory = this.quickMemory.read();
     const tmpMemory = this.tmpMemory.read();
+    const now = new Date();
+    const localTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'local';
 
     const parts = [
       `You are an AI personal agent running in the meta-claw system.`,
       `Session ID: ${this.sessionId}`,
+      `Current local datetime (${localTimeZone}): ${now.toLocaleString()}`,
+      `Current UTC datetime: ${now.toISOString()}`,
       ``,
     ];
 
@@ -403,6 +449,8 @@ export class Agent {
   }
 
   async processMessage(userMessage: string, channelId?: string, imageUrls?: string[]): Promise<string> {
+    this.beginProcessing();
+    try {
     this.log.info(`Processing message from ${channelId ?? 'unknown'}: ${userMessage.slice(0, 80)}...`);
 
     // Set up abort controller for this processing run
@@ -444,6 +492,10 @@ export class Agent {
       tmpMemory: this.tmpMemory,
       searchConfig: this.globalConfig?.search,
       mcpManager: this.mcpManager,
+      scheduleList: this.scheduleAccess ? () => this.scheduleAccess!.list() : undefined,
+      scheduleCreate: this.scheduleAccess ? (input) => this.scheduleAccess!.create(input) : undefined,
+      scheduleUpdate: this.scheduleAccess ? (scheduleId, patch) => this.scheduleAccess!.update(scheduleId, patch) : undefined,
+      scheduleDelete: this.scheduleAccess ? (scheduleId) => this.scheduleAccess!.remove(scheduleId) : undefined,
     };
     let tools = await buildTools(toolCtx);
 
@@ -629,28 +681,8 @@ export class Agent {
     this.emit('message', { role: 'assistant', content: finalResponse });
 
     return finalResponse;
-  }
-
-  async runHeartbeat(): Promise<string | null> {
-    const heartbeatContent = this.files.read('HEARTBEAT.md');
-    if (!heartbeatContent) return null;
-
-    const { activeHours } = this.config.heartbeat;
-    if (activeHours) {
-      const hour = new Date().getHours();
-      if (hour < activeHours.start || hour >= activeHours.end) return null;
-    }
-
-    const prompt = `[HEARTBEAT] Review your HEARTBEAT.md instructions and check if there's anything you need to do or report. If nothing needs attention, respond with exactly: HEARTBEAT_OK\n\n${heartbeatContent}`;
-
-    try {
-      const response = await this.processMessage(prompt, 'heartbeat');
-      this.emit('heartbeat', { response });
-      if (response.trim() === 'HEARTBEAT_OK') return null;
-      return response;
-    } catch (e) {
-      this.log.error('Heartbeat error:', e);
-      return null;
+    } finally {
+      this.endProcessing();
     }
   }
 
@@ -689,6 +721,10 @@ export class Agent {
       tmpMemory: this.tmpMemory,
       searchConfig: this.globalConfig?.search,
       mcpManager: this.mcpManager,
+      scheduleList: this.scheduleAccess ? () => this.scheduleAccess!.list() : undefined,
+      scheduleCreate: this.scheduleAccess ? (input) => this.scheduleAccess!.create(input) : undefined,
+      scheduleUpdate: this.scheduleAccess ? (scheduleId, patch) => this.scheduleAccess!.update(scheduleId, patch) : undefined,
+      scheduleDelete: this.scheduleAccess ? (scheduleId) => this.scheduleAccess!.remove(scheduleId) : undefined,
     };
     return buildTools(toolCtx);
   }

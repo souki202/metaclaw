@@ -5,7 +5,16 @@ interface RightPanelProps {
   currentSession: string | null;
 }
 
-const FILES = ["IDENTITY.md", "USER.md", "MEMORY.md", "HEARTBEAT.md"];
+interface ScheduleItem {
+  id: string;
+  memo: string;
+  startAt: string;
+  repeatCron: string | null;
+  nextRunAt: string | null;
+  enabled: boolean;
+}
+
+const FILES = ["IDENTITY.md", "USER.md", "MEMORY.md"];
 
 export const RightPanel: React.FC<RightPanelProps> = ({ currentSession }) => {
   const [activeTab, setActiveTab] = useState<"files" | "memory" | "system">(
@@ -15,12 +24,45 @@ export const RightPanel: React.FC<RightPanelProps> = ({ currentSession }) => {
   const [saveStatus, setSaveStatus] = useState<Record<string, string>>({});
   const [memoryEntries, setMemoryEntries] = useState<any[]>([]);
   const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
+  const [schedules, setSchedules] = useState<ScheduleItem[]>([]);
+  const [scheduleStatus, setScheduleStatus] = useState("");
+  const [editingScheduleId, setEditingScheduleId] = useState<string | null>(null);
+  const [scheduleForm, setScheduleForm] = useState({
+    startAt: "",
+    repeatCron: "none",
+    memo: "",
+    enabled: true,
+  });
+
+  const toInputDateTime = (iso: string) => {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return "";
+    const offset = d.getTimezoneOffset();
+    const local = new Date(d.getTime() - offset * 60000);
+    return local.toISOString().slice(0, 16);
+  };
+
+  const toIsoFromInput = (value: string) => {
+    if (!value) return "";
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return "";
+    return d.toISOString();
+  };
+
+  const formatLocalDateTime = (iso: string | null) => {
+    if (!iso) return "-";
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return iso;
+    return d.toLocaleString();
+  };
 
   // Load files when session changes
   useEffect(() => {
     if (!currentSession) {
       setFileContents({});
       setMemoryEntries([]);
+      setSchedules([]);
+      setScheduleStatus("");
       return;
     }
 
@@ -52,8 +94,22 @@ export const RightPanel: React.FC<RightPanelProps> = ({ currentSession }) => {
       }
     };
 
-    if (activeTab === "files") loadFiles();
+    if (activeTab === "files") {
+      loadFiles();
+      void loadSchedules();
+    }
     if (activeTab === "memory") loadMemory();
+  }, [currentSession, activeTab]);
+
+  useEffect(() => {
+    if (!currentSession || activeTab !== "files") return;
+
+    void loadSchedules();
+    const interval = setInterval(() => {
+      void loadSchedules();
+    }, 3000);
+
+    return () => clearInterval(interval);
   }, [currentSession, activeTab]);
 
   // Load system info periodically if system tab active
@@ -108,6 +164,111 @@ export const RightPanel: React.FC<RightPanelProps> = ({ currentSession }) => {
     setFileContents((prev) => ({ ...prev, [filename]: value }));
   };
 
+  const loadSchedules = async () => {
+    if (!currentSession) return;
+    try {
+      const res = await fetch(`/api/sessions/${currentSession}/schedules`);
+      if (res.ok) {
+        const items = await res.json();
+        setSchedules(items);
+      }
+    } catch (e) {
+      console.error("Error loading schedules", e);
+    }
+  };
+
+  const resetScheduleForm = () => {
+    setEditingScheduleId(null);
+    setScheduleForm({
+      startAt: "",
+      repeatCron: "none",
+      memo: "",
+      enabled: true,
+    });
+  };
+
+  const startEditSchedule = (schedule: ScheduleItem) => {
+    setEditingScheduleId(schedule.id);
+    setScheduleForm({
+      startAt: toInputDateTime(schedule.startAt),
+      repeatCron: schedule.repeatCron || "none",
+      memo: schedule.memo,
+      enabled: schedule.enabled,
+    });
+  };
+
+  const handleSaveSchedule = async () => {
+    if (!currentSession) return;
+    if (!scheduleForm.startAt || !scheduleForm.memo.trim()) {
+      setScheduleStatus("Start At and Memo are required");
+      return;
+    }
+
+    const payload = {
+      startAt: toIsoFromInput(scheduleForm.startAt),
+      repeatCron: scheduleForm.repeatCron.trim() || "none",
+      memo: scheduleForm.memo,
+      enabled: scheduleForm.enabled,
+    };
+
+    if (!payload.startAt) {
+      setScheduleStatus("Start At is invalid");
+      return;
+    }
+
+    try {
+      setScheduleStatus(editingScheduleId ? "Updating..." : "Creating...");
+      const endpoint = editingScheduleId
+        ? `/api/sessions/${currentSession}/schedules/${editingScheduleId}`
+        : `/api/sessions/${currentSession}/schedules`;
+      const method = editingScheduleId ? "PUT" : "POST";
+
+      const res = await fetch(endpoint, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        setScheduleStatus(err.error || "Failed to save schedule");
+        return;
+      }
+
+      setScheduleStatus(editingScheduleId ? "Updated" : "Created");
+      resetScheduleForm();
+      await loadSchedules();
+      setTimeout(() => setScheduleStatus(""), 1500);
+    } catch (e) {
+      setScheduleStatus("Failed to save schedule");
+    }
+  };
+
+  const handleDeleteSchedule = async (scheduleId: string) => {
+    if (!currentSession) return;
+    if (!confirm("Delete this schedule?")) return;
+    try {
+      setScheduleStatus("Deleting...");
+      const res = await fetch(
+        `/api/sessions/${currentSession}/schedules/${scheduleId}`,
+        { method: "DELETE" },
+      );
+      if (!res.ok) {
+        const err = await res.json();
+        setScheduleStatus(err.error || "Failed to delete schedule");
+        return;
+      }
+      if (editingScheduleId === scheduleId) {
+        resetScheduleForm();
+      }
+      setScheduleStatus("Deleted");
+      await loadSchedules();
+      setTimeout(() => setScheduleStatus(""), 1500);
+    } catch (e) {
+      setScheduleStatus("Failed to delete schedule");
+    }
+  };
+
   const formatMB = (bytes: number) => (bytes / 1024 / 1024).toFixed(1) + " MB";
 
   return (
@@ -157,6 +318,108 @@ export const RightPanel: React.FC<RightPanelProps> = ({ currentSession }) => {
                 />
               </div>
             ))}
+
+            <div className="file-section">
+              <div className="file-label">Schedules</div>
+
+              <div className="form-group">
+                <label className="form-label">Start At</label>
+                <input
+                  type="datetime-local"
+                  className="form-input"
+                  value={scheduleForm.startAt}
+                  onChange={(e) =>
+                    setScheduleForm((prev) => ({
+                      ...prev,
+                      startAt: e.target.value,
+                    }))
+                  }
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Repeat Cron (or none)</label>
+                <input
+                  className="form-input mono"
+                  value={scheduleForm.repeatCron}
+                  onChange={(e) =>
+                    setScheduleForm((prev) => ({
+                      ...prev,
+                      repeatCron: e.target.value,
+                    }))
+                  }
+                  placeholder="none"
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Memo</label>
+                <textarea
+                  className="file-editor"
+                  rows={3}
+                  value={scheduleForm.memo}
+                  onChange={(e) =>
+                    setScheduleForm((prev) => ({
+                      ...prev,
+                      memo: e.target.value,
+                    }))
+                  }
+                />
+              </div>
+              <div className="form-checkbox" style={{ marginBottom: 10 }}>
+                <input
+                  type="checkbox"
+                  checked={scheduleForm.enabled}
+                  onChange={(e) =>
+                    setScheduleForm((prev) => ({
+                      ...prev,
+                      enabled: e.target.checked,
+                    }))
+                  }
+                />
+                <label className="form-label" style={{ marginBottom: 0 }}>
+                  Enabled
+                </label>
+              </div>
+              <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+                <button className="btn primary" onClick={handleSaveSchedule}>
+                  {editingScheduleId ? "Update" : "Create"}
+                </button>
+                {editingScheduleId && (
+                  <button className="btn" onClick={resetScheduleForm}>
+                    Cancel Edit
+                  </button>
+                )}
+              </div>
+              {scheduleStatus && <div className="memory-meta">{scheduleStatus}</div>}
+
+              {schedules.length === 0 ? (
+                <div className="empty">No schedules registered</div>
+              ) : (
+                <div>
+                  {schedules.map((s) => (
+                    <div key={s.id} className="memory-entry">
+                      <div>{s.memo}</div>
+                      <div className="memory-meta">
+                        Next: {formatLocalDateTime(s.nextRunAt)} · Start: {formatLocalDateTime(s.startAt)}
+                      </div>
+                      <div className="memory-meta">
+                        Repeat: {s.repeatCron || "none"} · {s.enabled ? "enabled" : "disabled"}
+                      </div>
+                      <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                        <button className="btn" onClick={() => startEditSchedule(s)}>
+                          Edit
+                        </button>
+                        <button
+                          className="btn danger"
+                          onClick={() => handleDeleteSchedule(s.id)}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>

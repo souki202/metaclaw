@@ -1,4 +1,4 @@
-import type { ToolDefinition, ToolResult, SessionConfig, SearchConfig } from '../types.js';
+import type { ToolDefinition, ToolResult, SessionConfig, SearchConfig, ScheduleUpsertInput, SessionSchedule } from '../types.js';
 import { execTool } from './exec.js';
 import { readFile, writeFile, editFile, listDir, deleteFile } from './fs.js';
 import { webFetch, webSearch } from './web.js';
@@ -14,6 +14,14 @@ import type { VectorMemory } from '../memory/vector.js';
 import type { QuickMemory } from '../memory/quick.js';
 import type { McpClientManager } from './mcp-client.js';
 
+const CURRENT_OS = process.platform === 'win32'
+  ? 'Windows'
+  : process.platform === 'darwin'
+    ? 'macOS'
+    : process.platform === 'linux'
+      ? 'Linux'
+      : process.platform;
+
 export interface ToolContext {
   sessionId: string;
   config: SessionConfig;
@@ -23,6 +31,21 @@ export interface ToolContext {
   tmpMemory?: QuickMemory;
   searchConfig?: SearchConfig;
   mcpManager?: McpClientManager;
+  scheduleList?: () => SessionSchedule[];
+  scheduleCreate?: (input: ScheduleUpsertInput) => SessionSchedule;
+  scheduleUpdate?: (scheduleId: string, patch: Partial<ScheduleUpsertInput>) => SessionSchedule;
+  scheduleDelete?: (scheduleId: string) => boolean;
+}
+
+function formatSchedule(schedule: SessionSchedule): string {
+  return [
+    `id: ${schedule.id}`,
+    `startAt: ${schedule.startAt}`,
+    `repeatCron: ${schedule.repeatCron ?? 'none'}`,
+    `memo: ${schedule.memo}`,
+    `nextRunAt: ${schedule.nextRunAt ?? 'none'}`,
+    `enabled: ${schedule.enabled ? 'true' : 'false'}`,
+  ].join('\n');
 }
 
 export async function buildTools(ctx: ToolContext): Promise<ToolDefinition[]> {
@@ -182,13 +205,78 @@ export async function buildTools(ctx: ToolContext): Promise<ToolDefinition[]> {
     );
   }
 
+  if (ctx.scheduleCreate && ctx.scheduleUpdate && ctx.scheduleDelete && ctx.scheduleList) {
+    tools.push(
+      {
+        type: 'function',
+        function: {
+          name: 'schedule_create',
+          description: 'Create a self-wakeup schedule. repeatCron accepts cron format or "none" for one-time execution. ',
+          parameters: {
+            type: 'object',
+            properties: {
+              startAt: { type: 'string', description: 'ISO datetime for first trigger, e.g. 2026-02-22T14:30:00+09:00' },
+              repeatCron: { type: 'string', description: 'Cron expression for repeat interval, or "none" for no repeat. ' },
+              memo: { type: 'string', description: 'Task memo to send to the AI when triggered.' },
+            },
+            required: ['startAt', 'repeatCron', 'memo'],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'schedule_update',
+          description: 'Update an existing schedule. Provide scheduleId and any fields to change.',
+          parameters: {
+            type: 'object',
+            properties: {
+              scheduleId: { type: 'string', description: 'Schedule ID to update.' },
+              startAt: { type: 'string', description: 'New start datetime (ISO).' },
+              repeatCron: { type: 'string', description: 'New cron expression, or "none".' },
+              memo: { type: 'string', description: 'New task memo.' },
+              enabled: { type: 'boolean', description: 'Enable/disable the schedule.' },
+            },
+            required: ['scheduleId'],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'schedule_delete',
+          description: 'Delete an existing schedule.',
+          parameters: {
+            type: 'object',
+            properties: {
+              scheduleId: { type: 'string', description: 'Schedule ID to delete.' },
+            },
+            required: ['scheduleId'],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'schedule_list',
+          description: 'List all schedules for this session with next trigger timestamps.',
+          parameters: {
+            type: 'object',
+            properties: {},
+            required: [],
+          },
+        },
+      }
+    );
+  }
+
   // Exec tool
   if (config.tools.exec) {
     tools.push({
       type: 'function',
       function: {
         name: 'exec',
-        description: 'Execute a shell command.',
+        description: `Execute a shell command. Current runtime OS: ${CURRENT_OS}.`,
         parameters: {
           type: 'object',
           properties: {
@@ -746,7 +834,7 @@ export async function buildTools(ctx: ToolContext): Promise<ToolDefinition[]> {
         type: 'function',
         function: {
           name: 'self_exec',
-          description: 'Execute a shell command in the project root directory (e.g., npm install, npx tsc).',
+          description: `Execute a shell command in the project root directory (e.g., npm install, npx tsc). Current runtime OS: ${CURRENT_OS}.`,
           parameters: {
             type: 'object',
             properties: {
@@ -889,6 +977,46 @@ export async function executeTool(
       if (!ctx.tmpMemory) return { success: false, output: 'Memory tool not available.' };
       ctx.tmpMemory.write('');
       return { success: true, output: 'TMP_MEMORY.md cleared.' };
+    }
+
+    case 'schedule_create': {
+      if (!ctx.scheduleCreate) return { success: false, output: 'Schedule tool not available.' };
+      const schedule = ctx.scheduleCreate({
+        startAt: args.startAt as string,
+        repeatCron: args.repeatCron as string,
+        memo: args.memo as string,
+      });
+      return { success: true, output: `Schedule created.\n${formatSchedule(schedule)}` };
+    }
+
+    case 'schedule_update': {
+      if (!ctx.scheduleUpdate) return { success: false, output: 'Schedule tool not available.' };
+      const schedule = ctx.scheduleUpdate(args.scheduleId as string, {
+        startAt: args.startAt as string | undefined,
+        repeatCron: args.repeatCron as string | undefined,
+        memo: args.memo as string | undefined,
+        enabled: args.enabled as boolean | undefined,
+      });
+      return { success: true, output: `Schedule updated.\n${formatSchedule(schedule)}` };
+    }
+
+    case 'schedule_delete': {
+      if (!ctx.scheduleDelete) return { success: false, output: 'Schedule tool not available.' };
+      const deleted = ctx.scheduleDelete(args.scheduleId as string);
+      if (!deleted) return { success: false, output: 'Schedule not found.' };
+      return { success: true, output: `Schedule deleted: ${args.scheduleId as string}` };
+    }
+
+    case 'schedule_list': {
+      if (!ctx.scheduleList) return { success: false, output: 'Schedule tool not available.' };
+      const schedules = ctx.scheduleList();
+      if (schedules.length === 0) {
+        return { success: true, output: 'No schedules registered.' };
+      }
+      const output = schedules
+        .map((s, i) => `${i + 1}. ${s.memo}\n${formatSchedule(s)}`)
+        .join('\n\n');
+      return { success: true, output };
     }
 
     case 'self_list':

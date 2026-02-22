@@ -101,11 +101,6 @@ export interface SessionConfig {
     web: boolean;
     memory: boolean;
   };
-  heartbeat: {
-    enabled: boolean;
-    interval: string;
-    activeHours?: { start: number; end: number };
-  };
   discord?: SessionDiscordConfig;
   context?: {
     compressionThreshold?: number;
@@ -129,11 +124,30 @@ export interface SessionState {
   config: SessionConfig;
   history: ChatMessage[];
   lastActivity: Date;
-  heartbeatJob?: NodeJS.Timeout;
+}
+
+export interface SessionSchedule {
+  id: string;
+  sessionId: string;
+  startAt: string;
+  repeatCron: string | null;
+  memo: string;
+  createdAt: string;
+  updatedAt: string;
+  lastRunAt?: string;
+  nextRunAt: string | null;
+  enabled: boolean;
+}
+
+export interface ScheduleUpsertInput {
+  startAt: string;
+  repeatCron?: string | null;
+  memo: string;
+  enabled?: boolean;
 }
 
 export interface DashboardEvent {
-  type: 'message' | 'tool_call' | 'tool_result' | 'heartbeat' | 'system' | 'memory_update' | 'stream' | 'connected';
+  type: 'message' | 'tool_call' | 'tool_result' | 'system' | 'memory_update' | 'stream' | 'connected';
   sessionId: string;
   data: unknown;
   timestamp: string;

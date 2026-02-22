@@ -25,11 +25,6 @@
         "web": true,
         "memory": true
       },
-      "heartbeat": {
-        "enabled": true,
-        "interval": "30m",
-        "activeHours": { "start": 8, "end": 22 }
-      },
       "context": {
         "compressionThreshold": 0.8,
         "keepRecentMessages": 20
@@ -56,10 +51,6 @@
         "exec": true,
         "web": true,
         "memory": true
-      },
-      "heartbeat": {
-        "enabled": false,
-        "interval": "1h"
       },
       "context": {
         "compressionThreshold": 0.75,

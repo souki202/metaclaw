@@ -1,8 +1,8 @@
 import fs from 'fs';
 import path from 'path';
-import type { Config, SessionConfig, ProviderConfig } from '../types.js';
+import type { Config, SessionConfig, ProviderConfig, ScheduleUpsertInput, SessionSchedule } from '../types.js';
 import { Agent, type EventCallback } from './agent.js';
-import { HeartbeatScheduler } from './heartbeat.js';
+import { ScheduleManager } from './schedule.js';
 import { createLogger } from '../logger.js';
 import { resolveProvider as resolveProviderConfig } from '../config.js';
 
@@ -14,7 +14,7 @@ function initWorkspace(workspace: string) {
   fs.mkdirSync(workspace, { recursive: true });
   fs.mkdirSync(path.join(workspace, 'memory'), { recursive: true });
 
-  const files = ['IDENTITY.md', 'USER.md', 'MEMORY.md', 'TMP_MEMORY.md', 'HEARTBEAT.md'];
+  const files = ['IDENTITY.md', 'USER.md', 'MEMORY.md', 'TMP_MEMORY.md'];
   for (const file of files) {
     const dest = path.join(workspace, file);
     if (!fs.existsSync(dest)) {
@@ -29,15 +29,16 @@ function initWorkspace(workspace: string) {
 
 export class SessionManager {
   private agents = new Map<string, Agent>();
-  private heartbeat = new HeartbeatScheduler();
+  private schedules = new ScheduleManager();
   private config: Config;
 
   constructor(config: Config) {
     this.config = config;
+    this.schedules.start();
   }
 
-  setHeartbeatNotificationHandler(fn: (n: { sessionId: string; message: string; timestamp: Date }) => void) {
-    this.heartbeat.setNotificationHandler(fn);
+  setScheduleTriggerHandler(fn: (trigger: { sessionId: string; schedule: SessionSchedule }) => Promise<void>) {
+    this.schedules.setTriggerHandler(fn);
   }
 
   startAll(onEvent?: EventCallback) {
@@ -50,8 +51,21 @@ export class SessionManager {
     const workspace = this.resolveWorkspace(sessionConfig);
     initWorkspace(workspace);
 
-    const agent = new Agent(sessionId, sessionConfig, workspace, onEvent, this.config);
+    const agent = new Agent(
+      sessionId,
+      sessionConfig,
+      workspace,
+      onEvent,
+      this.config,
+      {
+        list: () => this.getSchedules(sessionId),
+        create: (input) => this.createSchedule(sessionId, input),
+        update: (scheduleId, patch) => this.updateSchedule(sessionId, scheduleId, patch),
+        remove: (scheduleId) => this.deleteSchedule(sessionId, scheduleId),
+      }
+    );
     this.agents.set(sessionId, agent);
+    this.schedules.loadSession(sessionId, workspace);
     log.info(`Started session: ${sessionId} (workspace: ${workspace})`);
 
     const resumePath = path.join(workspace, '.resume');
@@ -72,15 +86,11 @@ export class SessionManager {
       }
     }
 
-    if (sessionConfig.heartbeat.enabled) {
-      this.heartbeat.schedule(agent, sessionConfig.heartbeat.interval);
-    }
-
     return agent;
   }
 
   stopSession(sessionId: string) {
-    this.heartbeat.cancel(sessionId);
+    this.schedules.unloadSession(sessionId);
     const agent = this.agents.get(sessionId);
     if (agent) {
       agent.stopMcpServers().catch(e => log.error(`Error stopping MCP servers for ${sessionId}:`, e));
@@ -112,7 +122,7 @@ export class SessionManager {
   }
 
   async stopAll() {
-    this.heartbeat.cancelAll();
+    this.schedules.stop();
     const promises = Array.from(this.agents.keys()).map(id => {
       const agent = this.agents.get(id);
       if (agent) {
@@ -165,5 +175,21 @@ export class SessionManager {
   // 現在の設定を取得
   getConfig(): Config {
     return this.config;
+  }
+
+  getSchedules(sessionId: string): SessionSchedule[] {
+    return this.schedules.list(sessionId);
+  }
+
+  createSchedule(sessionId: string, input: ScheduleUpsertInput): SessionSchedule {
+    return this.schedules.create(sessionId, input);
+  }
+
+  updateSchedule(sessionId: string, scheduleId: string, patch: Partial<ScheduleUpsertInput>): SessionSchedule {
+    return this.schedules.update(sessionId, scheduleId, patch);
+  }
+
+  deleteSchedule(sessionId: string, scheduleId: string): boolean {
+    return this.schedules.remove(sessionId, scheduleId);
   }
 }

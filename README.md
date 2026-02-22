@@ -14,7 +14,7 @@ A multi-session AI personal agent system with Discord integration, web dashboard
 - **Terminal Access** — AI can run shell commands (within the workspace)
 - **Self-modification** — (per-session opt-in) AI can read/modify its own source code and trigger a restart
 - **Context Compression** — Automatically summarizes old context when approaching the token limit
-- **Heartbeat** — AI runs on a schedule to check for tasks/reminders defined in `HEARTBEAT.md`
+- **Schedules** — AI can register one-time or recurring (cron) self-wakeup tasks with memo payloads
 
 ## Quick Start
 
@@ -67,9 +67,6 @@ This starts both the backend (SessionManager, Discord bots) and the Next.js dev 
 | `tools.exec` | Enable terminal access |
 | `tools.web` | Enable web fetch/search |
 | `tools.memory` | Enable long-term memory |
-| `heartbeat.enabled` | Enable periodic heartbeat |
-| `heartbeat.interval` | Heartbeat interval (`30m`, `1h`, `2h30m`) |
-| `heartbeat.activeHours` | Only run heartbeat between these hours |
 
 ### Using non-OpenAI providers
 
@@ -100,7 +97,7 @@ Each session has a workspace directory containing:
 | `IDENTITY.md` | Who the AI is — name, personality, operating principles |
 | `USER.md` | Information about you — preferences, timezone, projects |
 | `MEMORY.md` | Quick-reference memory loaded into every conversation |
-| `HEARTBEAT.md` | Instructions for periodic background tasks |
+| `schedules.json` | Registered self-wakeup schedules for the session |
 | `memory/vectors.json` | Long-term semantic memory (managed by AI) |
 | `history.jsonl` | Conversation history log |
 

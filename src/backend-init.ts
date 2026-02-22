@@ -1,6 +1,6 @@
 /**
  * バックエンド初期化モジュール
- * Next.js の instrumentation.ts から呼び出され、SessionManager・Discord・Heartbeat を起動する
+ * Next.js の instrumentation.ts から呼び出され、SessionManager・Discord を起動する
  * 再起動時は process.exit() を呼ばず、インプロセスで再初期化する
  */
 import 'dotenv/config';
@@ -95,18 +95,27 @@ export async function initializeBackend() {
     }
   }
 
-  // Heartbeat 通知 → Discord または ログ
-  sessions.setHeartbeatNotificationHandler(async ({ sessionId, message }) => {
-    logger.info(`Heartbeat alert from "${sessionId}": ${message.slice(0, 100)}`);
-    const sessionConfig = config.sessions[sessionId];
-    if (sessionConfig?.discord?.token && sessionConfig?.discord?.channels?.length) {
-      const token = sessionConfig.discord.token;
-      const bot = discordBots.get(token);
-      if (bot) {
-        const channelId = sessionConfig.discord.channels[0];
-        await bot.sendToChannel(channelId, `💓 **Heartbeat Alert** [${sessionId}]\n${message}`);
-      }
+  sessions.setScheduleTriggerHandler(async ({ sessionId, schedule }) => {
+    const agent = sessions.getAgent(sessionId);
+    if (!agent) return;
+
+    while (agent.isProcessing()) {
+      logger.info(`Session "${sessionId}" is busy. Waiting before running schedule ${schedule.id}.`);
+      await agent.waitForIdle();
     }
+
+    const schedulePrompt = [
+      '[SCHEDULE_TRIGGER] Registered schedule reached its time.',
+      `Schedule ID: ${schedule.id}`,
+      `Start At: ${schedule.startAt}`,
+      `Repeat: ${schedule.repeatCron ?? 'none'}`,
+      `Memo: ${schedule.memo}`,
+      '',
+      'Please execute this scheduled task now and continue as needed.',
+    ].join('\n');
+
+    logger.info(`Running schedule ${schedule.id} for session "${sessionId}"`);
+    await agent.processMessage(schedulePrompt, 'schedule');
   });
 
   // プロセスシグナルハンドラは一度だけ登録する（再登録するとリーク）

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Sidebar } from "./Sidebar";
 import { ChatArea } from "./ChatArea";
 import { RightPanel } from "./RightPanel";
@@ -24,6 +24,11 @@ export default function DashboardClient() {
   const [activeModal, setActiveModal] = useState<
     "none" | "global" | "session" | "new-session"
   >("none");
+  const currentSessionRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    currentSessionRef.current = currentSession;
+  }, [currentSession]);
 
   const loadSessions = async () => {
     try {
@@ -58,13 +63,11 @@ export default function DashboardClient() {
           const event = JSON.parse(e.data);
           if (event.type === "connected") return;
 
+          if (!event.sessionId || event.sessionId !== currentSessionRef.current) {
+            return;
+          }
+
           setMessages((prev) => {
-            // Only process events for the current active session
-            // We use functional updates to ensure we have the latest state,
-            // but we need to check if event.sessionId matches the currently selected one.
-            // A small hack: we check currentSession reference via a ref if needed,
-            // but here we just process all and filter on render or let the effects handle it.
-            // Actually, EventSource passes sessionId. We'll handle state update carefully.
             return processEvent(prev, event);
           });
         } catch (err) {
@@ -151,21 +154,13 @@ export default function DashboardClient() {
         event.data.role === "user" &&
         event.data.channelId !== "dashboard"
       ) {
+        setIsThinking(true);
         newMsgs.push({
           role: "user",
           content: event.data.content,
           imageUrls: event.data.imageUrls,
         });
       }
-    } else if (event.type === "heartbeat") {
-      newMsgs.push({
-        toolEvents: [
-          {
-            text: `💓 Heartbeat: ${event.data.response?.slice(0, 100)}`,
-            success: true,
-          },
-        ],
-      });
     } else if (event.type === "cancelled") {
       setIsThinking(false);
     }

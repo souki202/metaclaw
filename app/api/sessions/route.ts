@@ -51,7 +51,6 @@ export async function POST(request: Request) {
       restrictToWorkspace: body.restrictToWorkspace ?? true,
       allowSelfModify: body.allowSelfModify ?? false,
       tools: body.tools || { exec: true, web: true, memory: true },
-      heartbeat: body.heartbeat || { enabled: false, interval: '0 */2 * * *' },
       discord: body.discord,
     };
 

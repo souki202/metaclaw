@@ -139,7 +139,7 @@ export async function setupApiRoutes(
       return true;
     }
 
-    const allowed = ['IDENTITY.md', 'USER.md', 'MEMORY.md', 'HEARTBEAT.md'];
+    const allowed = ['IDENTITY.md', 'USER.md', 'MEMORY.md'];
     const filename = getFileMatch.params.filename;
     if (!allowed.includes(filename)) {
       sendJson(res, { error: 'Not allowed' }, 403);
@@ -164,7 +164,7 @@ export async function setupApiRoutes(
       return true;
     }
 
-    const allowed = ['IDENTITY.md', 'USER.md', 'MEMORY.md', 'HEARTBEAT.md'];
+    const allowed = ['IDENTITY.md', 'USER.md', 'MEMORY.md'];
     const filename = putFileMatch.params.filename;
     if (!allowed.includes(filename)) {
       sendJson(res, { error: 'Not allowed' }, 403);
@@ -311,7 +311,6 @@ export async function setupApiRoutes(
         restrictToWorkspace: body.restrictToWorkspace ?? true,
         allowSelfModify: body.allowSelfModify ?? false,
         tools: body.tools || { exec: true, web: true, memory: true },
-        heartbeat: body.heartbeat || { enabled: false, interval: '0 */2 * * *' },
         discord: body.discord,
       };
 

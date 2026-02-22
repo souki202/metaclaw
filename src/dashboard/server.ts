@@ -88,7 +88,7 @@ export class DashboardServer {
       const agent = this.sessions.getAgent(req.params.id);
       if (!agent) return res.status(404).json({ error: 'Session not found' });
 
-      const allowed = ['IDENTITY.md', 'USER.md', 'MEMORY.md', 'HEARTBEAT.md'];
+      const allowed = ['IDENTITY.md', 'USER.md', 'MEMORY.md'];
       const filename = req.params.filename;
       if (!allowed.includes(filename)) return res.status(403).json({ error: 'Not allowed' });
 
@@ -102,7 +102,7 @@ export class DashboardServer {
       const agent = this.sessions.getAgent(req.params.id);
       if (!agent) return res.status(404).json({ error: 'Session not found' });
 
-      const allowed = ['IDENTITY.md', 'USER.md', 'MEMORY.md', 'HEARTBEAT.md'];
+      const allowed = ['IDENTITY.md', 'USER.md', 'MEMORY.md'];
       const filename = req.params.filename;
       if (!allowed.includes(filename)) return res.status(403).json({ error: 'Not allowed' });
 
@@ -217,7 +217,6 @@ export class DashboardServer {
           restrictToWorkspace: req.body.restrictToWorkspace ?? true,
           allowSelfModify: req.body.allowSelfModify ?? false,
           tools: req.body.tools || { exec: true, web: true, memory: true },
-          heartbeat: req.body.heartbeat || { enabled: false, interval: '0 */2 * * *' },
           discord: req.body.discord,
         };
         

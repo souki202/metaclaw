@@ -42,6 +42,11 @@ export function loadConfig(): Config {
          session.provider = { ...DEFAULT_PROVIDER };
        }
     }
+
+    const mutableSession = session as unknown as { heartbeat?: unknown };
+    if ('heartbeat' in mutableSession) {
+      delete mutableSession.heartbeat;
+    }
   }
   
   // Clean up old environments field
@@ -77,10 +82,6 @@ function createDefaultConfig(): Config {
           exec: true,
           web: true,
           memory: true,
-        },
-        heartbeat: {
-          enabled: false,
-          interval: '0 */2 * * *',
         },
       }
     },
