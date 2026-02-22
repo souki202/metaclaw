@@ -171,9 +171,43 @@ export default function DashboardClient() {
     try {
       const res = await fetch(`/api/sessions/${id}/history`);
       const history = await res.json();
-      const formatted = history
-        .filter((m: any) => m.role === "user" || m.role === "assistant")
-        .map((m: any) => ({ role: m.role, content: m.content }));
+
+      const formatted: any[] = [];
+      let currentToolEvents: any[] | null = null;
+
+      for (const m of history) {
+        if (m.role === "user") {
+          formatted.push({ role: "user", content: m.content });
+          currentToolEvents = null;
+        } else if (
+          m.role === "assistant" &&
+          m.tool_calls &&
+          m.tool_calls.length > 0
+        ) {
+          const names = m.tool_calls
+            .map((t: any) => t.function.name)
+            .join(", ");
+          currentToolEvents = [{ text: `⚙ ${names}`, success: null }];
+          formatted.push({ toolEvents: currentToolEvents });
+          if (m.content) {
+            formatted.push({ role: "assistant", content: m.content });
+          }
+        } else if (m.role === "tool") {
+          if (!currentToolEvents) {
+            currentToolEvents = [];
+            formatted.push({ toolEvents: currentToolEvents });
+          }
+          const isError = m.content?.startsWith("Error: ");
+          const ok = !isError;
+          const contentSlice = m.content ? m.content.slice(0, 100) : "";
+          const textToAppend = `${ok ? "✓" : "✗"} ${m.name}: ${contentSlice}`;
+          currentToolEvents.push({ text: textToAppend, success: ok });
+        } else if (m.role === "assistant" && m.content) {
+          formatted.push({ role: "assistant", content: m.content });
+          currentToolEvents = null;
+        }
+      }
+
       setMessages(formatted);
     } catch (e) {
       console.error("Failed to load history", e);

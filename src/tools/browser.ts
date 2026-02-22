@@ -1,8 +1,5 @@
 import type { ToolResult } from '../types.js';
 import puppeteer, { Browser, Page, BrowserContext, KeyInput } from 'puppeteer';
-import path from 'path';
-import os from 'os';
-import fs from 'fs';
 
 // Browser session management
 let browser: Browser | null = null;
@@ -12,54 +9,17 @@ let currentPageId: string | null = null;
 
 async function ensureBrowser(): Promise<Browser> {
   if (!browser) {
-    // Windows対応: chrome-headless-shellのパスを明示的に使用
-    let executablePath: string | undefined;
-    const platform = os.platform();
-    const cacheDir = path.join(os.homedir(), '.cache', 'puppeteer');
-    
-    // chrome-headless-shellを探す
-    const headlessShellBase = path.join(cacheDir, 'chrome-headless-shell');
-    let headlessShellDir = '';
-    
-    try {
-      const dirs = fs.readdirSync(headlessShellBase);
-      const sysPlatform = platform === 'darwin' ? 'mac' : platform === 'win32' ? 'win64' : platform;
-      const targetDir = dirs.find((d: string) => d.startsWith(sysPlatform));
-      if (targetDir) {
-        const prefix = targetDir.split('-')[0];
-        headlessShellDir = path.join(headlessShellBase, targetDir, `chrome-headless-shell-${prefix}`);
-      }
-    } catch {
-      // ディレクトリが見つからない
-    }
-    
-    if (platform === 'win32') {
-      executablePath = path.join(headlessShellDir, 'chrome-headless-shell.exe');
-    } else {
-      executablePath = path.join(headlessShellDir, 'chrome-headless-shell');
-    }
-    
-    // ファイルが存在するか確認
-    if (!fs.existsSync(executablePath)) {
-      // puppeteerのデフォルトのexecutablePathを使用
-      try {
-        executablePath = puppeteer.executablePath();
-      } catch {
-        // 何もしない - executablePathはundefinedのまま
-      }
-    }
-    
     browser = await puppeteer.launch({
-      headless: true,
-      executablePath,
+      headless: false,
+      defaultViewport: null,
+      channel: 'chrome',
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
         '--disable-accelerated-2d-canvas',
         '--no-first-run',
-        '--no-zygote',
-        '--disable-gpu',
+        '--start-maximized',
       ],
     });
     
@@ -100,8 +60,8 @@ export async function browserNavigate(url: string): Promise<ToolResult> {
     const ctx = await ensureContext();
     const page = await ctx.newPage();
     
-    // Set viewport
-    await page.setViewport({ width: 1280, height: 720 });
+    // Set viewport (disabled in headful mode to allow responsive window sizing)
+    // await page.setViewport({ width: 1280, height: 720 });
     
     // Set user agent
     await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
