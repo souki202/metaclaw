@@ -115,10 +115,13 @@ export default function DashboardClient() {
       }
     } else if (event.type === "stream") {
       setIsThinking(true);
-      // Append to the last message if it's streaming, otherwise create new
-      const lastMsg = newMsgs[newMsgs.length - 1];
+      const lastIdx = newMsgs.length - 1;
+      const lastMsg = newMsgs[lastIdx];
       if (lastMsg && lastMsg.isStreaming && lastMsg.role === "assistant") {
-        lastMsg.content += event.data.chunk;
+        newMsgs[lastIdx] = {
+          ...lastMsg,
+          content: lastMsg.content + event.data.chunk,
+        };
       } else {
         newMsgs.push({
           role: "assistant",
@@ -128,11 +131,19 @@ export default function DashboardClient() {
       }
     } else if (event.type === "message" && event.data.role === "assistant") {
       setIsThinking(false);
-      // Replace streaming message with final
-      const lastMsg = newMsgs[newMsgs.length - 1];
-      if (lastMsg && lastMsg.isStreaming) {
-        lastMsg.isStreaming = false;
-        lastMsg.content = event.data.content;
+      let streamIdx = -1;
+      for (let i = newMsgs.length - 1; i >= 0; i--) {
+        if (newMsgs[i].role === "assistant" && newMsgs[i].isStreaming) {
+          streamIdx = i;
+          break;
+        }
+      }
+      if (streamIdx !== -1) {
+        newMsgs[streamIdx] = {
+          ...newMsgs[streamIdx],
+          isStreaming: false,
+          content: event.data.content,
+        };
       } else {
         newMsgs.push({ role: "assistant", content: event.data.content });
       }

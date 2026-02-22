@@ -169,6 +169,26 @@ export const GlobalSettingsModal = ({ onClose, onSave }: any) => {
   );
 };
 
+const MCP_TEMPLATES: any = {
+  custom: { id: "", command: "npx", args: "" },
+  figma: { id: "figma", command: "npx", args: "-y\nfigma-developer-mcp" },
+  filesystem: {
+    id: "filesystem",
+    command: "npx",
+    args: "-y\n@modelcontextprotocol/server-filesystem\nC:\\path\\to\\dir",
+  },
+  "brave-search": {
+    id: "brave-search",
+    command: "npx",
+    args: "-y\n@modelcontextprotocol/server-brave-search",
+  },
+  github: {
+    id: "github",
+    command: "npx",
+    args: "-y\n@modelcontextprotocol/server-github",
+  },
+};
+
 // -------- Session Settings Modal --------
 export const SessionSettingsModal = ({
   sessionId,
@@ -181,16 +201,23 @@ export const SessionSettingsModal = ({
   const [mcpConfig, setMcpConfig] = useState<Record<string, McpServerConfig>>(
     {},
   );
+  const [mcpFormVisible, setMcpFormVisible] = useState(false);
+  const [mcpForm, setMcpForm] = useState({ id: "", command: "npx", args: "" });
+  const [mcpEditId, setMcpEditId] = useState<string | null>(null);
+
+  const loadMcp = () => {
+    fetch(`/api/sessions/${sessionId}/mcp`)
+      .then((r) => r.json())
+      .then(setMcpConfig)
+      .catch(() => {});
+  };
 
   useEffect(() => {
     if (!sessionId) return;
     fetch(`/api/sessions/${sessionId}/config`)
       .then((r) => r.json())
       .then(setConfig);
-    fetch(`/api/sessions/${sessionId}/mcp`)
-      .then((r) => r.json())
-      .then(setMcpConfig)
-      .catch(() => {});
+    loadMcp();
   }, [sessionId]);
 
   const handleSave = async () => {
@@ -200,6 +227,89 @@ export const SessionSettingsModal = ({
       body: JSON.stringify(config),
     });
     onSave();
+  };
+
+  const handleToggleMcp = async (id: string, enabled: boolean) => {
+    await fetch(`/api/sessions/${sessionId}/mcp/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled }),
+    });
+    if (enabled) {
+      fetch(`/api/sessions/${sessionId}/mcp/${id}/restart`, {
+        method: "POST",
+      }).catch(() => {});
+    }
+    loadMcp();
+  };
+
+  const handleRestartMcp = async (id: string) => {
+    await fetch(`/api/sessions/${sessionId}/mcp/${id}/restart`, {
+      method: "POST",
+    });
+  };
+
+  const handleDeleteMcp = async (id: string) => {
+    if (!confirm(`Delete MCP server "${id}"?`)) return;
+    await fetch(`/api/sessions/${sessionId}/mcp/${id}`, { method: "DELETE" });
+    loadMcp();
+  };
+
+  const handleEditMcp = (id: string) => {
+    const cfg = mcpConfig[id];
+    setMcpEditId(id);
+    setMcpForm({
+      id,
+      command: cfg.command || "",
+      args: (cfg.args || []).join("\n"),
+    });
+    setMcpFormVisible(true);
+  };
+
+  const handleAddMcp = () => {
+    setMcpEditId(null);
+    setMcpForm({ id: "", command: "npx", args: "" });
+    setMcpFormVisible(true);
+  };
+
+  const handleSaveMcp = async () => {
+    const { id, command, args } = mcpForm;
+    if (!id || !command) return alert("ID and Command required");
+    const argsArray = args
+      .split("\n")
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    if (mcpEditId) {
+      await fetch(`/api/sessions/${sessionId}/mcp/${mcpEditId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ command, args: argsArray }),
+      });
+      fetch(`/api/sessions/${sessionId}/mcp/${mcpEditId}/restart`, {
+        method: "POST",
+      }).catch(() => {});
+    } else {
+      await fetch(`/api/sessions/${sessionId}/mcp`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, command, args: argsArray, enabled: true }),
+      });
+      fetch(`/api/sessions/${sessionId}/mcp/${id}/restart`, {
+        method: "POST",
+      }).catch(() => {});
+    }
+    setMcpFormVisible(false);
+    loadMcp();
+  };
+
+  const handleTemplateChange = (e: any) => {
+    const tpl = MCP_TEMPLATES[e.target.value];
+    if (tpl && e.target.value !== "custom") {
+      setMcpForm({ id: tpl.id, command: tpl.command, args: tpl.args });
+    } else {
+      setMcpForm({ id: "", command: "npx", args: "" });
+    }
   };
 
   const setNested = (path: string[], value: any) => {
@@ -348,21 +458,172 @@ export const SessionSettingsModal = ({
           )}
 
           {tab === "mcp" && (
-            <div className="env-list">
-              {Object.keys(mcpConfig).length === 0 ? (
-                <div className="empty">No MCP servers</div>
-              ) : (
-                Object.entries(mcpConfig).map(([id, cfg]) => (
-                  <div key={id} className="env-item">
-                    <div className="env-info">
-                      <div className="env-name">{id}</div>
-                      <div className="env-detail mono">
-                        {cfg.command} {cfg.args?.join(" ")}
-                      </div>
+            <div>
+              <div className="settings-title">
+                MCP Servers
+                <button className="btn add-btn" onClick={handleAddMcp}>
+                  + Add Server
+                </button>
+              </div>
+
+              {mcpFormVisible && (
+                <div
+                  style={{
+                    marginBottom: 16,
+                    background: "var(--surface2)",
+                    padding: 16,
+                    border: "1px solid var(--border)",
+                    borderRadius: "var(--radius)",
+                  }}
+                >
+                  {!mcpEditId && (
+                    <div className="form-group">
+                      <label className="form-label">Template</label>
+                      <select
+                        className="form-input"
+                        onChange={handleTemplateChange}
+                      >
+                        <option value="custom">Custom (blank)</option>
+                        <option value="figma">Figma</option>
+                        <option value="filesystem">Filesystem</option>
+                        <option value="brave-search">Brave Search</option>
+                        <option value="github">GitHub</option>
+                      </select>
+                    </div>
+                  )}
+                  <div className="form-row">
+                    <div className="form-group" style={{ flex: "0 0 140px" }}>
+                      <label className="form-label">Server ID</label>
+                      <input
+                        className="form-input mono"
+                        value={mcpForm.id}
+                        onChange={(e) =>
+                          setMcpForm({ ...mcpForm, id: e.target.value })
+                        }
+                        disabled={!!mcpEditId}
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Command</label>
+                      <input
+                        className="form-input mono"
+                        value={mcpForm.command}
+                        onChange={(e) =>
+                          setMcpForm({ ...mcpForm, command: e.target.value })
+                        }
+                      />
                     </div>
                   </div>
-                ))
+                  <div className="form-group">
+                    <label className="form-label">
+                      Arguments (one per line)
+                    </label>
+                    <textarea
+                      className="file-editor"
+                      value={mcpForm.args}
+                      onChange={(e) =>
+                        setMcpForm({ ...mcpForm, args: e.target.value })
+                      }
+                      rows={3}
+                      style={{ minHeight: 56 }}
+                      spellCheck="false"
+                    />
+                  </div>
+                  <div
+                    style={{
+                      display: "flex",
+                      gap: 8,
+                      justifyContent: "flex-end",
+                    }}
+                  >
+                    <button
+                      className="btn"
+                      onClick={() => setMcpFormVisible(false)}
+                    >
+                      Cancel
+                    </button>
+                    <button className="btn primary" onClick={handleSaveMcp}>
+                      {mcpEditId ? "Save Changes" : "Add Server"}
+                    </button>
+                  </div>
+                </div>
               )}
+
+              <div className="env-list">
+                {Object.keys(mcpConfig).length === 0 ? (
+                  <div className="empty">No MCP servers</div>
+                ) : (
+                  Object.entries(mcpConfig).map(([id, cfg]) => (
+                    <div
+                      key={id}
+                      className="env-item"
+                      style={{
+                        flexDirection: "column",
+                        alignItems: "stretch",
+                        gap: 8,
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "flex-start",
+                          gap: 12,
+                        }}
+                      >
+                        <div className="env-info" style={{ flex: 1 }}>
+                          <div className="env-name">{id}</div>
+                          <div className="env-detail mono">
+                            {cfg.command}{" "}
+                            {cfg.args
+                              ?.map((a) =>
+                                a.includes(" ") && !a.startsWith('"')
+                                  ? `"${a}"`
+                                  : a,
+                              )
+                              .join(" ")}
+                          </div>
+                        </div>
+                        <div
+                          className="env-actions"
+                          style={{ flexShrink: 0, display: "flex", gap: 4 }}
+                        >
+                          <button
+                            className="btn"
+                            onClick={() => handleEditMcp(id)}
+                            title="Edit"
+                          >
+                            ✎
+                          </button>
+                          <button
+                            className="btn"
+                            onClick={() => handleRestartMcp(id)}
+                            title="Restart"
+                            disabled={cfg.enabled === false}
+                          >
+                            ↻
+                          </button>
+                          <button
+                            className="btn"
+                            onClick={() =>
+                              handleToggleMcp(id, cfg.enabled === false)
+                            }
+                            title={cfg.enabled !== false ? "Disable" : "Enable"}
+                          >
+                            {cfg.enabled !== false ? "⏸" : "▶"}
+                          </button>
+                          <button
+                            className="btn danger"
+                            onClick={() => handleDeleteMcp(id)}
+                            title="Delete"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
           )}
         </div>
