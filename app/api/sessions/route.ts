@@ -38,10 +38,15 @@ export async function POST(request: Request) {
       return badRequest('Session already exists');
     }
 
+    let baseSession: SessionConfig | undefined;
+    if (body.copyFrom && config.sessions[body.copyFrom]) {
+      baseSession = JSON.parse(JSON.stringify(config.sessions[body.copyFrom]));
+    }
+
     const newSession: SessionConfig = {
-      name: body.name || sessionId,
-      description: body.description,
-      provider: body.provider || {
+      name: body.name || (baseSession ? `${baseSession.name} (Copy)` : sessionId),
+      description: body.description || baseSession?.description,
+      provider: body.provider || baseSession?.provider || {
         endpoint: 'https://api.openai.com/v1',
         apiKey: '',
         model: 'gpt-4o',
@@ -49,10 +54,12 @@ export async function POST(request: Request) {
         contextWindow: 128000,
       },
       workspace: body.workspace || `./data/sessions/${sessionId}`,
-      restrictToWorkspace: body.restrictToWorkspace ?? true,
-      allowSelfModify: body.allowSelfModify ?? false,
-      tools: body.tools || { exec: true, web: true, memory: true },
-      discord: body.discord,
+      restrictToWorkspace: body.restrictToWorkspace ?? baseSession?.restrictToWorkspace ?? true,
+      allowSelfModify: body.allowSelfModify ?? baseSession?.allowSelfModify ?? false,
+      tools: body.tools || baseSession?.tools || { exec: true, web: true, memory: true },
+      discord: body.discord || baseSession?.discord,
+      mcpServers: baseSession?.mcpServers,
+      disabledTools: baseSession?.disabledTools,
     };
 
     setSession(config, sessionId, newSession);
