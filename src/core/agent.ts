@@ -264,11 +264,14 @@ export class Agent {
       let streamBuffer = '';
       const response = await this.provider.chat(messages, tools, (chunk) => {
         streamBuffer += chunk;
+        this.emit('stream', { chunk });
       });
 
       messages.push(response);
       this.history.push(response);
       this.saveHistory(response);
+
+      let shouldRestart = false;
 
       if (response.tool_calls && response.tool_calls.length > 0) {
         this.log.info(`Tool calls: ${response.tool_calls.map((t) => t.function.name).join(', ')}`);
@@ -286,6 +289,28 @@ export class Agent {
           this.log.debug(`Tool ${tc.function.name}: ${result.success ? 'ok' : 'error'} - ${result.output.slice(0, 100)}`);
           this.emit('tool_result', { tool: tc.function.name, success: result.success, output: result.output.slice(0, 500) });
 
+          if (result.output === "__META_CLAW_RESTART__") {
+            const toolMsg: ChatMessage = {
+              role: 'tool',
+              tool_call_id: tc.id,
+              name: tc.function.name,
+              content: "Server restarting... The system will reboot and you will resume this task.",
+            };
+            messages.push(toolMsg);
+            this.history.push(toolMsg);
+            this.saveHistory(toolMsg);
+            
+            // Drop resume marker
+            const resumePath = path.join(this.workspace, '.resume');
+            fs.writeFileSync(resumePath, 'resume', 'utf-8');
+
+            // Set final response and break
+            finalResponse = "Rebooting system... Please wait.";
+            shouldRestart = true;
+            process.emit('meta-claw-restart' as any);
+            break;
+          }
+
           const toolMsg: ChatMessage = {
             role: 'tool',
             tool_call_id: tc.id,
@@ -298,6 +323,10 @@ export class Agent {
         }
       } else {
         finalResponse = response.content ?? '';
+        break;
+      }
+
+      if (shouldRestart) {
         break;
       }
     }

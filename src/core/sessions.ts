@@ -54,6 +54,24 @@ export class SessionManager {
     this.agents.set(sessionId, agent);
     log.info(`Started session: ${sessionId} (workspace: ${workspace})`);
 
+    const resumePath = path.join(workspace, '.resume');
+    if (fs.existsSync(resumePath)) {
+      try {
+        fs.unlinkSync(resumePath);
+        log.info(`Detected .resume marker for session ${sessionId}. Resuming AI interaction.`);
+        setTimeout(() => {
+          agent.processMessage(
+            "SYSTEM: The server has successfully rebooted following your restart command. Please verify your changes and continue your previous task.",
+            'system'
+          ).catch(e => {
+            log.error(`Failed to resume session ${sessionId}:`, e);
+          });
+        }, 8000);
+      } catch (e) {
+        log.error(`Failed to handle .resume for session ${sessionId}:`, e);
+      }
+    }
+
     if (sessionConfig.heartbeat.enabled) {
       this.heartbeat.schedule(agent, sessionConfig.heartbeat.interval);
     }

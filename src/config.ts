@@ -123,7 +123,6 @@ export function resolveProvider(sessionConfig: SessionConfig, config: Config): P
 }
 
 export function reloadConfig(): Config {
-  delete require.cache[require.resolve(CONFIG_PATH)];
   return loadConfig();
 }
 

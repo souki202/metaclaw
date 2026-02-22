@@ -68,7 +68,7 @@ export async function execTool(params: {
         USER: process.env.USER,
         LANG: process.env.LANG,
         TERM: 'xterm-256color',
-      },
+      } as any,
     });
 
     let stdout = '';

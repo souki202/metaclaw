@@ -76,16 +76,10 @@ export function selfList(subDir?: string): ToolResult {
   return { success: true, output: walk(target).join('\n') };
 }
 
-export function selfRestart(reason?: string): never {
+export function selfRestart(reason?: string): ToolResult {
   console.log(`[self-modify] Restart triggered${reason ? `: ${reason}` : ''}.`);
-  // Use custom event for graceful shutdown instead of hard exit
-  process.emit('meta-claw-restart' as any);
-  
-  // Fallback in case the listener fails
-  setTimeout(() => process.exit(75), 5000);
-  
-  // TypeScript requires never return
-  throw new Error('unreachable');
+  // Special return value handled by the agent loop
+  return { success: true, output: "__META_CLAW_RESTART__" };
 }
 
 export function readConfigFile(): ToolResult {

@@ -1,0 +1,3 @@
+﻿src/tools/exec.ts(61,34): error TS2769: No overload matches this call.
+  The last overload gave the following error.
+    Type 'string[]' has no properties in common with type 'ExecFileOptions'.

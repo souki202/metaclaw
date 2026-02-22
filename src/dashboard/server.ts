@@ -328,7 +328,7 @@ export class DashboardServer {
     });
 
     // API: MCPサーバー更新
-    this.app.put('/api/sessions/:id/mcp/:serverId', (req, res) => {
+    this.app.put('/api/sessions/:id/mcp/:serverId', async (req, res) => {
       try {
         const config = this.loadCurrentConfig();
         const session = config.sessions[req.params.id];
@@ -343,6 +343,21 @@ export class DashboardServer {
         };
 
         saveConfig(config);
+
+        // If enabled was set to false, stop the running MCP server process
+        if (req.body.enabled === false) {
+          const agent = this.sessions.getAgent(req.params.id);
+          if (agent) {
+            log.info(`Stopping MCP server "${req.params.serverId}" (disabled by user)...`);
+            try {
+              await agent.getMcpManager().stopServer(req.params.serverId);
+              log.info(`MCP server "${req.params.serverId}" stopped successfully.`);
+            } catch (e) {
+              log.warn(`Failed to stop MCP server "${req.params.serverId}":`, e);
+            }
+          }
+        }
+
         res.json({ ok: true, server: session.mcpServers[req.params.serverId] });
       } catch (e: unknown) {
         res.status(500).json({ error: (e as Error).message });

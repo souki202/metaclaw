@@ -499,7 +499,7 @@ export async function buildTools(ctx: ToolContext): Promise<ToolDefinition[]> {
         type: 'function',
         function: {
           name: 'self_restart',
-          description: 'Restart meta-claw to apply self-modifications. All sessions will restart.',
+          description: 'Restart meta-claw to apply self-modifications. All sessions will restart. NOTE: With Next.js hot reload, this is only needed for changes that cannot be hot-reloaded (npm install, config changes, native module updates). Regular code changes in src/ or app/ are hot-reloaded automatically.',
           parameters: {
             type: 'object',
             properties: {
@@ -522,7 +522,7 @@ export async function buildTools(ctx: ToolContext): Promise<ToolDefinition[]> {
         type: 'function',
         function: {
           name: 'git_status',
-          description: 'Show git working tree status.',
+          description: 'Show git working tree status of the AI system\'s own repository (meta-claw).',
           parameters: { type: 'object', properties: {}, required: [] },
         },
       },
@@ -530,7 +530,7 @@ export async function buildTools(ctx: ToolContext): Promise<ToolDefinition[]> {
         type: 'function',
         function: {
           name: 'git_diff',
-          description: 'Show unstaged changes. Optionally filter by path.',
+          description: 'Show unstaged changes in the AI system\'s own repository. Optionally filter by path.',
           parameters: {
             type: 'object',
             properties: {
@@ -544,7 +544,7 @@ export async function buildTools(ctx: ToolContext): Promise<ToolDefinition[]> {
         type: 'function',
         function: {
           name: 'git_diff_staged',
-          description: 'Show staged (cached) changes. Optionally filter by path.',
+          description: 'Show staged (cached) changes in the AI system\'s own repository. Optionally filter by path.',
           parameters: {
             type: 'object',
             properties: {
@@ -558,7 +558,7 @@ export async function buildTools(ctx: ToolContext): Promise<ToolDefinition[]> {
         type: 'function',
         function: {
           name: 'git_log',
-          description: 'Show recent commit history.',
+          description: 'Show recent commit history of the AI system\'s own repository.',
           parameters: {
             type: 'object',
             properties: {
@@ -572,7 +572,7 @@ export async function buildTools(ctx: ToolContext): Promise<ToolDefinition[]> {
         type: 'function',
         function: {
           name: 'git_commit',
-          description: 'Stage all changes and commit with a message.',
+          description: 'Stage all changes and commit to the AI system\'s own repository with a message.',
           parameters: {
             type: 'object',
             properties: {
@@ -586,7 +586,7 @@ export async function buildTools(ctx: ToolContext): Promise<ToolDefinition[]> {
         type: 'function',
         function: {
           name: 'git_branch',
-          description: 'List all branches (local and remote).',
+          description: 'List all branches (local and remote) of the AI system\'s own repository.',
           parameters: { type: 'object', properties: {}, required: [] },
         },
       },
@@ -594,7 +594,7 @@ export async function buildTools(ctx: ToolContext): Promise<ToolDefinition[]> {
         type: 'function',
         function: {
           name: 'git_checkout',
-          description: 'Switch to a branch or restore files.',
+          description: 'Switch to a branch or restore files in the AI system\'s own repository.',
           parameters: {
             type: 'object',
             properties: {
@@ -608,7 +608,7 @@ export async function buildTools(ctx: ToolContext): Promise<ToolDefinition[]> {
         type: 'function',
         function: {
           name: 'git_stash',
-          description: 'Stash changes. Actions: push (default), pop, list, drop, apply, show.',
+          description: 'Stash changes in the AI system\'s own repository. Actions: push (default), pop, list, drop, apply, show.',
           parameters: {
             type: 'object',
             properties: {
@@ -623,7 +623,7 @@ export async function buildTools(ctx: ToolContext): Promise<ToolDefinition[]> {
         type: 'function',
         function: {
           name: 'git_reset',
-          description: 'Reset current HEAD to a commit. Use for reverting changes.',
+          description: 'Reset current HEAD of the AI system\'s own repository to a commit. Use for reverting changes.',
           parameters: {
             type: 'object',
             properties: {
@@ -638,7 +638,7 @@ export async function buildTools(ctx: ToolContext): Promise<ToolDefinition[]> {
         type: 'function',
         function: {
           name: 'git_push',
-          description: 'Push commits to remote repository.',
+          description: 'Push commits from the AI system\'s own repository to remote repository.',
           parameters: {
             type: 'object',
             properties: {
@@ -653,7 +653,7 @@ export async function buildTools(ctx: ToolContext): Promise<ToolDefinition[]> {
         type: 'function',
         function: {
           name: 'git_pull',
-          description: 'Pull changes from remote repository.',
+          description: 'Pull changes for the AI system\'s own repository from remote repository.',
           parameters: {
             type: 'object',
             properties: {

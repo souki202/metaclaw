@@ -7,3 +7,6 @@ data/
 
 .agents/
 .claude/
+# Next.js
+.next/
+out/

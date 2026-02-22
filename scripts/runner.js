@@ -29,6 +29,7 @@ let restartDebounce = null;
 function setupWatcher() {
   if (fileWatcher) return;
   try {
+    // Watch src/ directory for backend code changes
     fileWatcher = fs.watch(
       path.join(ROOT, "src"),
       { recursive: true },
@@ -37,7 +38,7 @@ function setupWatcher() {
           if (restartDebounce) clearTimeout(restartDebounce);
           restartDebounce = setTimeout(() => {
             console.log(
-              `\n[runner] Detected change in ${filename}. Hot-reloading...`,
+              `\n[runner] Detected change in src/${filename}. Hot-reloading...`,
             );
             if (currentChild) {
               currentChild.killedForReload = true;
@@ -47,7 +48,8 @@ function setupWatcher() {
         }
       },
     );
-    console.log("[runner] Hot-reload watcher started for src/");
+    console.log("[runner] Hot-reload watcher started for src/ directory");
+    console.log("[runner] Note: Next.js handles app/ directory hot-reload automatically");
   } catch (err) {
     console.error("[runner] Failed to start watcher:", err);
   }

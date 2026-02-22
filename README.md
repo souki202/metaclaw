@@ -26,11 +26,24 @@ npm install
 cp config.example.json config.json
 # Edit config.json with your API key and settings
 
-# 3. Start
+# 3. Start (production)
 npm start
+
+# Or for development with Next.js hot reload
+npm run dev
 ```
 
-The dashboard will be at `http://localhost:8080`.
+The dashboard will be at `http://localhost:8080` (or the port configured in `config.json`).
+
+## Development Mode
+
+For development with Next.js hot module reloading:
+
+```bash
+npm run dev
+```
+
+This starts both the backend (SessionManager, Discord bots) and the Next.js dev server. See [NEXTJS_DEV_MODE.md](NEXTJS_DEV_MODE.md) for details.
 
 ## Configuration
 
@@ -104,6 +117,19 @@ When `allowSelfModify: true` is set, the AI gains access to:
 - `self_restart` — Restart meta-claw to apply changes
 
 The restart mechanism: when `self_restart` is called, the process exits with code `75`. The `scripts/runner.js` wrapper detects this and restarts the process automatically.
+
+### Hot Reload vs Restart
+
+With the Next.js-based architecture, hot reload automatically applies changes to:
+- **Backend code** in `src/` directory (TypeScript files)
+- **Frontend code** in `app/` directory (React components)
+
+**You should only use `self_restart` (or `npm restart`) for changes that cannot be hot-reloaded**, such as:
+- **Package installations** (`npm install`)
+- **Configuration changes** that require full process restart
+- **Native module changes** (e.g., Puppeteer, native bindings)
+
+For regular code modifications in `src/` or `app/`, hot reload will automatically detect and apply changes without needing a restart.
 
 > [!IMPORTANT]
 > Since the AI can modify its own source code, it's recommended to **fork this repository** or **change the remote URL** (`git remote set-url origin ...`) to your own private repository. This prevents your local modifications from being accidentally overwritten by upstream updates and allows you to track changes made by the AI.
