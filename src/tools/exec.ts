@@ -1,5 +1,6 @@
 import { execFile } from 'child_process';
 import path from 'path';
+import iconv from 'iconv-lite';
 import type { ToolResult } from '../types.js';
 
 const DANGEROUS_PATTERNS = [
@@ -58,10 +59,17 @@ export async function execTool(params: {
   const [shell, args] = detectShell();
 
   return new Promise((resolve) => {
-    const proc = execFile(shell, [...args, command], {
+    // Windows treats standard output differently: it uses the system code page (CP932/Shift-JIS for Japanese locales).
+    // We attempt to set it to UTF-8 (65001) first, but we still capture as Buffer and decode for robustness.
+    const finalCommand = process.platform === 'win32'
+      ? `chcp 65001 > nul && ${command}`
+      : command;
+
+    const proc = execFile(shell, [...args, finalCommand], {
       cwd: workingDir,
       timeout,
       maxBuffer: 1024 * 1024 * 5,
+      encoding: 'buffer', // Set to buffer to manually decode
       env: {
         PATH: process.env.PATH,
         HOME: process.env.HOME,
@@ -71,12 +79,16 @@ export async function execTool(params: {
       } as any,
     });
 
-    let stdout = '';
-    let stderr = '';
-    proc.stdout?.on('data', (d) => (stdout += d));
-    proc.stderr?.on('data', (d) => (stderr += d));
+    const stdoutChunks: Buffer[] = [];
+    const stderrChunks: Buffer[] = [];
+
+    proc.stdout?.on('data', (chunk: Buffer) => stdoutChunks.push(chunk));
+    proc.stderr?.on('data', (chunk: Buffer) => stderrChunks.push(chunk));
 
     proc.on('close', (code) => {
+      const stdout = decodeBuffer(Buffer.concat(stdoutChunks));
+      const stderr = decodeBuffer(Buffer.concat(stderrChunks));
+      
       const output = [stdout, stderr].filter(Boolean).join('\n');
       resolve({
         success: code === 0,
@@ -88,4 +100,25 @@ export async function execTool(params: {
       resolve({ success: false, output: `Error: ${err.message}` });
     });
   });
+}
+
+function decodeBuffer(buffer: Buffer): string {
+  if (buffer.length === 0) return '';
+  
+  if (process.platform === 'win32') {
+    // Try UTF-8 first
+    try {
+      const utf8Text = buffer.toString('utf8');
+      // If it contains replacement character or invalid sequences, it might be SJIS
+      if (!utf8Text.includes('\uFFFD')) {
+        return utf8Text;
+      }
+    } catch {
+      // ignore
+    }
+    // Fallback to CP932 (Shift-JIS) for Windows Japanese environments
+    return iconv.decode(buffer, 'cp932');
+  }
+  
+  return buffer.toString('utf8');
 }

@@ -266,7 +266,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
 
     const normalized = rawUrl
       .trim()
-      .replace(/\\\\/g, "/")
+      .replace(/\\/g, "/")
       .replace(/^\.\//, "")
       .replace(/^\//, "");
 

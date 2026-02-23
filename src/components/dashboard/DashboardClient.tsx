@@ -18,7 +18,9 @@ export default function DashboardClient() {
   const [wsConnected, setWsConnected] = useState(false);
   const [isThinking, setIsThinking] = useState(false);
   const [messages, setMessages] = useState<any[]>([]);
-  const [schedulesBySession, setSchedulesBySession] = useState<Record<string, any[]>>({});
+  const [schedulesBySession, setSchedulesBySession] = useState<
+    Record<string, any[]>
+  >({});
 
   const [availableSkills, setAvailableSkills] = useState<Skill[]>([]);
 
@@ -130,7 +132,7 @@ export default function DashboardClient() {
       });
     } else if (event.type === "tool_result") {
       const ok = event.data.success;
-      const textToAppend = `${ok ? "✓" : "✗"} ${event.data.tool}: ${event.data.output?.slice(0, 100)}`;
+      const textToAppend = `${ok ? "✓" : "✗"} ${event.data.tool}: ${event.data.output?.slice(0, 300)}`;
 
       const lastMsg = newMsgs[newMsgs.length - 1];
       if (lastMsg && lastMsg.toolEvents) {
@@ -304,10 +306,8 @@ export default function DashboardClient() {
             formatted.push({ toolEvents: currentToolEvents });
           }
           const toolText = contentToText(m.content);
-          const isError = toolText.startsWith("Error: ");
-          const ok = !isError;
-          const contentSlice = toolText.slice(0, 100);
-          const textToAppend = `${ok ? "✓" : "✗"} ${m.name}: ${contentSlice}`;
+          const ok = !toolText.startsWith("Error: ");
+          const textToAppend = `${ok ? "✓" : "✗"} ${m.name}: ${toolText.slice(0, 300)}`;
           currentToolEvents.push({ text: textToAppend, success: ok });
         } else if (m.role === "assistant" && (m.content || m.reasoning)) {
           const textContent = contentToText(m.content);
@@ -454,7 +454,9 @@ export default function DashboardClient() {
 
         <RightPanel
           currentSession={currentSession}
-          externalSchedules={currentSession ? (schedulesBySession[currentSession] ?? null) : null}
+          externalSchedules={
+            currentSession ? (schedulesBySession[currentSession] ?? null) : null
+          }
         />
       </div>
 

@@ -628,7 +628,7 @@ export class Agent {
             this.emit('tool_result', {
               tool: tc.function.name,
               success: result.success,
-              output: result.output.slice(0, 500),
+              output: result.output.slice(0, 1000),
               ...(result.imageUrl && { imageUrl: result.imageUrl }),
             });
 

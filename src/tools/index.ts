@@ -327,7 +327,7 @@ export async function buildTools(ctx: ToolContext): Promise<ToolDefinition[]> {
       type: 'function',
       function: {
         name: 'exec',
-        description: `Execute a shell command. Current runtime OS: ${CURRENT_OS}.`,
+        description: `Execute a shell command. Each operation is independent, and operations such as "cd" are not carried over. Current runtime OS: ${CURRENT_OS}.`,
         parameters: {
           type: 'object',
           properties: {
