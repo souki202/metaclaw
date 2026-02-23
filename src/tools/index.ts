@@ -305,6 +305,22 @@ export async function buildTools(ctx: ToolContext): Promise<ToolDefinition[]> {
     );
   }
 
+  // Utility tools
+  tools.push({
+    type: 'function',
+    function: {
+      name: 'sleep',
+      description: 'Wait for a specified number of seconds. Use this when you need to pause before checking something again or to simulate waiting.',
+      parameters: {
+        type: 'object',
+        properties: {
+          seconds: { type: 'number', description: 'Number of seconds to sleep.' },
+        },
+        required: ['seconds'],
+      },
+    },
+  });
+
   // Exec tool
   if (config.tools.exec) {
     tools.push({
@@ -1110,6 +1126,13 @@ export async function executeTool(
         .map((s, i) => `${i + 1}. ${s.memo}\n${formatSchedule(s)}`)
         .join('\n\n');
       return { success: true, output };
+    }
+
+    case 'sleep': {
+      const seconds = (args.seconds as number) || 1;
+      await new Promise((resolve) => setTimeout(resolve, seconds * 1000));
+      const now = new Date();
+      return { success: true, output: `Sleep completed. Current time: ${now.toLocaleString()}` };
     }
 
     case 'self_list':
