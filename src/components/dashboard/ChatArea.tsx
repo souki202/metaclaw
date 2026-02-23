@@ -292,6 +292,9 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   const renderMarkdown = (text: string) => {
     if (!text) return null;
 
+    // Strip timestamp markers: [[timestamp:...]]
+    const cleanText = text.replace(/\[\[timestamp:[^\]]+\]\]\s?/g, "");
+
     return (
       <div className="chat-markdown">
         <ReactMarkdown
@@ -323,7 +326,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
             },
           }}
         >
-          {text}
+          {cleanText}
         </ReactMarkdown>
       </div>
     );

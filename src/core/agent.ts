@@ -235,14 +235,9 @@ export class Agent {
     const user = this.files.read('USER.md');
     const memory = this.quickMemory.read();
     const tmpMemory = this.tmpMemory.read();
-    const now = new Date();
-    const localTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'local';
-
     const parts = [
       `You are an AI personal agent running in the meta-claw system.`,
       `Session ID: ${this.sessionId}`,
-      `Current local datetime (${localTimeZone}): ${now.toLocaleString()}`,
-      `Current UTC datetime: ${now.toISOString()}`,
       ``,
     ];
 
@@ -468,23 +463,31 @@ export class Agent {
     // Compress context if needed
     await this.compressContext();
 
+    // Build timestamp marker
+    const now = new Date();
+    const localTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'local';
+    const timestampMarker = `[[timestamp:${now.toLocaleString()} (${localTimeZone})]] `;
+
     // Build user message with optional images
     // Resolve relative URLs to base64 data URLs for LLM
     const resolvedImageUrls = imageUrls?.map(url => this.resolveImageUrl(url));
     const imageUrlReferenceText = imageUrls && imageUrls.length > 0
       ? `\n\nAttached image URLs (these are visible to the user):\n${imageUrls.map((url) => `- ${url}`).join('\n')}`
       : '';
+    
+    const userMsgContent = resolvedImageUrls && resolvedImageUrls.length > 0
+      ? [
+          { type: 'text' as const, text: `${timestampMarker}${userMessage}${imageUrlReferenceText}` },
+          ...resolvedImageUrls.map(url => ({
+            type: 'image_url' as const,
+            image_url: { url, detail: 'high' as const },
+          })),
+        ]
+      : `${timestampMarker}${userMessage}`;
+
     const userMsg: ChatMessage = {
       role: 'user',
-      content: resolvedImageUrls && resolvedImageUrls.length > 0
-        ? [
-            { type: 'text' as const, text: `${userMessage}${imageUrlReferenceText}` },
-            ...resolvedImageUrls.map(url => ({
-              type: 'image_url' as const,
-              image_url: { url, detail: 'high' as const },
-            })),
-          ]
-        : userMessage,
+      content: userMsgContent,
     };
     this.history.push(userMsg);
     this.saveHistory(userMsg);
