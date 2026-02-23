@@ -1,10 +1,14 @@
-import test from 'node:test';
+import test, { mock } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { McpClientManager } from './mcp-client.js';
+
+import * as McpClientModule from './mcp-client.js';
+const { McpClientManager } = McpClientModule;
 import type { SearchConfig } from '../types.js';
+
+let capturedParams: any;
 
 test('built-in consult MCP server exposes tool and sends base64 images', async () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-test-'));
@@ -14,27 +18,24 @@ test('built-in consult MCP server exposes tool and sends base64 images', async (
   const searchConfig: SearchConfig = { provider: 'brave', braveApiKey: 'brave-key' };
   const manager = new McpClientManager(searchConfig, workspace);
 
-    const calls: Array<{ url: string; body: any; headers: Record<string, string> }> = [];
-  const originalFetch = global.fetch;
-  global.fetch = (async (url: string, options?: any) => {
-    calls.push({
-      url,
-      body: options?.body ? JSON.parse(options.body) : null,
-      headers: options?.headers || {},
-    });
-    const response = {
-      ok: true,
-      status: 200,
-      async json() {
-        return { text: 'ok' };
-      },
-      async text() {
-        return 'ok';
+  // Mock createOpenAIClient static method
+  mock.method(McpClientManager, 'createOpenAIClient', () => {
+    return {
+      responses: {
+        create: async (params: any) => {
+          capturedParams = params;
+          return {
+            output: [
+              {
+                type: 'message',
+                content: [{ type: 'output_text', text: 'ok' }],
+              },
+            ],
+          };
+        },
       },
     } as any;
-    response.clone = () => response;
-    return response;
-  }) as any;
+  });
 
   try {
     await manager.startServer('consult-ai', {
@@ -53,18 +54,22 @@ test('built-in consult MCP server exposes tool and sends base64 images', async (
       image_url: 'image.png',
     } as any);
 
+    if (!result || !result.success) {
+      console.error('Tool call failed:', result);
+    }
     assert.ok(result && result.success);
     assert.equal(result?.output, 'ok');
-    assert.equal(calls.length, 1);
-    assert.equal(calls[0].url, 'https://example.com/ai');
-    assert.equal(calls[0].headers.Authorization, 'Bearer abc');
-    assert.equal(calls[0].body.prompt, 'Hello world');
-    assert.deepEqual(calls[0].body.search, searchConfig);
-    assert.equal(calls[0].body.model, 'gpt-test');
-    assert.ok(typeof calls[0].body.image === 'string');
-    assert.ok(calls[0].body.image.startsWith('data:image/png;base64,'));
+    assert.ok(capturedParams);
+    assert.equal(capturedParams.model, 'gpt-test');
+    assert.equal(capturedParams.input.length, 2);
+    assert.equal(capturedParams.input[0].role, 'system');
+    assert.equal(capturedParams.input[1].role, 'user');
+    
+    const userContent = capturedParams.input[1].content;
+    assert.ok(Array.isArray(userContent));
+    assert.equal(userContent[0].text, 'Hello world');
+    assert.ok(userContent[1].image_url.startsWith('data:image/png;base64,'));
   } finally {
-    global.fetch = originalFetch;
     fs.rmSync(workspace, { recursive: true, force: true });
   }
 });

@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import OpenAI from 'openai';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import type { McpServerConfig, ToolDefinition, ToolResult, SearchConfig } from '../types.js';
@@ -36,6 +37,13 @@ interface BuiltinServer {
 }
 
 export class McpClientManager {
+  static createOpenAIClient(apiKey: string, baseURL: string): OpenAI {
+    return new OpenAI({
+      apiKey,
+      baseURL,
+    });
+  }
+
   private connections = new Map<string, McpConnection>();
   private builtinServers = new Map<string, BuiltinServer>();
   private searchConfig?: SearchConfig;
@@ -272,12 +280,12 @@ export class McpClientManager {
       type: 'function',
       function: {
         name: `mcp_${id}_${toolBaseName}`,
-        description: 'Consult another AI using the configured endpoint and API key. Returns text response.',
+        description: 'Consult a "Senior AI Advisor" for logic review, refinement, or alternative perspectives. returns Analysis, Improvements, and Risks.',
         parameters: {
           type: 'object',
           properties: {
-            prompt: { type: 'string', description: 'Prompt to send to the external AI.' },
-            image_url: { type: 'string', description: 'Optional image URL or local file path to include.' },
+            prompt: { type: 'string', description: 'Prompt to send to the advisor AI.' },
+            image_url: { type: 'string', description: 'Optional image URL or local file path.' },
           },
           required: ['prompt'],
         },
@@ -325,42 +333,58 @@ The input text will be a draft response or a stalled thought process generated b
 Strictly adhere to the following constraints and guidelines:
 
 [Constraints]
-1. Strict Single-Turn Execution: There is no conversation history in this system. Even if the input lacks information, NEVER ask clarifying questions. If context is missing, explicitly state your assumptions (e.g., "Assuming [Condition]...") and output the best possible response based on those assumptions.
-2. AI-to-AI Communication: Omit all greetings, pleasantries, introductory remarks, conversational fillers, and concluding remarks. Begin your analysis immediately.
-3. Objectivity & Critical Thinking: Do not simply agree with the consulting AI. Rigorously point out logical leaps, potential factual errors, blind spots, and biases.
+1. Strict Single-Turn Execution: There is no conversation history in this system. Even if the input lacks information, NEVER ask clarifying questions. If context is missing, explicitly state your assumptions and output the best possible response.
+2. AI-to-AI Communication: Omit all greetings, pleasantries, and introductory remarks. Begin your analysis immediately.
+3. Objectivity & Critical Thinking: Do not simply agree with the consulting AI. Rigorously point out logical leaps, potential factual errors, and blind spots.
 
 [Output Format]
-Structure your response using the following Markdown format to ensure the consulting AI can easily parse the information:
+Structure your response using the following Markdown format:
 
 ### 1. Analysis
 Briefly analyze the strengths, weaknesses, and logical consistency of the input.
 
 ### 2. Improvements & Knowledge
-Provide concrete suggestions for refinement, alternative approaches, or additional specialized knowledge and perspectives that should be integrated.
+Provide concrete suggestions for refinement or additional specialized knowledge.
 
 ### 3. Risks & Edge Cases
-Identify potential risks, edge cases, or aspects of the current approach that could cause misunderstandings for the final human end-user.
+Identify potential risks or edge cases.
 `.trim();
 
-      const body: Record<string, unknown> = { 
-        prompt,
-        system_prompt: systemPrompt 
-      };
-      if (normalizedConfig.model) body.model = normalizedConfig.model;
-      if (imagePayload) body.image = imagePayload;
-      if (this.searchConfig) body.search = this.searchConfig;
-
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (normalizedConfig.apiKey) headers['Authorization'] = `Bearer ${normalizedConfig.apiKey}`;
+      const client = McpClientManager.createOpenAIClient(normalizedConfig.apiKey, normalizedConfig.endpointUrl!);
 
       try {
-        const res = await fetch(normalizedConfig.endpointUrl!, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify(body),
+        const response = await client.responses.create({
+          model: normalizedConfig.model || 'gpt-4o',
+          input: [
+            {
+              role: 'system',
+              content: [{ type: 'input_text', text: systemPrompt }],
+            },
+            {
+              role: 'user',
+              content: imagePayload
+                ? [
+                    { type: 'input_text', text: prompt },
+                    { type: 'input_image', image_url: imagePayload, detail: 'auto' },
+                  ]
+                : [{ type: 'input_text', text: prompt }],
+            },
+          ],
         });
-        const output = await this.parseResponseText(res);
-        return { success: res.ok, output };
+
+        // Extract text from response
+        const texts: string[] = [];
+        for (const item of (response as any).output ?? []) {
+          if (item?.type !== 'message') continue;
+          for (const content of item.content ?? []) {
+            if ((content?.type === 'output_text' || content?.type === 'text') && typeof content.text === 'string') {
+              texts.push(content.text);
+            }
+          }
+        }
+        const output = texts.join('') || (typeof (response as any).output_text === 'string' ? (response as any).output_text : JSON.stringify(response));
+
+        return { success: true, output };
       } catch (e) {
         return { success: false, output: `MCP tool error: ${(e as Error).message}` };
       }
@@ -399,18 +423,6 @@ Identify potential risks, edge cases, or aspects of the current approach that co
     return `data:${mime};base64,${data.toString('base64')}`;
   }
 
-  private async parseResponseText(res: Response): Promise<string> {
-    try {
-      const json = await res.clone().json();
-      if (typeof (json as any)?.text === 'string') return (json as any).text;
-      if (typeof (json as any)?.output === 'string') return (json as any).output;
-      if (typeof (json as any)?.message === 'string') return (json as any).message;
-      return JSON.stringify(json);
-    } catch {
-      const text = await res.text();
-      return text || `Empty response (status ${res.status})`;
-    }
-  }
 
   getServerIds(): string[] {
     return Array.from(new Set([
