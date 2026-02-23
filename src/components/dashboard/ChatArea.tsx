@@ -98,6 +98,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   const [isUploading, setIsUploading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const dragCounter = useRef(0);
 
   useEffect(() => {
@@ -168,6 +169,9 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
       return;
     const finalMsg = msg || "この画像を確認してください。";
     setInputValue("");
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "auto";
+    }
     setFilteredSkills([]);
     onSendMessage(
       finalMsg,
@@ -542,6 +546,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
             {isUploading ? "⏳" : "📎"}
           </button>
           <textarea
+            ref={textareaRef}
             placeholder="Message..."
             rows={1}
             value={inputValue}
