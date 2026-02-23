@@ -319,6 +319,7 @@ export class McpClientManager {
       }
 
       const body: Record<string, unknown> = { prompt };
+      if (normalizedConfig.model) body.model = normalizedConfig.model;
       if (imagePayload) body.image = imagePayload;
       if (this.searchConfig) body.search = this.searchConfig;
 

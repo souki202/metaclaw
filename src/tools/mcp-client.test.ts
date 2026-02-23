@@ -14,7 +14,7 @@ test('built-in consult MCP server exposes tool and sends base64 images', async (
   const searchConfig: SearchConfig = { provider: 'brave', braveApiKey: 'brave-key' };
   const manager = new McpClientManager(searchConfig, workspace);
 
-  const calls: Array<{ url: string; body: any; headers: Record<string, string> }> = [];
+    const calls: Array<{ url: string; body: any; headers: Record<string, string> }> = [];
   const originalFetch = global.fetch;
   global.fetch = (async (url: string, options?: any) => {
     calls.push({
@@ -41,6 +41,7 @@ test('built-in consult MCP server exposes tool and sends base64 images', async (
       type: 'builtin-consult',
       endpointUrl: 'https://example.com/ai',
       apiKey: 'abc',
+      model: 'gpt-test',
     });
 
     const tools = await manager.getAllTools();
@@ -59,6 +60,7 @@ test('built-in consult MCP server exposes tool and sends base64 images', async (
     assert.equal(calls[0].headers.Authorization, 'Bearer abc');
     assert.equal(calls[0].body.prompt, 'Hello world');
     assert.deepEqual(calls[0].body.search, searchConfig);
+    assert.equal(calls[0].body.model, 'gpt-test');
     assert.ok(typeof calls[0].body.image === 'string');
     assert.ok(calls[0].body.image.startsWith('data:image/png;base64,'));
   } finally {

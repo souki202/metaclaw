@@ -297,6 +297,7 @@ export class DashboardServer {
               type: 'builtin-consult',
               endpointUrl: req.body.endpointUrl,
               apiKey: req.body.apiKey,
+              model: req.body.model,
               enabled: req.body.enabled !== false,
             }
           : {

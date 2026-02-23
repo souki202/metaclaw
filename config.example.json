@@ -30,6 +30,7 @@
           "type": "builtin-consult",
           "endpointUrl": "https://api.openai.com/v1",
           "apiKey": "sk-YOUR_API_KEY",
+          "model": "gpt-4o",
           "enabled": true
         }
       },

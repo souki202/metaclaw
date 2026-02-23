@@ -22,6 +22,7 @@ export function ensureBuiltinMcpServer(session: SessionConfig): void {
       type: 'builtin-consult',
       endpointUrl: session.provider?.endpoint,
       apiKey: session.provider?.apiKey,
+      model: session.provider?.model,
       enabled: true,
     };
   }
@@ -104,6 +105,7 @@ function createDefaultConfig(): Config {
             type: 'builtin-consult',
             endpointUrl: DEFAULT_PROVIDER.endpoint,
             apiKey: DEFAULT_PROVIDER.apiKey,
+            model: DEFAULT_PROVIDER.model,
             enabled: true,
           },
         },

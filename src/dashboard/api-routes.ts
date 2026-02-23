@@ -414,6 +414,7 @@ export async function setupApiRoutes(
             type: 'builtin-consult',
             endpointUrl: body.endpointUrl,
             apiKey: body.apiKey,
+            model: body.model,
             enabled: body.enabled !== false,
           }
         : {

@@ -91,6 +91,7 @@ export interface McpServerConfig {
   type?: 'command' | 'builtin-consult';
   endpointUrl?: string;
   apiKey?: string;
+  model?: string;
 }
 
 export interface SessionConfig {

@@ -250,6 +250,7 @@ export const SessionSettingsModal = ({
     type: "command",
     endpointUrl: "",
     apiKey: "",
+    model: "",
   });
   const [mcpEditId, setMcpEditId] = useState<string | null>(null);
 
@@ -353,18 +354,19 @@ export const SessionSettingsModal = ({
       type: (cfg.type as string) || "command",
       endpointUrl: cfg.endpointUrl || "",
       apiKey: cfg.apiKey || "",
+      model: cfg.model || "",
     });
     setMcpFormVisible(true);
   };
 
   const handleAddMcp = () => {
     setMcpEditId(null);
-    setMcpForm({ id: "", command: "npx", args: "", type: "command", endpointUrl: "", apiKey: "" });
+    setMcpForm({ id: "", command: "npx", args: "", type: "command", endpointUrl: "", apiKey: "", model: "" });
     setMcpFormVisible(true);
   };
 
   const handleSaveMcp = async () => {
-    const { id, command, args, type, endpointUrl, apiKey } = mcpForm;
+    const { id, command, args, type, endpointUrl, apiKey, model } = mcpForm;
     if (!id) return alert("ID required");
     if (type === "command" && !command) return alert("ID and Command required");
     if (type === "builtin-consult" && !endpointUrl)
@@ -385,6 +387,7 @@ export const SessionSettingsModal = ({
             type: "builtin-consult",
             endpointUrl,
             apiKey,
+            model,
             enabled: true,
           }
         : { id, command, args: argsArray, enabled: true };
@@ -422,6 +425,7 @@ export const SessionSettingsModal = ({
         type: "command",
         endpointUrl: "",
         apiKey: "",
+        model: "",
       });
     } else {
       setMcpForm({
@@ -431,6 +435,7 @@ export const SessionSettingsModal = ({
         type: "command",
         endpointUrl: "",
         apiKey: "",
+        model: "",
       });
     }
   };
@@ -809,6 +814,17 @@ export const SessionSettingsModal = ({
                           onChange={(e) =>
                             setMcpForm({ ...mcpForm, apiKey: e.target.value })
                           }
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Model Name (optional)</label>
+                        <input
+                          className="form-input mono"
+                          value={mcpForm.model}
+                          onChange={(e) =>
+                            setMcpForm({ ...mcpForm, model: e.target.value })
+                          }
+                          placeholder="gpt-4o-mini"
                         />
                       </div>
                     </>
