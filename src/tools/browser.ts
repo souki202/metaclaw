@@ -155,6 +155,13 @@ async function generateSnapshot(page: Page): Promise<string> {
       });
     }
 
+    const cleanText = (text: string): string => {
+      return text
+        .replace(/[ \t]+/g, ' ')             // Collapse multiple spaces/tabs
+        .replace(/\n\s*\n\s*\n+/g, '\n\n')   // Limit consecutive newlines to 2
+        .trim();
+    };
+
     const items: SnapElement[] = elements.slice(0, 60).map((el, i) => {
       const ref = i + 1;
       el.setAttribute('data-ai-ref', String(ref));
@@ -166,7 +173,7 @@ async function generateSnapshot(page: Page): Promise<string> {
       const placeholder = el.getAttribute('placeholder') || '';
       const ariaLabel = el.getAttribute('aria-label') || '';
       const titleAttr = el.getAttribute('title') || '';
-      const rawText = (el.textContent || '').trim().replace(/\s+/g, ' ').substring(0, 60);
+      const rawText = cleanText(el.textContent || '').substring(0, 60);
       const label = ariaLabel || titleAttr || rawText;
       const href = (el as HTMLAnchorElement).href || '';
       const checked = (el as HTMLInputElement).checked || false;
@@ -185,7 +192,7 @@ async function generateSnapshot(page: Page): Promise<string> {
     const mainEl =
       (document.querySelector('main, [role="main"], article') as HTMLElement) ||
       (document.body as HTMLElement);
-    const pageText = (mainEl.innerText || '').replace(/\s+/g, ' ').trim().substring(0, 1200);
+    const pageText = cleanText(mainEl.innerText || '').substring(0, 2000);
 
     return { items, pageText };
   });
@@ -415,7 +422,15 @@ export async function browserGetContent(selector?: string, pageId?: string): Pro
         const el =
           (document.querySelector('main, [role="main"], article') as HTMLElement) ||
           (document.body as HTMLElement);
-        return (el.innerText || '').replace(/\s+/g, ' ').trim();
+        
+        const cleanText = (text: string): string => {
+          return text
+            .replace(/[ \t]+/g, ' ')             // Collapse multiple spaces/tabs
+            .replace(/\n\s*\n\s*\n+/g, '\n\n')   // Limit consecutive newlines to 2
+            .trim();
+        };
+
+        return cleanText(el.innerText || '');
       });
     }
     return { success: true, output: content.slice(0, 8000) };

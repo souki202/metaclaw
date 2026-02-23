@@ -1,5 +1,6 @@
 import { GoogleAuth } from 'google-auth-library';
 import type { ToolResult, SearchConfig } from '../types.js';
+import { htmlToText } from './html-utils.js';
 
 export async function webFetch(url: string, selector?: string): Promise<ToolResult> {
   try {
@@ -25,14 +26,7 @@ export async function webFetch(url: string, selector?: string): Promise<ToolResu
     }
 
     const text = await response.text();
-    // Strip HTML tags for readability
-    const clean = text
-      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-      .replace(/<[^>]+>/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .slice(0, 8000);
+    const clean = htmlToText(text).slice(0, 8000);
 
     return { success: true, output: clean };
   } catch (e: unknown) {
