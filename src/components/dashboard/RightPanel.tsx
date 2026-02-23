@@ -14,7 +14,7 @@ interface ScheduleItem {
   enabled: boolean;
 }
 
-const FILES = ["IDENTITY.md", "USER.md", "MEMORY.md"];
+const FILES = ["IDENTITY.md", "SOUL.md", "USER.md", "MEMORY.md"];
 
 export const RightPanel: React.FC<RightPanelProps> = ({ currentSession }) => {
   const [activeTab, setActiveTab] = useState<"files" | "memory" | "system">(

@@ -232,6 +232,7 @@ export class Agent {
 
   private buildSystemPrompt(): string {
     const identity = this.files.read('IDENTITY.md');
+    const soul = this.files.read('SOUL.md');
     const user = this.files.read('USER.md');
     const memory = this.quickMemory.read();
     const tmpMemory = this.tmpMemory.read();
@@ -243,6 +244,9 @@ export class Agent {
 
     if (identity) {
       parts.push(`## Your Identity\n${identity}`);
+    }
+    if (soul) {
+      parts.push(`## Your Soul\n${soul}`);
     }
     if (user) {
       parts.push(`## About the User\n${user}`);

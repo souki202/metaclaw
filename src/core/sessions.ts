@@ -14,7 +14,7 @@ function initWorkspace(workspace: string) {
   fs.mkdirSync(workspace, { recursive: true });
   fs.mkdirSync(path.join(workspace, 'memory'), { recursive: true });
 
-  const files = ['IDENTITY.md', 'USER.md', 'MEMORY.md', 'TMP_MEMORY.md'];
+  const files = ['IDENTITY.md', 'SOUL.md', 'USER.md', 'MEMORY.md', 'TMP_MEMORY.md'];
   for (const file of files) {
     const dest = path.join(workspace, file);
     if (!fs.existsSync(dest)) {

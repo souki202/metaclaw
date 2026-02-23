@@ -139,7 +139,7 @@ export async function setupApiRoutes(
       return true;
     }
 
-    const allowed = ['IDENTITY.md', 'USER.md', 'MEMORY.md'];
+    const allowed = ['IDENTITY.md', 'SOUL.md', 'USER.md', 'MEMORY.md'];
     const filename = getFileMatch.params.filename;
     if (!allowed.includes(filename)) {
       sendJson(res, { error: 'Not allowed' }, 403);
@@ -164,7 +164,7 @@ export async function setupApiRoutes(
       return true;
     }
 
-    const allowed = ['IDENTITY.md', 'USER.md', 'MEMORY.md'];
+    const allowed = ['IDENTITY.md', 'SOUL.md', 'USER.md', 'MEMORY.md'];
     const filename = putFileMatch.params.filename;
     if (!allowed.includes(filename)) {
       sendJson(res, { error: 'Not allowed' }, 403);
