@@ -95,7 +95,32 @@ export async function initializeBackend() {
     }
   }
 
+  // スケジュールが変化したとき（CRUD・発火後の nextRunAt 更新）に SSE で通知する
+  sessions.setScheduleChangeHandler((sessionId, schedules) => {
+    broadcastSseEvent({
+      type: 'schedule_update',
+      sessionId,
+      data: schedules,
+      timestamp: new Date().toISOString(),
+    });
+  });
+
+  // スケジュールハンドラーを登録してからスケジューラーを起動する
+  // (起動順を保証することで、スケジューラーが最初のtickを実行する前にハンドラーが確実に設定される)
   sessions.setScheduleTriggerHandler(async ({ sessionId, schedule }) => {
+    const wasActive = sessions.isSessionActive(sessionId);
+
+    if (!wasActive) {
+      // セッションが非アクティブな場合、スケジュール実行のために一時的に起動する
+      const sessionConfig = sessions.getSessionConfig(sessionId);
+      if (!sessionConfig) {
+        logger.warn(`Schedule ${schedule.id} triggered for session "${sessionId}" which has no config. Skipping.`);
+        return;
+      }
+      logger.info(`Session "${sessionId}" is not active. Starting temporarily for schedule ${schedule.id}.`);
+      sessions.startSession(sessionId, sessionConfig, onEvent);
+    }
+
     const agent = sessions.getAgent(sessionId);
     if (!agent) return;
 
@@ -116,7 +141,19 @@ export async function initializeBackend() {
 
     logger.info(`Running schedule ${schedule.id} for session "${sessionId}"`);
     await agent.processMessage(schedulePrompt, 'schedule');
+
+    if (!wasActive) {
+      // 一時起動したセッションはタスク完了後に停止する
+      while (agent.isProcessing()) {
+        await agent.waitForIdle();
+      }
+      logger.info(`Schedule ${schedule.id} completed. Stopping temporary session "${sessionId}".`);
+      sessions.stopSession(sessionId);
+    }
   });
+
+  // ハンドラー登録後にスケジューラーを起動する
+  sessions.startScheduler();
 
   // プロセスシグナルハンドラは一度だけ登録する（再登録するとリーク）
   if (!signalHandlersRegistered) {

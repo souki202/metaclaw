@@ -8,7 +8,10 @@ import { createLogger } from '../logger.js';
 
 const log = createLogger('schedule');
 const SCHEDULE_FILENAME = 'schedules.json';
-const CHECK_INTERVAL_MS = 30_000;
+// When no schedules are pending, re-check at this interval in case new ones are added externally
+const IDLE_CHECK_INTERVAL_MS = 60_000;
+// Minimum delay before firing to avoid tight loops
+const MIN_DELAY_MS = 100;
 
 export interface ScheduleTrigger {
   sessionId: string;
@@ -74,32 +77,36 @@ export class ScheduleManager {
   private sessionWorkspaces = new Map<string, string>();
   private timer: NodeJS.Timeout | null = null;
   private onTrigger?: (trigger: ScheduleTrigger) => Promise<void>;
+  private onScheduleChange?: (sessionId: string, schedules: SessionSchedule[]) => void;
   private isTickRunning = false;
+  private isStarted = false;
 
   start() {
-    if (this.timer) return;
-    this.timer = setInterval(() => {
-      if (this.isTickRunning) return;
-      this.isTickRunning = true;
-      this.tick()
-        .catch((e) => {
-          log.error('Schedule tick failed:', e);
-        })
-        .finally(() => {
-          this.isTickRunning = false;
-        });
-    }, CHECK_INTERVAL_MS);
+    if (this.isStarted) return;
+    this.isStarted = true;
+    this.scheduleNextTick();
   }
 
   stop() {
+    this.isStarted = false;
     if (this.timer) {
-      clearInterval(this.timer);
+      clearTimeout(this.timer);
       this.timer = null;
     }
   }
 
   setTriggerHandler(fn: (trigger: ScheduleTrigger) => Promise<void>) {
     this.onTrigger = fn;
+  }
+
+  setScheduleChangeHandler(fn: (sessionId: string, schedules: SessionSchedule[]) => void) {
+    this.onScheduleChange = fn;
+  }
+
+  private notifyChange(sessionId: string) {
+    if (this.onScheduleChange) {
+      this.onScheduleChange(sessionId, this.list(sessionId));
+    }
   }
 
   loadSession(sessionId: string, workspace: string) {
@@ -109,11 +116,13 @@ export class ScheduleManager {
       .filter((item): item is SessionSchedule => item !== null)
       .sort((a, b) => (a.nextRunAt ?? '').localeCompare(b.nextRunAt ?? ''));
     this.sessionItems.set(sessionId, items);
+    this.scheduleNextTick();
   }
 
   unloadSession(sessionId: string) {
     this.sessionItems.delete(sessionId);
     this.sessionWorkspaces.delete(sessionId);
+    this.scheduleNextTick();
   }
 
   list(sessionId: string): SessionSchedule[] {
@@ -151,6 +160,8 @@ export class ScheduleManager {
     schedule.nextRunAt = computeNextRunAt(schedule, now);
     items.push(schedule);
     this.persist(sessionId);
+    this.scheduleNextTick();
+    this.notifyChange(sessionId);
     return schedule;
   }
 
@@ -191,6 +202,8 @@ export class ScheduleManager {
     updated.nextRunAt = computeNextRunAt(updated, now);
     items[idx] = updated;
     this.persist(sessionId);
+    this.scheduleNextTick();
+    this.notifyChange(sessionId);
     return updated;
   }
 
@@ -206,8 +219,66 @@ export class ScheduleManager {
     const changed = next.length !== before;
     if (changed) {
       this.persist(sessionId);
+      this.scheduleNextTick();
+      this.notifyChange(sessionId);
     }
     return changed;
+  }
+
+  /**
+   * Find the earliest nextRunAt across all loaded sessions.
+   * Returns null if no schedules are pending.
+   */
+  private getNextDueTime(): Date | null {
+    let earliest: Date | null = null;
+    for (const items of this.sessionItems.values()) {
+      for (const schedule of items) {
+        if (!schedule.enabled || !schedule.nextRunAt) continue;
+        const d = new Date(schedule.nextRunAt);
+        if (Number.isNaN(d.getTime())) continue;
+        if (earliest === null || d < earliest) {
+          earliest = d;
+        }
+      }
+    }
+    return earliest;
+  }
+
+  /**
+   * Cancel any pending timer and set a new one that fires precisely at the
+   * next due schedule (or IDLE_CHECK_INTERVAL_MS in the future if none).
+   * Safe to call multiple times; no-op if the scheduler is stopped.
+   */
+  private scheduleNextTick() {
+    if (!this.isStarted) return;
+
+    if (this.timer) {
+      clearTimeout(this.timer);
+      this.timer = null;
+    }
+
+    const nextDue = this.getNextDueTime();
+    const delay = nextDue !== null
+      ? Math.max(MIN_DELAY_MS, nextDue.getTime() - Date.now())
+      : IDLE_CHECK_INTERVAL_MS;
+
+    this.timer = setTimeout(() => {
+      if (!this.isStarted) return;
+      if (this.isTickRunning) {
+        // Tick is still running; reschedule and try again
+        this.scheduleNextTick();
+        return;
+      }
+      this.isTickRunning = true;
+      this.tick()
+        .catch((e) => {
+          log.error('Schedule tick failed:', e);
+        })
+        .finally(() => {
+          this.isTickRunning = false;
+          this.scheduleNextTick();
+        });
+    }, delay);
   }
 
   private async tick() {
@@ -262,6 +333,7 @@ export class ScheduleManager {
 
       if (changed) {
         this.persist(sessionId);
+        this.notifyChange(sessionId);
       }
     }
   }
