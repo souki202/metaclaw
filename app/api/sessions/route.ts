@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getSessionManagerSafe, getConfigSafe, handleError, badRequest } from '../helpers';
-import { setSession, saveConfig } from '../../../src/config';
+import { setSession, saveConfig, ensureBuiltinMcpServer } from '../../../src/config';
 import type { SessionConfig, DashboardEvent } from '../../../src/types';
 import { broadcastSseEvent } from '../../../src/global-state';
 
@@ -58,9 +58,11 @@ export async function POST(request: Request) {
       allowSelfModify: body.allowSelfModify ?? baseSession?.allowSelfModify ?? false,
       tools: body.tools || baseSession?.tools || { exec: true, web: true, memory: true },
       discord: body.discord || baseSession?.discord,
+      consultAi: body.consultAi || baseSession?.consultAi,
       mcpServers: baseSession?.mcpServers,
       disabledTools: baseSession?.disabledTools,
     };
+    ensureBuiltinMcpServer(newSession);
 
     setSession(config, sessionId, newSession);
     saveConfig(config);

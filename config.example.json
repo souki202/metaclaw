@@ -25,6 +25,15 @@
         "web": true,
         "memory": true
       },
+      "mcpServers": {
+        "consult-ai": {
+          "type": "builtin-consult",
+          "endpointUrl": "https://api.openai.com/v1",
+          "apiKey": "sk-YOUR_API_KEY",
+          "model": "gpt-4o",
+          "enabled": true
+        }
+      },
       "context": {
         "compressionThreshold": 0.8,
         "keepRecentMessages": 20
@@ -51,6 +60,14 @@
         "exec": true,
         "web": true,
         "memory": true
+      },
+      "mcpServers": {
+        "consult-ai": {
+          "type": "builtin-consult",
+          "endpointUrl": "https://api.openai.com/v1",
+          "apiKey": "sk-YOUR_API_KEY",
+          "enabled": true
+        }
       },
       "context": {
         "compressionThreshold": 0.75,

@@ -84,10 +84,14 @@ export interface SessionDiscordConfig {
 }
 
 export interface McpServerConfig {
-  command: string;
+  command?: string;
   args?: string[];
   env?: Record<string, string>;
   enabled?: boolean;
+  type?: 'command' | 'builtin-consult';
+  endpointUrl?: string;
+  apiKey?: string;
+  model?: string;
 }
 
 export interface SessionConfig {
@@ -106,6 +110,12 @@ export interface SessionConfig {
   context?: {
     compressionThreshold?: number;
     keepRecentMessages?: number;
+  };
+  consultAi?: {
+    endpointUrl: string;
+    apiKey: string;
+    model: string;
+    enabled: boolean;
   };
   mcpServers?: Record<string, McpServerConfig>;
   disabledTools?: string[];

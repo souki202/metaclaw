@@ -6,7 +6,7 @@ import fs from 'fs';
 import type { SessionManager } from '../core/sessions.js';
 import type { DashboardEvent, Config, SessionConfig, SearchConfig } from '../types.js';
 import { createLogger } from '../logger.js';
-import { loadConfig, saveConfig, setSession, deleteSession, setSearchConfig } from '../config.js';
+import { loadConfig, saveConfig, setSession, deleteSession, setSearchConfig, ensureBuiltinMcpServer } from '../config.js';
 import { loadSkills, type Skill } from '../core/skills.js';
 
 const log = createLogger('dashboard');
@@ -220,6 +220,8 @@ export class DashboardServer {
           discord: req.body.discord,
         };
         
+        ensureBuiltinMcpServer(newSession);
+        
         setSession(config, sessionId, newSession);
         saveConfig(config);
         res.json({ ok: true, id: sessionId, session: newSession });
@@ -281,20 +283,29 @@ export class DashboardServer {
         if (!session) return res.status(404).json({ error: 'Session not found' });
 
         const serverId = req.body.id;
+        const type = req.body.type || 'command';
         if (!serverId) return res.status(400).json({ error: 'Server ID required' });
-        if (!req.body.command) return res.status(400).json({ error: 'Command required' });
+        if (type !== 'builtin-consult' && !req.body.command) return res.status(400).json({ error: 'Command required' });
 
         if (!session.mcpServers) session.mcpServers = {};
         if (session.mcpServers[serverId]) {
           return res.status(400).json({ error: 'MCP server already exists' });
         }
 
-        session.mcpServers[serverId] = {
-          command: req.body.command,
-          args: req.body.args || [],
-          env: req.body.env || {},
-          enabled: req.body.enabled !== false,
-        };
+        session.mcpServers[serverId] = type === 'builtin-consult'
+          ? {
+              type: 'builtin-consult',
+              endpointUrl: req.body.endpointUrl,
+              apiKey: req.body.apiKey,
+              model: req.body.model,
+              enabled: req.body.enabled !== false,
+            }
+          : {
+              command: req.body.command,
+              args: req.body.args || [],
+              env: req.body.env || {},
+              enabled: req.body.enabled !== false,
+            };
 
         saveConfig(config);
         res.json({ ok: true, server: session.mcpServers[serverId] });

@@ -115,7 +115,7 @@ export class Agent {
     this.quickMemory = new QuickMemory(workspace);
     this.tmpMemory = new QuickMemory(workspace, 'TMP_MEMORY.md');
     this.vectorMemory = new VectorMemory(workspace, sessionId, this.provider);
-    this.mcpManager = new McpClientManager();
+    this.mcpManager = new McpClientManager(globalConfig?.search, workspace);
     this.files = new WorkspaceFiles(workspace);
     this.log = createLogger(`agent:${sessionId}`);
     this.onEvent = onEvent;
@@ -152,6 +152,18 @@ export class Agent {
   }
 
   private async initMcpServers() {
+    // Start consult-ai if configured
+    if (this.config.consultAi && this.config.consultAi.enabled !== false) {
+      try {
+        await this.mcpManager.startServer('consult-ai', {
+          type: 'builtin-consult',
+          ...this.config.consultAi,
+        });
+      } catch (e) {
+        this.log.error(`Failed to start built-in MCP server "consult-ai":`, e);
+      }
+    }
+
     const servers = this.config.mcpServers;
     if (!servers) return;
 

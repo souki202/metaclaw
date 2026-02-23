@@ -178,12 +178,12 @@ export class OpenAIProvider {
         for await (const event of stream) {
           if (signal?.aborted) break;
           
-          if (event.type === 'response.output_text.delta' && typeof event.delta === 'string') {
-            fullContent += event.delta;
-            onStream(event.delta, 'content');
-          } else if (event.type === 'response.reasoning_text.delta' && typeof event.delta === 'string') {
-            fullReasoning += event.delta;
-            onStream(event.delta, 'reasoning');
+          if ((event as any).type === 'response.output_text.delta' && typeof (event as any).delta === 'string') {
+            fullContent += (event as any).delta;
+            onStream((event as any).delta, 'content');
+          } else if ((event as any).type === 'response.reasoning_text.delta' && typeof (event as any).delta === 'string') {
+            fullReasoning += (event as any).delta;
+            onStream((event as any).delta, 'reasoning');
           } else if ((event as any).type === 'response.content_part.delta' && (event as any).delta?.type === 'text') {
             // Some models might use different event types for reasoning depending on the specific API implementation
             const delta = (event as any).delta;

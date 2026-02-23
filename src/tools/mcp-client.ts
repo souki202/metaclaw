@@ -1,6 +1,8 @@
+import fs from 'fs';
+import path from 'path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import type { McpServerConfig, ToolDefinition, ToolResult } from '../types.js';
+import type { McpServerConfig, ToolDefinition, ToolResult, SearchConfig } from '../types.js';
 import { createLogger } from '../logger.js';
 
 const log = createLogger('mcp');
@@ -24,10 +26,45 @@ interface McpConnection {
   toolCount?: number;
 }
 
+interface BuiltinServer {
+  config: McpServerConfig;
+  status: McpServerStatus;
+  error?: string;
+  toolCount?: number;
+  tools: ToolDefinition[];
+  handler: (toolName: string, args: Record<string, unknown>) => Promise<ToolResult>;
+}
+
 export class McpClientManager {
   private connections = new Map<string, McpConnection>();
+  private builtinServers = new Map<string, BuiltinServer>();
+  private searchConfig?: SearchConfig;
+  private workspace?: string;
+
+  constructor(searchConfig?: SearchConfig, workspace?: string) {
+    this.searchConfig = searchConfig;
+    this.workspace = workspace;
+  }
 
   async startServer(id: string, config: McpServerConfig): Promise<void> {
+    if ((config.type ?? 'command') === 'builtin-consult') {
+      await this.startBuiltinConsultServer(id, config);
+      return;
+    }
+
+    if (!config.command) {
+      const errMsg = 'Command is required for MCP process servers.';
+      log.error(`Failed to start MCP server "${id}": ${errMsg}`);
+      this.connections.set(id, {
+        client: null!,
+        transport: null!,
+        config,
+        status: 'error',
+        error: errMsg,
+      });
+      return;
+    }
+
     if (this.connections.has(id)) {
       const existing = this.connections.get(id)!;
       if (existing.status === 'connected' || existing.status === 'connecting') {
@@ -85,6 +122,13 @@ export class McpClientManager {
   }
 
   async stopServer(id: string): Promise<void> {
+    const builtin = this.builtinServers.get(id);
+    if (builtin) {
+      log.info(`Stopping built-in MCP server "${id}"...`);
+      this.builtinServers.delete(id);
+      return;
+    }
+
     const conn = this.connections.get(id);
     if (!conn) return;
 
@@ -98,7 +142,7 @@ export class McpClientManager {
   }
 
   async stopAll(): Promise<void> {
-    const ids = Array.from(this.connections.keys());
+    const ids = this.getServerIds();
     for (const id of ids) {
       await this.stopServer(id);
     }
@@ -111,6 +155,15 @@ export class McpClientManager {
 
   getServerStates(): McpServerState[] {
     const states: McpServerState[] = [];
+    for (const [id, server] of this.builtinServers) {
+      states.push({
+        id,
+        config: server.config,
+        status: server.status,
+        error: server.error,
+        toolCount: server.toolCount,
+      });
+    }
     for (const [id, conn] of this.connections) {
       states.push({
         id,
@@ -124,6 +177,12 @@ export class McpClientManager {
   }
 
   async getTools(id: string): Promise<ToolDefinition[]> {
+    const builtin = this.builtinServers.get(id);
+    if (builtin) {
+      if (builtin.status !== 'connected') return [];
+      return builtin.tools;
+    }
+
     const conn = this.connections.get(id);
     if (!conn || conn.status !== 'connected') return [];
 
@@ -145,7 +204,7 @@ export class McpClientManager {
 
   async getAllTools(): Promise<ToolDefinition[]> {
     const all: ToolDefinition[] = [];
-    for (const id of this.connections.keys()) {
+    for (const id of this.getServerIds()) {
       const tools = await this.getTools(id);
       all.push(...tools);
     }
@@ -153,6 +212,14 @@ export class McpClientManager {
   }
 
   async callTool(serverId: string, toolName: string, args: Record<string, unknown>): Promise<ToolResult> {
+    const builtin = this.builtinServers.get(serverId);
+    if (builtin) {
+      if (builtin.status !== 'connected') {
+        return { success: false, output: `MCP server "${serverId}" is not connected (status: ${builtin.status}).` };
+      }
+      return builtin.handler(toolName, args);
+    }
+
     const conn = this.connections.get(serverId);
     if (!conn) {
       return { success: false, output: `MCP server "${serverId}" not found or not running.` };
@@ -180,7 +247,7 @@ export class McpClientManager {
 
     const rest = prefixedName.slice(4); // remove "mcp_"
     // find the matching server id
-    for (const id of this.connections.keys()) {
+    for (const id of this.getServerIds()) {
       if (rest.startsWith(id + '_')) {
         const toolName = rest.slice(id.length + 1);
         return this.callTool(id, toolName, args);
@@ -189,11 +256,172 @@ export class McpClientManager {
     return { success: false, output: `Unknown MCP tool: ${prefixedName}` };
   }
 
+  private async startBuiltinConsultServer(id: string, config: McpServerConfig): Promise<void> {
+    const existing = this.builtinServers.get(id);
+    if (existing?.status === 'connected') {
+      log.info(`Built-in MCP server "${id}" already running, skipping.`);
+      return;
+    }
+    if (existing) {
+      this.builtinServers.delete(id);
+    }
+
+    const normalizedConfig: McpServerConfig = { ...config, type: 'builtin-consult' };
+    const toolBaseName = 'consult_ai';
+    const tools: ToolDefinition[] = [{
+      type: 'function',
+      function: {
+        name: `mcp_${id}_${toolBaseName}`,
+        description: 'Consult another AI using the configured endpoint and API key. Returns text response.',
+        parameters: {
+          type: 'object',
+          properties: {
+            prompt: { type: 'string', description: 'Prompt to send to the external AI.' },
+            image_url: { type: 'string', description: 'Optional image URL or local file path to include.' },
+          },
+          required: ['prompt'],
+        },
+      },
+    }];
+
+    if (!normalizedConfig.endpointUrl || !normalizedConfig.apiKey) {
+      const error = !normalizedConfig.endpointUrl ? 'endpointUrl is required' : 'apiKey is required';
+      this.builtinServers.set(id, {
+        config: normalizedConfig,
+        status: 'error',
+        error,
+        toolCount: tools.length,
+        tools,
+        handler: async () => ({ success: false, output: `Built-in MCP server "${id}" is not configured: ${error}` }),
+      });
+      log.error(`Failed to start built-in MCP server "${id}": ${error}`);
+      return;
+    }
+
+    const handler = async (toolName: string, args: Record<string, unknown>): Promise<ToolResult> => {
+      if (toolName !== toolBaseName && toolName !== `mcp_${id}_${toolBaseName}`) {
+        return { success: false, output: `Unknown tool "${toolName}" for server "${id}".` };
+      }
+
+      const prompt = typeof args.prompt === 'string' ? args.prompt : '';
+      if (!prompt.trim()) {
+        return { success: false, output: 'Prompt is required.' };
+      }
+
+      const imageUrl = typeof args.image_url === 'string' ? args.image_url : undefined;
+      let imagePayload: string | undefined;
+      if (imageUrl) {
+        try {
+          imagePayload = await this.prepareImagePayload(imageUrl);
+        } catch (e) {
+          return { success: false, output: (e as Error).message };
+        }
+      }
+
+      const systemPrompt = `
+You are a "Senior AI Advisor" designed to receive consultations from another AI model to improve the quality of its reasoning and outputs.
+The input text will be a draft response or a stalled thought process generated by the consulting AI.
+
+Strictly adhere to the following constraints and guidelines:
+
+[Constraints]
+1. Strict Single-Turn Execution: There is no conversation history in this system. Even if the input lacks information, NEVER ask clarifying questions. If context is missing, explicitly state your assumptions (e.g., "Assuming [Condition]...") and output the best possible response based on those assumptions.
+2. AI-to-AI Communication: Omit all greetings, pleasantries, introductory remarks, conversational fillers, and concluding remarks. Begin your analysis immediately.
+3. Objectivity & Critical Thinking: Do not simply agree with the consulting AI. Rigorously point out logical leaps, potential factual errors, blind spots, and biases.
+
+[Output Format]
+Structure your response using the following Markdown format to ensure the consulting AI can easily parse the information:
+
+### 1. Analysis
+Briefly analyze the strengths, weaknesses, and logical consistency of the input.
+
+### 2. Improvements & Knowledge
+Provide concrete suggestions for refinement, alternative approaches, or additional specialized knowledge and perspectives that should be integrated.
+
+### 3. Risks & Edge Cases
+Identify potential risks, edge cases, or aspects of the current approach that could cause misunderstandings for the final human end-user.
+`.trim();
+
+      const body: Record<string, unknown> = { 
+        prompt,
+        system_prompt: systemPrompt 
+      };
+      if (normalizedConfig.model) body.model = normalizedConfig.model;
+      if (imagePayload) body.image = imagePayload;
+      if (this.searchConfig) body.search = this.searchConfig;
+
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (normalizedConfig.apiKey) headers['Authorization'] = `Bearer ${normalizedConfig.apiKey}`;
+
+      try {
+        const res = await fetch(normalizedConfig.endpointUrl!, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(body),
+        });
+        const output = await this.parseResponseText(res);
+        return { success: res.ok, output };
+      } catch (e) {
+        return { success: false, output: `MCP tool error: ${(e as Error).message}` };
+      }
+    };
+
+    this.builtinServers.set(id, {
+      config: normalizedConfig,
+      status: 'connected',
+      toolCount: tools.length,
+      tools,
+      handler,
+    });
+    log.info(`Built-in MCP server "${id}" connected successfully (${tools.length} tools).`);
+  }
+
+  private async prepareImagePayload(imageRef: string): Promise<string> {
+    if (imageRef.startsWith('data:')) return imageRef;
+    if (/^https?:\/\//i.test(imageRef)) return imageRef;
+
+    const fullPath = path.isAbsolute(imageRef)
+      ? imageRef
+      : this.workspace
+        ? path.join(this.workspace, imageRef)
+        : path.resolve(imageRef);
+
+    const data = await fs.promises.readFile(fullPath);
+    const ext = path.extname(fullPath).toLowerCase().replace('.', '');
+    const mime = ext === 'jpg' || ext === 'jpeg'
+      ? 'image/jpeg'
+      : ext === 'gif'
+        ? 'image/gif'
+        : ext === 'webp'
+          ? 'image/webp'
+          : `image/${ext || 'png'}`;
+
+    return `data:${mime};base64,${data.toString('base64')}`;
+  }
+
+  private async parseResponseText(res: Response): Promise<string> {
+    try {
+      const json = await res.clone().json();
+      if (typeof (json as any)?.text === 'string') return (json as any).text;
+      if (typeof (json as any)?.output === 'string') return (json as any).output;
+      if (typeof (json as any)?.message === 'string') return (json as any).message;
+      return JSON.stringify(json);
+    } catch {
+      const text = await res.text();
+      return text || `Empty response (status ${res.status})`;
+    }
+  }
+
   getServerIds(): string[] {
-    return Array.from(this.connections.keys());
+    return Array.from(new Set([
+      ...this.connections.keys(),
+      ...this.builtinServers.keys(),
+    ]));
   }
 
   isRunning(id: string): boolean {
+    const builtin = this.builtinServers.get(id);
+    if (builtin) return builtin.status === 'connected';
     const conn = this.connections.get(id);
     return conn?.status === 'connected';
   }
