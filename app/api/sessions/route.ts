@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getSessionManagerSafe, getConfigSafe, handleError, badRequest } from '../helpers';
-import { setSession, saveConfig } from '../../../src/config';
+import { setSession, saveConfig, ensureBuiltinMcpServer } from '../../../src/config';
 import type { SessionConfig, DashboardEvent } from '../../../src/types';
 import { broadcastSseEvent } from '../../../src/global-state';
 
@@ -61,6 +61,7 @@ export async function POST(request: Request) {
       mcpServers: baseSession?.mcpServers,
       disabledTools: baseSession?.disabledTools,
     };
+    ensureBuiltinMcpServer(newSession);
 
     setSession(config, sessionId, newSession);
     saveConfig(config);

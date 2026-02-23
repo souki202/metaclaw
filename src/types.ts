@@ -84,10 +84,13 @@ export interface SessionDiscordConfig {
 }
 
 export interface McpServerConfig {
-  command: string;
+  command?: string;
   args?: string[];
   env?: Record<string, string>;
   enabled?: boolean;
+  type?: 'command' | 'builtin-consult';
+  endpointUrl?: string;
+  apiKey?: string;
 }
 
 export interface SessionConfig {

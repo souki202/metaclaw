@@ -393,11 +393,12 @@ export async function setupApiRoutes(
 
       const body = await parseBody(req);
       const serverId = body.id;
+      const type = body.type || 'command';
       if (!serverId) {
         sendJson(res, { error: 'Server ID required' }, 400);
         return true;
       }
-      if (!body.command) {
+      if (type !== 'builtin-consult' && !body.command) {
         sendJson(res, { error: 'Command required' }, 400);
         return true;
       }
@@ -408,12 +409,19 @@ export async function setupApiRoutes(
         return true;
       }
 
-      session.mcpServers[serverId] = {
-        command: body.command,
-        args: body.args || [],
-        env: body.env || {},
-        enabled: body.enabled !== false,
-      };
+      session.mcpServers[serverId] = type === 'builtin-consult'
+        ? {
+            type: 'builtin-consult',
+            endpointUrl: body.endpointUrl,
+            apiKey: body.apiKey,
+            enabled: body.enabled !== false,
+          }
+        : {
+            command: body.command,
+            args: body.args || [],
+            env: body.env || {},
+            enabled: body.enabled !== false,
+          };
 
       saveConfig(config);
       sendJson(res, { ok: true, server: session.mcpServers[serverId] });

@@ -13,6 +13,20 @@ const DEFAULT_PROVIDER: ProviderConfig = {
   contextWindow: 128000,
 };
 
+export const DEFAULT_BUILTIN_MCP_ID = 'consult-ai';
+
+export function ensureBuiltinMcpServer(session: SessionConfig): void {
+  if (!session.mcpServers) session.mcpServers = {};
+  if (!session.mcpServers[DEFAULT_BUILTIN_MCP_ID]) {
+    session.mcpServers[DEFAULT_BUILTIN_MCP_ID] = {
+      type: 'builtin-consult',
+      endpointUrl: session.provider?.endpoint,
+      apiKey: session.provider?.apiKey,
+      enabled: true,
+    };
+  }
+}
+
 export function loadConfig(): Config {
   if (!fs.existsSync(CONFIG_PATH)) {
     // デフォルト設定を作成
@@ -47,6 +61,8 @@ export function loadConfig(): Config {
     if ('heartbeat' in mutableSession) {
       delete mutableSession.heartbeat;
     }
+
+    ensureBuiltinMcpServer(session);
   }
   
   // Clean up old environments field
@@ -82,6 +98,14 @@ function createDefaultConfig(): Config {
           exec: true,
           web: true,
           memory: true,
+        },
+        mcpServers: {
+          [DEFAULT_BUILTIN_MCP_ID]: {
+            type: 'builtin-consult',
+            endpointUrl: DEFAULT_PROVIDER.endpoint,
+            apiKey: DEFAULT_PROVIDER.apiKey,
+            enabled: true,
+          },
         },
       }
     },

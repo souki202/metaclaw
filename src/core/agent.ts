@@ -115,7 +115,7 @@ export class Agent {
     this.quickMemory = new QuickMemory(workspace);
     this.tmpMemory = new QuickMemory(workspace, 'TMP_MEMORY.md');
     this.vectorMemory = new VectorMemory(workspace, sessionId, this.provider);
-    this.mcpManager = new McpClientManager();
+    this.mcpManager = new McpClientManager(globalConfig?.search, workspace);
     this.files = new WorkspaceFiles(workspace);
     this.log = createLogger(`agent:${sessionId}`);
     this.onEvent = onEvent;

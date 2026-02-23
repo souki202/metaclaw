@@ -34,10 +34,13 @@ export interface SystemInfo {
 }
 
 export interface McpServerConfig {
-  command: string;
-  args: string[];
+  command?: string;
+  args?: string[];
   env?: Record<string, string>;
   enabled?: boolean;
+  type?: 'command' | 'builtin-consult';
+  endpointUrl?: string;
+  apiKey?: string;
 }
 
 export interface MCPStatus {

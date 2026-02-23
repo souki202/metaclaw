@@ -243,7 +243,14 @@ export const SessionSettingsModal = ({
   );
   const [mcpStatus, setMcpStatus] = useState<Record<string, any>>({});
   const [mcpFormVisible, setMcpFormVisible] = useState(false);
-  const [mcpForm, setMcpForm] = useState({ id: "", command: "npx", args: "" });
+  const [mcpForm, setMcpForm] = useState({
+    id: "",
+    command: "npx",
+    args: "",
+    type: "command",
+    endpointUrl: "",
+    apiKey: "",
+  });
   const [mcpEditId, setMcpEditId] = useState<string | null>(null);
 
   const loadMcp = () => {
@@ -343,29 +350,50 @@ export const SessionSettingsModal = ({
       id,
       command: cfg.command || "",
       args: (cfg.args || []).join("\n"),
+      type: (cfg.type as string) || "command",
+      endpointUrl: cfg.endpointUrl || "",
+      apiKey: cfg.apiKey || "",
     });
     setMcpFormVisible(true);
   };
 
   const handleAddMcp = () => {
     setMcpEditId(null);
-    setMcpForm({ id: "", command: "npx", args: "" });
+    setMcpForm({ id: "", command: "npx", args: "", type: "command", endpointUrl: "", apiKey: "" });
     setMcpFormVisible(true);
   };
 
   const handleSaveMcp = async () => {
-    const { id, command, args } = mcpForm;
-    if (!id || !command) return alert("ID and Command required");
-    const argsArray = args
-      .split("\n")
-      .map((s) => s.trim())
-      .filter(Boolean);
+    const { id, command, args, type, endpointUrl, apiKey } = mcpForm;
+    if (!id) return alert("ID required");
+    if (type === "command" && !command) return alert("ID and Command required");
+    if (type === "builtin-consult" && !endpointUrl)
+      return alert("Endpoint URL required");
+
+    const argsArray =
+      type === "command"
+        ? args
+            .split("\n")
+            .map((s) => s.trim())
+            .filter(Boolean)
+        : [];
+
+    const payload =
+      type === "builtin-consult"
+        ? {
+            id,
+            type: "builtin-consult",
+            endpointUrl,
+            apiKey,
+            enabled: true,
+          }
+        : { id, command, args: argsArray, enabled: true };
 
     if (mcpEditId) {
       await fetch(`/api/sessions/${sessionId}/mcp/${mcpEditId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ command, args: argsArray }),
+        body: JSON.stringify(payload),
       });
       fetch(`/api/sessions/${sessionId}/mcp/${mcpEditId}/restart`, {
         method: "POST",
@@ -374,7 +402,7 @@ export const SessionSettingsModal = ({
       await fetch(`/api/sessions/${sessionId}/mcp`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, command, args: argsArray, enabled: true }),
+        body: JSON.stringify(payload),
       });
       fetch(`/api/sessions/${sessionId}/mcp/${id}/restart`, {
         method: "POST",
@@ -387,9 +415,23 @@ export const SessionSettingsModal = ({
   const handleTemplateChange = (e: any) => {
     const tpl = MCP_TEMPLATES[e.target.value];
     if (tpl && e.target.value !== "custom") {
-      setMcpForm({ id: tpl.id, command: tpl.command, args: tpl.args });
+      setMcpForm({
+        id: tpl.id,
+        command: tpl.command,
+        args: tpl.args,
+        type: "command",
+        endpointUrl: "",
+        apiKey: "",
+      });
     } else {
-      setMcpForm({ id: "", command: "npx", args: "" });
+      setMcpForm({
+        id: "",
+        command: "npx",
+        args: "",
+        type: "command",
+        endpointUrl: "",
+        apiKey: "",
+      });
     }
   };
 
@@ -689,6 +731,19 @@ export const SessionSettingsModal = ({
                       </select>
                     </div>
                   )}
+                  <div className="form-group">
+                    <label className="form-label">Server Type</label>
+                    <select
+                      className="form-input"
+                      value={mcpForm.type}
+                      onChange={(e) =>
+                        setMcpForm({ ...mcpForm, type: e.target.value })
+                      }
+                    >
+                      <option value="command">Command (StdIO)</option>
+                      <option value="builtin-consult">Built-in Consult AI</option>
+                    </select>
+                  </div>
                   <div className="form-row">
                     <div className="form-group" style={{ flex: "0 0 140px" }}>
                       <label className="form-label">Server ID</label>
@@ -701,32 +756,63 @@ export const SessionSettingsModal = ({
                         disabled={!!mcpEditId}
                       />
                     </div>
+                    {mcpForm.type === "command" && (
+                      <div className="form-group">
+                        <label className="form-label">Command</label>
+                        <input
+                          className="form-input mono"
+                          value={mcpForm.command}
+                          onChange={(e) =>
+                            setMcpForm({ ...mcpForm, command: e.target.value })
+                          }
+                        />
+                      </div>
+                    )}
+                  </div>
+                  {mcpForm.type === "command" ? (
                     <div className="form-group">
-                      <label className="form-label">Command</label>
-                      <input
-                        className="form-input mono"
-                        value={mcpForm.command}
+                      <label className="form-label">
+                        Arguments (one per line)
+                      </label>
+                      <textarea
+                        className="file-editor"
+                        value={mcpForm.args}
                         onChange={(e) =>
-                          setMcpForm({ ...mcpForm, command: e.target.value })
+                          setMcpForm({ ...mcpForm, args: e.target.value })
                         }
+                        rows={3}
+                        style={{ minHeight: 56 }}
+                        spellCheck="false"
                       />
                     </div>
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">
-                      Arguments (one per line)
-                    </label>
-                    <textarea
-                      className="file-editor"
-                      value={mcpForm.args}
-                      onChange={(e) =>
-                        setMcpForm({ ...mcpForm, args: e.target.value })
-                      }
-                      rows={3}
-                      style={{ minHeight: 56 }}
-                      spellCheck="false"
-                    />
-                  </div>
+                  ) : (
+                    <>
+                      <div className="form-group">
+                        <label className="form-label">Endpoint URL</label>
+                        <input
+                          className="form-input mono"
+                          value={mcpForm.endpointUrl}
+                          onChange={(e) =>
+                            setMcpForm({
+                              ...mcpForm,
+                              endpointUrl: e.target.value,
+                            })
+                          }
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">API Key</label>
+                        <input
+                          type="password"
+                          className="form-input mono"
+                          value={mcpForm.apiKey}
+                          onChange={(e) =>
+                            setMcpForm({ ...mcpForm, apiKey: e.target.value })
+                          }
+                        />
+                      </div>
+                    </>
+                  )}
                   <div
                     style={{
                       display: "flex",
@@ -823,14 +909,17 @@ export const SessionSettingsModal = ({
                               </span>
                             </div>
                             <div className="env-detail mono">
-                              {cfg.command}{" "}
-                              {cfg.args
-                                ?.map((a) =>
-                                  a.includes(" ") && !a.startsWith('"')
-                                    ? `"${a}"`
-                                    : a,
-                                )
-                                .join(" ")}
+                              {cfg.type === "builtin-consult"
+                                ? `builtin-consult ${cfg.endpointUrl || ""}`
+                                : `${cfg.command || ""} ${
+                                    cfg.args
+                                      ?.map((a) =>
+                                        a.includes(" ") && !a.startsWith('"')
+                                          ? `"${a}"`
+                                          : a,
+                                      )
+                                      .join(" ") || ""
+                                  }`}
                             </div>
                             {isError && statusData.error && (
                               <div
