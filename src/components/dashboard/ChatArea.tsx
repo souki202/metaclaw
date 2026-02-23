@@ -8,6 +8,7 @@ import React, {
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { ChatMessage, Skill } from "./types";
+import remarkBreaks from "remark-breaks";
 
 interface ContentPart {
   type: "text" | "image_url";
@@ -302,7 +303,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
     return (
       <div className="chat-markdown">
         <ReactMarkdown
-          remarkPlugins={[remarkGfm]}
+          remarkPlugins={[remarkGfm, remarkBreaks]}
           components={{
             a: ({ href, children }) => (
               <a href={href} target="_blank" rel="noopener noreferrer">

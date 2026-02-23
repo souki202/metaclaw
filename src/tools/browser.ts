@@ -504,6 +504,54 @@ export async function browserGetUrl(pageId?: string): Promise<ToolResult> {
   }
 }
 
+export async function browserGetSimplifiedHtml(pageId?: string): Promise<ToolResult> {
+  const page = await getPage(pageId);
+  if (!page) {
+    return { success: false, output: 'No active page. Use browser_navigate first.' };
+  }
+  try {
+    const html = await page.evaluate(() => {
+      // Clone the root element or body to avoid modifying the actual page
+      const clone = document.documentElement.cloneNode(true) as HTMLElement;
+
+      // Tags to remove entirely
+      const removeTags = ['script', 'style', 'svg', 'canvas', 'link', 'iframe', 'noscript'];
+      removeTags.forEach(tag => {
+        clone.querySelectorAll(tag).forEach(el => el.remove());
+      });
+
+      // Clean up all elements
+      const allElements = clone.querySelectorAll('*');
+      allElements.forEach(el => {
+        const tagName = el.tagName.toLowerCase();
+        const attributes = Array.from(el.attributes);
+        
+        attributes.forEach(attr => {
+          const name = attr.name.toLowerCase();
+          // Keep only href for 'a' and src for 'img'
+          if (tagName === 'a' && name === 'href') return;
+          if (tagName === 'img' && name === 'src') return;
+          
+          el.removeAttribute(name);
+        });
+      });
+
+      // Remove comments
+      const iterator = document.createNodeIterator(clone, NodeFilter.SHOW_COMMENT);
+      let currentNode;
+      while ((currentNode = iterator.nextNode())) {
+        currentNode.parentNode?.removeChild(currentNode);
+      }
+
+      return clone.innerHTML;
+    });
+
+    return { success: true, output: html };
+  } catch (e: unknown) {
+    return { success: false, output: `Get simplified HTML error: ${(e as Error).message}` };
+  }
+}
+
 export async function browserListPages(): Promise<ToolResult> {
   if (pages.size === 0) {
     return { success: true, output: 'No open pages.' };

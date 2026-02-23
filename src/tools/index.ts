@@ -8,7 +8,7 @@ import { gitStatus, gitDiff, gitDiffStaged, gitLog, gitCommit, gitBranch, gitChe
 import {
   browserSnapshot, browserNavigate, browserClick, browserType, browserSelect,
   browserScreenshot, browserEvaluate, browserGetContent, browserWaitFor,
-  browserScroll, browserPress, browserGetUrl,
+  browserScroll, browserPress, browserGetUrl, browserGetSimplifiedHtml,
   browserListPages, browserSwitchPage, browserClosePage, browserClose
 } from './browser.js';
 import type { VectorMemory } from '../memory/vector.js';
@@ -530,6 +530,20 @@ export async function buildTools(ctx: ToolContext): Promise<ToolDefinition[]> {
       {
         type: 'function',
         function: {
+          name: 'browser_get_simplified_html',
+          description: 'Get a simplified version of the page HTML. Retains structural tags but removes all attributes except src (for img) and href (for a). Also removes script, style, svg, canvas, and link tags. Useful for analyzing page structure without noise.',
+          parameters: {
+            type: 'object',
+            properties: {
+              page_id: { type: 'string', description: 'Page ID (optional, uses current page if omitted).' },
+            },
+            required: [],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
           name: 'browser_wait_for',
           description: 'Wait until a CSS selector becomes visible on the page, then return a fresh snapshot. Use when content loads asynchronously after an action.',
           parameters: {
@@ -1029,6 +1043,9 @@ export async function executeTool(
 
     case 'browser_get_content':
       return browserGetContent(args.selector as string | undefined, args.page_id as string | undefined);
+
+    case 'browser_get_simplified_html':
+      return browserGetSimplifiedHtml(args.page_id as string | undefined);
 
     case 'browser_wait_for':
       return browserWaitFor(args.selector as string, args.timeout as number | undefined, args.page_id as string | undefined);

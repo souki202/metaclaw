@@ -1,12 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { SystemInfo } from "./types";
 
-interface RightPanelProps {
-  currentSession: string | null;
-  /** SSE 経由でサーバーからプッシュされたスケジュール一覧。null は未受信を意味する */
-  externalSchedules?: ScheduleItem[] | null;
-}
-
 interface ScheduleItem {
   id: string;
   memo: string;
@@ -16,9 +10,18 @@ interface ScheduleItem {
   enabled: boolean;
 }
 
+export interface RightPanelProps {
+  currentSession: string | null;
+  /** SSE 経由でサーバーからプッシュされたスケジュール一覧。null は未受信を意味する */
+  externalSchedules?: ScheduleItem[] | null;
+}
+
 const FILES = ["IDENTITY.md", "SOUL.md", "USER.md", "MEMORY.md"];
 
-export const RightPanel: React.FC<RightPanelProps> = ({ currentSession, externalSchedules }) => {
+export function RightPanel({
+  currentSession,
+  externalSchedules,
+}: RightPanelProps) {
   const [activeTab, setActiveTab] = useState<"files" | "memory" | "system">(
     "files",
   );
@@ -487,4 +490,4 @@ export const RightPanel: React.FC<RightPanelProps> = ({ currentSession, external
       </div>
     </div>
   );
-};
+}
