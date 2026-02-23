@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { getSessionManagerSafe, handleError, notFound, badRequest } from '../../../../helpers';
 
-const ALLOWED_FILES = ['IDENTITY.md', 'USER.md', 'MEMORY.md'];
+const ALLOWED_FILES = ['IDENTITY.md', 'SOUL.md', 'USER.md', 'MEMORY.md'];
 
 export async function GET(
   request: Request,
