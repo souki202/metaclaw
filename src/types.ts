@@ -111,6 +111,12 @@ export interface SessionConfig {
     compressionThreshold?: number;
     keepRecentMessages?: number;
   };
+  consultAi?: {
+    endpointUrl: string;
+    apiKey: string;
+    model: string;
+    enabled: boolean;
+  };
   mcpServers?: Record<string, McpServerConfig>;
   disabledTools?: string[];
 }

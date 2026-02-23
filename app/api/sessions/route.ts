@@ -58,6 +58,7 @@ export async function POST(request: Request) {
       allowSelfModify: body.allowSelfModify ?? baseSession?.allowSelfModify ?? false,
       tools: body.tools || baseSession?.tools || { exec: true, web: true, memory: true },
       discord: body.discord || baseSession?.discord,
+      consultAi: body.consultAi || baseSession?.consultAi,
       mcpServers: baseSession?.mcpServers,
       disabledTools: baseSession?.disabledTools,
     };

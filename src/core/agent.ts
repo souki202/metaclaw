@@ -152,6 +152,18 @@ export class Agent {
   }
 
   private async initMcpServers() {
+    // Start consult-ai if configured
+    if (this.config.consultAi && this.config.consultAi.enabled !== false) {
+      try {
+        await this.mcpManager.startServer('consult-ai', {
+          type: 'builtin-consult',
+          ...this.config.consultAi,
+        });
+      } catch (e) {
+        this.log.error(`Failed to start built-in MCP server "consult-ai":`, e);
+      }
+    }
+
     const servers = this.config.mcpServers;
     if (!servers) return;
 

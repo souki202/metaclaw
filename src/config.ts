@@ -16,13 +16,26 @@ const DEFAULT_PROVIDER: ProviderConfig = {
 export const DEFAULT_BUILTIN_MCP_ID = 'consult-ai';
 
 export function ensureBuiltinMcpServer(session: SessionConfig): void {
-  if (!session.mcpServers) session.mcpServers = {};
-  if (!session.mcpServers[DEFAULT_BUILTIN_MCP_ID]) {
-    session.mcpServers[DEFAULT_BUILTIN_MCP_ID] = {
-      type: 'builtin-consult',
-      endpointUrl: session.provider?.endpoint,
-      apiKey: session.provider?.apiKey,
-      model: session.provider?.model,
+  // Migrate existing consult-ai MCP config if it exists
+  if (session.mcpServers?.[DEFAULT_BUILTIN_MCP_ID]) {
+    const oldConfig = session.mcpServers[DEFAULT_BUILTIN_MCP_ID];
+    if (!session.consultAi) {
+      session.consultAi = {
+        endpointUrl: oldConfig.endpointUrl || session.provider?.endpoint || '',
+        apiKey: oldConfig.apiKey || session.provider?.apiKey || '',
+        model: oldConfig.model || session.provider?.model || '',
+        enabled: oldConfig.enabled !== false,
+      };
+    }
+    delete session.mcpServers[DEFAULT_BUILTIN_MCP_ID];
+  }
+
+  // Ensure consultAi is initialized
+  if (!session.consultAi) {
+    session.consultAi = {
+      endpointUrl: session.provider?.endpoint || '',
+      apiKey: session.provider?.apiKey || '',
+      model: session.provider?.model || '',
       enabled: true,
     };
   }

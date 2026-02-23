@@ -232,9 +232,9 @@ export const SessionSettingsModal = ({
   onSave,
   onDelete,
 }: any) => {
-  const [tab, setTab] = useState<"general" | "discord" | "mcp" | "tools">(
-    "general",
-  );
+  const [tab, setTab] = useState<
+    "general" | "consult" | "discord" | "mcp" | "tools"
+  >("general");
   const [config, setConfig] = useState<any>({});
   const [toolsList, setToolsList] = useState<any[]>([]);
   const [toolsLoading, setToolsLoading] = useState(false);
@@ -253,6 +253,63 @@ export const SessionSettingsModal = ({
     model: "",
   });
   const [mcpEditId, setMcpEditId] = useState<string | null>(null);
+
+  const setNested = (path: string[], value: any) => {
+    setConfig((prev: any) => {
+      const copy = { ...prev };
+      let curr = copy;
+      for (let i = 0; i < path.length - 1; i++) {
+        if (!curr[path[i]]) curr[path[i]] = {};
+        curr = curr[path[i]];
+      }
+      curr[path[path.length - 1]] = value;
+      return copy;
+    });
+  };
+
+  const setDiscordArray = (field: string, csv: string) => {
+    const arr = csv
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    setNested(["discord", field], arr);
+  };
+
+  const groupedTools = React.useMemo(() => {
+    const groups: Record<string, any[]> = {};
+    toolsList.forEach((t) => {
+      const name = t.function.name;
+      if (name.startsWith("mcp_")) {
+        const serverId = Object.keys(mcpConfig).find((id) =>
+          name.startsWith(`mcp_${id}_`),
+        );
+        if (serverId) {
+          const groupName = `MCP: ${serverId}`;
+          if (!groups[groupName]) groups[groupName] = [];
+          groups[groupName].push(t);
+        } else {
+          const groupName = "MCP: Other";
+          groups[groupName] = groups[groupName] || [];
+          groups[groupName].push(t);
+        }
+      } else {
+        let groupName = "Built-in: Other";
+        if (name.endsWith("_file") || name === "list_dir")
+          groupName = "Built-in: Filesystem";
+        else if (name.startsWith("memory_")) groupName = "Built-in: Memory";
+        else if (name === "exec") groupName = "Built-in: Execution";
+        else if (name.startsWith("web_")) groupName = "Built-in: Web";
+        else if (name.startsWith("browser_")) groupName = "Built-in: Browser";
+        else if (name.startsWith("self_") || name.startsWith("read_config"))
+          groupName = "Built-in: System/Self";
+        else if (name.startsWith("git_")) groupName = "Built-in: Git";
+
+        if (!groups[groupName]) groups[groupName] = [];
+        groups[groupName].push(t);
+      }
+    });
+    return groups;
+  }, [toolsList, mcpConfig]);
 
   const loadMcp = () => {
     fetch(`/api/sessions/${sessionId}/mcp`)
@@ -361,7 +418,15 @@ export const SessionSettingsModal = ({
 
   const handleAddMcp = () => {
     setMcpEditId(null);
-    setMcpForm({ id: "", command: "npx", args: "", type: "command", endpointUrl: "", apiKey: "", model: "" });
+    setMcpForm({
+      id: "",
+      command: "npx",
+      args: "",
+      type: "command",
+      endpointUrl: "",
+      apiKey: "",
+      model: "",
+    });
     setMcpFormVisible(true);
   };
 
@@ -440,63 +505,6 @@ export const SessionSettingsModal = ({
     }
   };
 
-  const setNested = (path: string[], value: any) => {
-    setConfig((prev: any) => {
-      const copy = { ...prev };
-      let curr = copy;
-      for (let i = 0; i < path.length - 1; i++) {
-        if (!curr[path[i]]) curr[path[i]] = {};
-        curr = curr[path[i]];
-      }
-      curr[path[path.length - 1]] = value;
-      return copy;
-    });
-  };
-
-  const setDiscordArray = (field: string, csv: string) => {
-    const arr = csv
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean);
-    setNested(["discord", field], arr);
-  };
-
-  const groupedTools = React.useMemo(() => {
-    const groups: Record<string, any[]> = {};
-    toolsList.forEach((t) => {
-      const name = t.function.name;
-      if (name.startsWith("mcp_")) {
-        const serverId = Object.keys(mcpConfig).find((id) =>
-          name.startsWith(`mcp_${id}_`),
-        );
-        if (serverId) {
-          const groupName = `MCP: ${serverId}`;
-          if (!groups[groupName]) groups[groupName] = [];
-          groups[groupName].push(t);
-        } else {
-          const groupName = "MCP: Other";
-          groups[groupName] = groups[groupName] || [];
-          groups[groupName].push(t);
-        }
-      } else {
-        let groupName = "Built-in: Other";
-        if (name.endsWith("_file") || name === "list_dir")
-          groupName = "Built-in: Filesystem";
-        else if (name.startsWith("memory_")) groupName = "Built-in: Memory";
-        else if (name === "exec") groupName = "Built-in: Execution";
-        else if (name.startsWith("web_")) groupName = "Built-in: Web";
-        else if (name.startsWith("browser_")) groupName = "Built-in: Browser";
-        else if (name.startsWith("self_") || name.startsWith("read_config"))
-          groupName = "Built-in: System/Self";
-        else if (name.startsWith("git_")) groupName = "Built-in: Git";
-
-        if (!groups[groupName]) groups[groupName] = [];
-        groups[groupName].push(t);
-      }
-    });
-    return groups;
-  }, [toolsList, mcpConfig]);
-
   return (
     <div className="modal-overlay active" onClick={handleSave}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
@@ -515,6 +523,12 @@ export const SessionSettingsModal = ({
               General
             </div>
             <div
+              className={`modal-tab ${tab === "consult" ? "active" : ""}`}
+              onClick={() => setTab("consult")}
+            >
+              Consult AI
+            </div>
+            <div
               className={`modal-tab ${tab === "discord" ? "active" : ""}`}
               onClick={() => setTab("discord")}
             >
@@ -524,11 +538,14 @@ export const SessionSettingsModal = ({
               className={`modal-tab ${tab === "mcp" ? "active" : ""}`}
               onClick={() => setTab("mcp")}
             >
-              MCP Servers
+              MCP
             </div>
             <div
               className={`modal-tab ${tab === "tools" ? "active" : ""}`}
-              onClick={() => setTab("tools")}
+              onClick={() => {
+                setTab("tools");
+                loadTools();
+              }}
             >
               Tools
             </div>
@@ -537,15 +554,23 @@ export const SessionSettingsModal = ({
           {tab === "general" && (
             <div>
               <div className="form-group">
-                <label className="form-label">Name</label>
+                <label className="form-label">Session Name</label>
                 <input
                   className="form-input"
                   value={config.name || ""}
-                  onChange={(e) =>
-                    setConfig({ ...config, name: e.target.value })
-                  }
+                  onChange={(e) => setNested(["name"], e.target.value)}
                 />
               </div>
+              <div className="form-group">
+                <label className="form-label">Description</label>
+                <input
+                  className="form-input"
+                  value={config.description || ""}
+                  onChange={(e) => setNested(["description"], e.target.value)}
+                />
+              </div>
+
+              <div className="settings-title">Provider Config</div>
               <div className="form-group">
                 <label className="form-label">API Endpoint</label>
                 <input
@@ -561,59 +586,115 @@ export const SessionSettingsModal = ({
                 <input
                   type="password"
                   className="form-input mono"
+                  placeholder="••••••••"
                   value={config.provider?.apiKey || ""}
                   onChange={(e) =>
                     setNested(["provider", "apiKey"], e.target.value)
                   }
                 />
               </div>
-              <div className="form-row">
-                <div className="form-group">
-                  <label className="form-label">Model</label>
-                  <input
-                    className="form-input mono"
-                    value={config.provider?.model || ""}
-                    onChange={(e) =>
-                      setNested(["provider", "model"], e.target.value)
-                    }
-                  />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Embedding Model</label>
-                  <input
-                    className="form-input mono"
-                    value={config.provider?.embeddingModel || ""}
-                    onChange={(e) =>
-                      setNested(["provider", "embeddingModel"], e.target.value)
-                    }
-                  />
-                </div>
-              </div>
               <div className="form-group">
+                <label className="form-label">Model</label>
+                <input
+                  className="form-input mono"
+                  value={config.provider?.model || ""}
+                  onChange={(e) =>
+                    setNested(["provider", "model"], e.target.value)
+                  }
+                />
+              </div>
+
+              <div className="settings-title">Other</div>
+              <div className="form-group">
+                <label className="form-label">Workspace Path</label>
+                <input
+                  className="form-input mono"
+                  value={config.workspace || ""}
+                  onChange={(e) => setNested(["workspace"], e.target.value)}
+                />
+              </div>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 <label className="form-checkbox">
                   <input
                     type="checkbox"
-                    checked={config.tools?.exec ?? true}
+                    checked={config.restrictToWorkspace ?? true}
                     onChange={(e) =>
-                      setNested(["tools", "exec"], e.target.checked)
+                      setNested(["restrictToWorkspace"], e.target.checked)
                     }
                   />
-                  <span>Enable Exec Tool</span>
+                  Restrict to Workspace
+                </label>
+                <label className="form-checkbox">
+                  <input
+                    type="checkbox"
+                    checked={config.allowSelfModify ?? false}
+                    onChange={(e) =>
+                      setNested(["allowSelfModify"], e.target.checked)
+                    }
+                  />
+                  Allow AI to modify its own code
                 </label>
               </div>
-              <div
-                style={{
-                  marginTop: 32,
-                  paddingTop: 16,
-                  borderTop: "1px solid var(--border)",
-                }}
-              >
+
+              <div className="env-actions" style={{ marginTop: 24 }}>
                 <button
                   className="btn danger"
                   onClick={() => onDelete(sessionId)}
                 >
                   Delete Session
                 </button>
+              </div>
+            </div>
+          )}
+
+          {tab === "consult" && (
+            <div className="settings-section">
+              <div className="form-group">
+                <label className="form-label">Consult AI Endpoint</label>
+                <input
+                  className="form-input mono"
+                  placeholder={config.provider?.endpoint}
+                  value={config.consultAi?.endpointUrl || ""}
+                  onChange={(e) =>
+                    setNested(["consultAi", "endpointUrl"], e.target.value)
+                  }
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Consult AI API Key</label>
+                <input
+                  type="password"
+                  className="form-input mono"
+                  placeholder="Leave blank to use session API key"
+                  value={config.consultAi?.apiKey || ""}
+                  onChange={(e) =>
+                    setNested(["consultAi", "apiKey"], e.target.value)
+                  }
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Consult AI Model</label>
+                <input
+                  className="form-input mono"
+                  placeholder={config.provider?.model}
+                  value={config.consultAi?.model || ""}
+                  onChange={(e) =>
+                    setNested(["consultAi", "model"], e.target.value)
+                  }
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-checkbox">
+                  <input
+                    type="checkbox"
+                    checked={config.consultAi?.enabled ?? true}
+                    onChange={(e) =>
+                      setNested(["consultAi", "enabled"], e.target.checked)
+                    }
+                  />
+                  <span>Enable Consult AI Feature</span>
+                </label>
               </div>
             </div>
           )}
@@ -746,7 +827,9 @@ export const SessionSettingsModal = ({
                       }
                     >
                       <option value="command">Command (StdIO)</option>
-                      <option value="builtin-consult">Built-in Consult AI</option>
+                      <option value="builtin-consult">
+                        Built-in Consult AI
+                      </option>
                     </select>
                   </div>
                   <div className="form-row">
@@ -817,7 +900,9 @@ export const SessionSettingsModal = ({
                         />
                       </div>
                       <div className="form-group">
-                        <label className="form-label">Model Name (optional)</label>
+                        <label className="form-label">
+                          Model Name (optional)
+                        </label>
                         <input
                           className="form-input mono"
                           value={mcpForm.model}
