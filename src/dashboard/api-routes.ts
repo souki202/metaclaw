@@ -330,7 +330,7 @@ export async function setupApiRoutes(
       const config = loadConfig();
       if (deleteSession(config, deleteSessionMatch.params.id)) {
         saveConfig(config);
-        sessions.stopSession(deleteSessionMatch.params.id);
+        sessions.deleteSession(deleteSessionMatch.params.id);
         sendJson(res, { ok: true });
       } else {
         sendJson(res, { error: 'Session not found' }, 404);

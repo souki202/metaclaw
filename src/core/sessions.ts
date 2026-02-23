@@ -34,11 +34,37 @@ export class SessionManager {
 
   constructor(config: Config) {
     this.config = config;
+    // Load schedules for all configured sessions immediately so that schedules
+    // fire even for sessions that are not currently running an agent.
+    this.loadAllSessionSchedules();
+  }
+
+  /**
+   * Start the schedule timer.  Must be called after setScheduleTriggerHandler()
+   * so that the handler is in place before any schedule fires.
+   */
+  startScheduler() {
     this.schedules.start();
+  }
+
+  /**
+   * Load schedules from disk for every session in the current config.
+   * Safe to call multiple times; subsequent calls refresh the in-memory state.
+   */
+  private loadAllSessionSchedules() {
+    for (const [sessionId, sessionConfig] of Object.entries(this.config.sessions)) {
+      const workspace = this.resolveWorkspace(sessionConfig);
+      initWorkspace(workspace);
+      this.schedules.loadSession(sessionId, workspace);
+    }
   }
 
   setScheduleTriggerHandler(fn: (trigger: { sessionId: string; schedule: SessionSchedule }) => Promise<void>) {
     this.schedules.setTriggerHandler(fn);
+  }
+
+  setScheduleChangeHandler(fn: (sessionId: string, schedules: SessionSchedule[]) => void) {
+    this.schedules.setScheduleChangeHandler(fn);
   }
 
   startAll(onEvent?: EventCallback) {
@@ -90,13 +116,32 @@ export class SessionManager {
   }
 
   stopSession(sessionId: string) {
-    this.schedules.unloadSession(sessionId);
+    // Schedules are intentionally NOT unloaded here so that recurring schedules
+    // continue to fire even when the agent is not running.
     const agent = this.agents.get(sessionId);
     if (agent) {
       agent.stopMcpServers().catch(e => log.error(`Error stopping MCP servers for ${sessionId}:`, e));
     }
     this.agents.delete(sessionId);
     log.info(`Stopped session: ${sessionId}`);
+  }
+
+  /**
+   * Permanently remove a session: stop the agent and unload its schedules.
+   * Use this when the session is deleted from config, not just temporarily stopped.
+   */
+  deleteSession(sessionId: string) {
+    this.schedules.unloadSession(sessionId);
+    const agent = this.agents.get(sessionId);
+    if (agent) {
+      agent.stopMcpServers().catch(e => log.error(`Error stopping MCP servers for ${sessionId}:`, e));
+    }
+    this.agents.delete(sessionId);
+    log.info(`Deleted session: ${sessionId}`);
+  }
+
+  isSessionActive(sessionId: string): boolean {
+    return this.agents.has(sessionId);
   }
 
   getAgent(sessionId: string): Agent | undefined {
@@ -137,6 +182,8 @@ export class SessionManager {
   // 設定を再読み込み
   reloadConfig(config: Config) {
     this.config = config;
+    // Reload schedules to pick up any sessions added or removed in the new config
+    this.loadAllSessionSchedules();
   }
 
   // セッションのプロバイダー設定を解決

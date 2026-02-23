@@ -13,7 +13,7 @@ export async function DELETE(
 
     if (deleteSession(config, id)) {
       saveConfig(config);
-      sessions.stopSession(id);
+      sessions.deleteSession(id);
       return NextResponse.json({ ok: true });
     } else {
       return notFound('Session not found');

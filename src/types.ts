@@ -158,7 +158,7 @@ export interface ScheduleUpsertInput {
 }
 
 export interface DashboardEvent {
-  type: 'message' | 'tool_call' | 'tool_result' | 'system' | 'memory_update' | 'stream' | 'connected';
+  type: 'message' | 'tool_call' | 'tool_result' | 'system' | 'memory_update' | 'stream' | 'connected' | 'schedule_update';
   sessionId: string;
   data: unknown;
   timestamp: string;

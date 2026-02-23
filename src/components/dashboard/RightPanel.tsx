@@ -3,6 +3,8 @@ import { SystemInfo } from "./types";
 
 interface RightPanelProps {
   currentSession: string | null;
+  /** SSE 経由でサーバーからプッシュされたスケジュール一覧。null は未受信を意味する */
+  externalSchedules?: ScheduleItem[] | null;
 }
 
 interface ScheduleItem {
@@ -16,7 +18,7 @@ interface ScheduleItem {
 
 const FILES = ["IDENTITY.md", "SOUL.md", "USER.md", "MEMORY.md"];
 
-export const RightPanel: React.FC<RightPanelProps> = ({ currentSession }) => {
+export const RightPanel: React.FC<RightPanelProps> = ({ currentSession, externalSchedules }) => {
   const [activeTab, setActiveTab] = useState<"files" | "memory" | "system">(
     "files",
   );
@@ -103,16 +105,12 @@ export const RightPanel: React.FC<RightPanelProps> = ({ currentSession }) => {
     if (activeTab === "memory") loadMemory();
   }, [currentSession, activeTab]);
 
+  // SSE 経由でサーバーから届いたスケジュール一覧を反映する
   useEffect(() => {
-    if (!currentSession || activeTab !== "files") return;
-
-    void loadSchedules();
-    const interval = setInterval(() => {
-      void loadSchedules();
-    }, 3000);
-
-    return () => clearInterval(interval);
-  }, [currentSession, activeTab]);
+    if (externalSchedules !== null && externalSchedules !== undefined) {
+      setSchedules(externalSchedules);
+    }
+  }, [externalSchedules]);
 
   // Load system info periodically if system tab active
   useEffect(() => {

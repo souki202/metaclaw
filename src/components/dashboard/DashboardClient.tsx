@@ -18,6 +18,7 @@ export default function DashboardClient() {
   const [wsConnected, setWsConnected] = useState(false);
   const [isThinking, setIsThinking] = useState(false);
   const [messages, setMessages] = useState<any[]>([]);
+  const [schedulesBySession, setSchedulesBySession] = useState<Record<string, any[]>>({});
 
   const [availableSkills, setAvailableSkills] = useState<Skill[]>([]);
 
@@ -62,6 +63,15 @@ export default function DashboardClient() {
         try {
           const event = JSON.parse(e.data);
           if (event.type === "connected") return;
+
+          // schedule_update はセッションフィルタ前に処理する（非表示セッションも更新）
+          if (event.type === "schedule_update" && event.sessionId) {
+            setSchedulesBySession((prev) => ({
+              ...prev,
+              [event.sessionId]: event.data as any[],
+            }));
+            return;
+          }
 
           if (
             !event.sessionId ||
@@ -442,7 +452,10 @@ export default function DashboardClient() {
           onOpenSessionSettings={() => setActiveModal("session")}
         />
 
-        <RightPanel currentSession={currentSession} />
+        <RightPanel
+          currentSession={currentSession}
+          externalSchedules={currentSession ? (schedulesBySession[currentSession] ?? null) : null}
+        />
       </div>
 
       {activeModal === "global" && (
