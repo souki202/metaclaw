@@ -16,6 +16,8 @@ import type { QuickMemory } from '../memory/quick.js';
 import type { McpClientManager } from './mcp-client.js';
 import type { A2ARegistry } from '../a2a/registry.js';
 import { listAgents, findAgents, sendToAgent, checkA2AMessages, respondToAgent, getMyCard } from '../a2a/tools.js';
+import type { ACAManager } from '../aca/manager.js';
+import { viewCuriosityState, viewObjectives, triggerCuriosityScan, scheduleObjective, completeObjective } from '../aca/tools.js';
 
 const CURRENT_OS = process.platform === 'win32'
   ? 'Windows'
@@ -35,6 +37,7 @@ export interface ToolContext {
   searchConfig?: SearchConfig;
   mcpManager?: McpClientManager;
   a2aRegistry?: A2ARegistry;
+  acaManager?: ACAManager;
   scheduleList?: () => SessionSchedule[];
   scheduleCreate?: (input: ScheduleUpsertInput) => SessionSchedule;
   scheduleUpdate?: (scheduleId: string, patch: Partial<ScheduleUpsertInput>) => SessionSchedule;
@@ -397,6 +400,81 @@ export async function buildTools(ctx: ToolContext): Promise<ToolDefinition[]> {
             type: 'object',
             properties: {},
             required: [],
+          },
+        },
+      }
+    );
+  }
+
+  // ACA (Autonomous Curiosity Architecture) tools
+  if (ctx.acaManager && ctx.config.aca?.enabled) {
+    tools.push(
+      {
+        type: 'function',
+        function: {
+          name: 'view_curiosity_state',
+          description: 'View the current autonomous curiosity state, including knowledge and capability frontiers.',
+          parameters: {
+            type: 'object',
+            properties: {},
+            required: [],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'view_objectives',
+          description: 'View generated autonomous objectives, both active and proposed.',
+          parameters: {
+            type: 'object',
+            properties: {},
+            required: [],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'trigger_curiosity_scan',
+          description: 'Manually trigger a curiosity scan to detect new frontiers and generate objectives.',
+          parameters: {
+            type: 'object',
+            properties: {},
+            required: [],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'schedule_objective',
+          description: 'Schedule a proposed objective for execution.',
+          parameters: {
+            type: 'object',
+            properties: {
+              objective_id: { type: 'string', description: 'ID of the objective to schedule.' },
+              schedule_at: { type: 'string', description: 'Optional ISO datetime when to execute the objective.' },
+            },
+            required: ['objective_id'],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'complete_objective',
+          description: 'Mark an objective as completed or abandoned, recording results.',
+          parameters: {
+            type: 'object',
+            properties: {
+              objective_id: { type: 'string', description: 'ID of the objective being completed.' },
+              success: { type: 'boolean', description: 'Whether the objective was successfully completed.' },
+              summary: { type: 'string', description: 'Summary of what was accomplished or why it failed.' },
+              new_knowledge: { type: 'string', description: 'New knowledge gained (one fact per line).' },
+              new_capabilities: { type: 'string', description: 'New capabilities acquired (one skill per line).' },
+            },
+            required: ['objective_id', 'success', 'summary'],
           },
         },
       }
@@ -1304,6 +1382,31 @@ export async function executeTool(
 
     case 'get_my_card':
       return getMyCard(ctx);
+
+    // ACA tools
+    case 'view_curiosity_state':
+      return viewCuriosityState(ctx);
+
+    case 'view_objectives':
+      return viewObjectives(ctx);
+
+    case 'trigger_curiosity_scan':
+      return triggerCuriosityScan(ctx);
+
+    case 'schedule_objective':
+      return scheduleObjective(ctx, {
+        objective_id: args.objective_id as string,
+        schedule_at: args.schedule_at as string | undefined,
+      });
+
+    case 'complete_objective':
+      return completeObjective(ctx, {
+        objective_id: args.objective_id as string,
+        success: args.success as boolean,
+        summary: args.summary as string,
+        new_knowledge: args.new_knowledge as string | undefined,
+        new_capabilities: args.new_capabilities as string | undefined,
+      });
 
     case 'self_list':
       return selfList(args.subdir as string | undefined);
