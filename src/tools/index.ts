@@ -14,6 +14,10 @@ import {
 import type { VectorMemory } from '../memory/vector.js';
 import type { QuickMemory } from '../memory/quick.js';
 import type { McpClientManager } from './mcp-client.js';
+import type { A2ARegistry } from '../a2a/registry.js';
+import { listAgents, findAgents, sendToAgent, checkA2AMessages, respondToAgent, getMyCard } from '../a2a/tools.js';
+import type { ACAManager } from '../aca/manager.js';
+import { viewCuriosityState, viewObjectives, triggerCuriosityScan, scheduleObjective, completeObjective } from '../aca/tools.js';
 
 const CURRENT_OS = process.platform === 'win32'
   ? 'Windows'
@@ -32,6 +36,8 @@ export interface ToolContext {
   tmpMemory?: QuickMemory;
   searchConfig?: SearchConfig;
   mcpManager?: McpClientManager;
+  a2aRegistry?: A2ARegistry;
+  acaManager?: ACAManager;
   scheduleList?: () => SessionSchedule[];
   scheduleCreate?: (input: ScheduleUpsertInput) => SessionSchedule;
   scheduleUpdate?: (scheduleId: string, patch: Partial<ScheduleUpsertInput>) => SessionSchedule;
@@ -300,6 +306,175 @@ export async function buildTools(ctx: ToolContext): Promise<ToolDefinition[]> {
             type: 'object',
             properties: {},
             required: [],
+          },
+        },
+      }
+    );
+  }
+
+  // A2A (Agent-to-Agent) Communication tools
+  if (ctx.a2aRegistry && ctx.config.a2a?.enabled) {
+    tools.push(
+      {
+        type: 'function',
+        function: {
+          name: 'list_agents',
+          description: 'List all available agents in the system with their capabilities and specializations.',
+          parameters: {
+            type: 'object',
+            properties: {},
+            required: [],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'find_agents',
+          description: 'Find agents with specific capabilities or specializations.',
+          parameters: {
+            type: 'object',
+            properties: {
+              capability: { type: 'string', description: 'Capability name to search for (e.g., research_topic, automate_web_task).' },
+              specialization: { type: 'string', description: 'Specialization to search for (e.g., web-research, code-execution).' },
+            },
+            required: [],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'send_to_agent',
+          description: 'Send a task request to another agent. The target agent will process the task and you can check for responses later.',
+          parameters: {
+            type: 'object',
+            properties: {
+              target_session: { type: 'string', description: 'Session ID of the target agent.' },
+              task: { type: 'string', description: 'Description of the task to delegate to the agent.' },
+              context: { type: 'object', description: 'Additional context or data needed for the task.' },
+              priority: { type: 'string', enum: ['low', 'normal', 'high'], description: 'Task priority level.' },
+              timeout: { type: 'number', description: 'Timeout in seconds for the task.' },
+            },
+            required: ['target_session', 'task'],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'check_a2a_messages',
+          description: 'Check for incoming messages from other agents, including task requests and responses.',
+          parameters: {
+            type: 'object',
+            properties: {},
+            required: [],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'respond_to_agent',
+          description: 'Respond to a task request from another agent with results or an error.',
+          parameters: {
+            type: 'object',
+            properties: {
+              message_id: { type: 'string', description: 'ID of the message to respond to.' },
+              success: { type: 'boolean', description: 'Whether the task was completed successfully.' },
+              output: { type: 'string', description: 'Task result or error message.' },
+              data: { type: 'object', description: 'Additional data to send back.' },
+              error_code: { type: 'string', description: 'Error code if task failed.' },
+              error_message: { type: 'string', description: 'Error message if task failed.' },
+            },
+            required: ['message_id', 'success', 'output'],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'get_my_card',
+          description: 'View your own agent card showing your capabilities and status.',
+          parameters: {
+            type: 'object',
+            properties: {},
+            required: [],
+          },
+        },
+      }
+    );
+  }
+
+  // ACA (Autonomous Curiosity Architecture) tools
+  if (ctx.acaManager && ctx.config.aca?.enabled) {
+    tools.push(
+      {
+        type: 'function',
+        function: {
+          name: 'view_curiosity_state',
+          description: 'View the current autonomous curiosity state, including knowledge and capability frontiers.',
+          parameters: {
+            type: 'object',
+            properties: {},
+            required: [],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'view_objectives',
+          description: 'View generated autonomous objectives, both active and proposed.',
+          parameters: {
+            type: 'object',
+            properties: {},
+            required: [],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'trigger_curiosity_scan',
+          description: 'Manually trigger a curiosity scan to detect new frontiers and generate objectives.',
+          parameters: {
+            type: 'object',
+            properties: {},
+            required: [],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'schedule_objective',
+          description: 'Schedule a proposed objective for execution.',
+          parameters: {
+            type: 'object',
+            properties: {
+              objective_id: { type: 'string', description: 'ID of the objective to schedule.' },
+              schedule_at: { type: 'string', description: 'Optional ISO datetime when to execute the objective.' },
+            },
+            required: ['objective_id'],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'complete_objective',
+          description: 'Mark an objective as completed or abandoned, recording results.',
+          parameters: {
+            type: 'object',
+            properties: {
+              objective_id: { type: 'string', description: 'ID of the objective being completed.' },
+              success: { type: 'boolean', description: 'Whether the objective was successfully completed.' },
+              summary: { type: 'string', description: 'Summary of what was accomplished or why it failed.' },
+              new_knowledge: { type: 'string', description: 'New knowledge gained (one fact per line).' },
+              new_capabilities: { type: 'string', description: 'New capabilities acquired (one skill per line).' },
+            },
+            required: ['objective_id', 'success', 'summary'],
           },
         },
       }
@@ -1172,6 +1347,66 @@ export async function executeTool(
       ctx.clearHistory();
       return { success: true, output: 'Conversation history deleted. This will be the last message in the old history.' };
     }
+
+    // A2A tools
+    case 'list_agents':
+      return listAgents(ctx);
+
+    case 'find_agents':
+      return findAgents(ctx, {
+        capability: args.capability as string | undefined,
+        specialization: args.specialization as string | undefined,
+      });
+
+    case 'send_to_agent':
+      return sendToAgent(ctx, {
+        target_session: args.target_session as string,
+        task: args.task as string,
+        context: args.context as Record<string, unknown> | undefined,
+        priority: args.priority as 'low' | 'normal' | 'high' | undefined,
+        timeout: args.timeout as number | undefined,
+      });
+
+    case 'check_a2a_messages':
+      return checkA2AMessages(ctx);
+
+    case 'respond_to_agent':
+      return respondToAgent(ctx, {
+        message_id: args.message_id as string,
+        success: args.success as boolean,
+        output: args.output as string,
+        data: args.data as Record<string, unknown> | undefined,
+        error_code: args.error_code as string | undefined,
+        error_message: args.error_message as string | undefined,
+      });
+
+    case 'get_my_card':
+      return getMyCard(ctx);
+
+    // ACA tools
+    case 'view_curiosity_state':
+      return viewCuriosityState(ctx);
+
+    case 'view_objectives':
+      return viewObjectives(ctx);
+
+    case 'trigger_curiosity_scan':
+      return triggerCuriosityScan(ctx);
+
+    case 'schedule_objective':
+      return scheduleObjective(ctx, {
+        objective_id: args.objective_id as string,
+        schedule_at: args.schedule_at as string | undefined,
+      });
+
+    case 'complete_objective':
+      return completeObjective(ctx, {
+        objective_id: args.objective_id as string,
+        success: args.success as boolean,
+        summary: args.summary as string,
+        new_knowledge: args.new_knowledge as string | undefined,
+        new_capabilities: args.new_capabilities as string | undefined,
+      });
 
     case 'self_list':
       return selfList(args.subdir as string | undefined);

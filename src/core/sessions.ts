@@ -5,6 +5,8 @@ import { Agent, type EventCallback } from './agent.js';
 import { ScheduleManager } from './schedule.js';
 import { createLogger } from '../logger.js';
 import { resolveProvider as resolveProviderConfig } from '../config.js';
+import { A2ARegistry } from '../a2a/registry.js';
+import { generateAgentCard } from '../a2a/card-generator.js';
 
 const log = createLogger('sessions');
 
@@ -31,12 +33,20 @@ export class SessionManager {
   private agents = new Map<string, Agent>();
   private schedules = new ScheduleManager();
   private config: Config;
+  private a2aRegistry = new A2ARegistry();
 
   constructor(config: Config) {
     this.config = config;
     // Load schedules for all configured sessions immediately so that schedules
     // fire even for sessions that are not currently running an agent.
     this.loadAllSessionSchedules();
+  }
+
+  /**
+   * Get the A2A registry
+   */
+  getA2ARegistry(): A2ARegistry {
+    return this.a2aRegistry;
   }
 
   /**
@@ -88,11 +98,19 @@ export class SessionManager {
         create: (input) => this.createSchedule(sessionId, input),
         update: (scheduleId, patch) => this.updateSchedule(sessionId, scheduleId, patch),
         remove: (scheduleId) => this.deleteSchedule(sessionId, scheduleId),
-      }
+      },
+      this.a2aRegistry
     );
     this.agents.set(sessionId, agent);
     this.schedules.loadSession(sessionId, workspace);
     log.info(`Started session: ${sessionId} (workspace: ${workspace})`);
+
+    // Register agent card if A2A is enabled
+    if (sessionConfig.a2a?.enabled) {
+      this.registerAgentCard(sessionId, agent).catch(e =>
+        log.error(`Failed to register agent card for ${sessionId}:`, e)
+      );
+    }
 
     const resumePath = path.join(workspace, '.resume');
     if (fs.existsSync(resumePath)) {
@@ -122,6 +140,13 @@ export class SessionManager {
     if (agent) {
       agent.stopMcpServers().catch(e => log.error(`Error stopping MCP servers for ${sessionId}:`, e));
     }
+
+    // Unregister from A2A if enabled
+    const config = this.config.sessions[sessionId];
+    if (config?.a2a?.enabled) {
+      this.a2aRegistry.unregister(sessionId);
+    }
+
     this.agents.delete(sessionId);
     log.info(`Stopped session: ${sessionId}`);
   }
@@ -136,6 +161,10 @@ export class SessionManager {
     if (agent) {
       agent.stopMcpServers().catch(e => log.error(`Error stopping MCP servers for ${sessionId}:`, e));
     }
+
+    // Unregister from A2A
+    this.a2aRegistry.unregister(sessionId);
+
     this.agents.delete(sessionId);
     log.info(`Deleted session: ${sessionId}`);
   }
@@ -267,5 +296,56 @@ export class SessionManager {
 
   deleteSchedule(sessionId: string, scheduleId: string): boolean {
     return this.schedules.remove(sessionId, scheduleId);
+  }
+
+  /**
+   * Register or update an agent's card in the A2A registry
+   */
+  private async registerAgentCard(sessionId: string, agent: Agent): Promise<void> {
+    const config = this.config.sessions[sessionId];
+    if (!config) return;
+
+    const workspace = this.resolveWorkspace(config);
+    const availableTools = await agent.getAvailableTools();
+    const toolNames = availableTools.map(t => t.function.name);
+
+    const card = generateAgentCard(sessionId, config, workspace, toolNames);
+    this.a2aRegistry.register(sessionId, card);
+
+    // Set up message handler
+    this.a2aRegistry.registerHandler(sessionId, async (message) => {
+      if (message.type === 'request') {
+        const payload = message.payload as any;
+        const task = payload.params.task;
+
+        log.info(`A2A request received for ${sessionId}: ${task}`);
+
+        // Ensure agent is active
+        if (!this.isSessionActive(sessionId)) {
+          this.startSession(sessionId, config);
+        }
+
+        // Send task to agent with special A2A marker
+        const formattedTask = [
+          `[A2A_REQUEST] Task request from agent: ${message.from}`,
+          `Request ID: ${message.id}`,
+          `Priority: ${payload.params.priority || 'normal'}`,
+          ``,
+          `Task: ${task}`,
+        ].join('\n');
+
+        if (payload.params.context) {
+          formattedTask + `\nContext: ${JSON.stringify(payload.params.context, null, 2)}`;
+        }
+
+        formattedTask + '\n\nPlease execute this task and use respond_to_agent tool to send back the results.';
+
+        agent.processMessage(formattedTask, 'system').catch(e => {
+          log.error(`Error processing A2A request for ${sessionId}:`, e);
+        });
+      }
+    });
+
+    log.info(`Registered agent card for ${sessionId}: ${card.agentName}`);
   }
 }

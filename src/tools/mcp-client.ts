@@ -350,7 +350,11 @@ Provide concrete suggestions for refinement or additional specialized knowledge.
 Identify potential risks or edge cases.
 `.trim();
 
-      const client = McpClientManager.createOpenAIClient(normalizedConfig.apiKey, normalizedConfig.endpointUrl!);
+      if (!normalizedConfig.endpointUrl) {
+        throw new Error('endpointUrl is required for consult-ai');
+      }
+
+      const client = McpClientManager.createOpenAIClient(normalizedConfig.apiKey, normalizedConfig.endpointUrl);
 
       try {
         const response = await client.responses.create({

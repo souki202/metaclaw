@@ -8,6 +8,9 @@ import { buildTools, executeTool, type ToolContext } from '../tools/index.js';
 import { McpClientManager } from '../tools/mcp-client.js';
 import { buildSkillsPromptText } from './skills.js';
 import { createLogger } from '../logger.js';
+import type { A2ARegistry } from '../a2a/registry.js';
+import { ACAManager } from '../aca/manager.js';
+import type { ACAConfig } from '../aca/types.js';
 
 const MAX_ITERATIONS = 20;
 const RESTART_CODE = 75;
@@ -93,6 +96,8 @@ export class Agent {
   private onEvent?: EventCallback;
   private globalConfig?: Config;
   private scheduleAccess?: AgentScheduleAccess;
+  private a2aRegistry?: A2ARegistry;
+  private acaManager?: ACAManager;
   private abortController: AbortController | null = null;
   private activeProcessingCount = 0;
   private idleWaiters: Array<() => void> = [];
@@ -104,11 +109,12 @@ export class Agent {
     onEvent?: EventCallback,
     globalConfig?: Config,
     scheduleAccess?: AgentScheduleAccess,
+    a2aRegistry?: A2ARegistry,
   ) {
     this.sessionId = sessionId;
     this.config = config;
     this.workspace = workspace;
-    
+
     // プロバイダー設定を解決
     this.providerConfig = this.resolveProviderConfig();
     this.provider = new OpenAIProvider(this.providerConfig);
@@ -121,7 +127,22 @@ export class Agent {
     this.onEvent = onEvent;
     this.globalConfig = globalConfig;
     this.scheduleAccess = scheduleAccess;
-    
+    this.a2aRegistry = a2aRegistry;
+
+    // Initialize ACA if enabled
+    if (config.aca?.enabled) {
+      const acaConfig: ACAConfig = {
+        enabled: true,
+        scanInterval: config.aca.scanInterval || 60,
+        maxGoalsPerCycle: config.aca.maxGoalsPerCycle || 3,
+        minImportanceThreshold: 0.5,
+        autoScheduleObjectives: false,
+        explorationBudget: 120, // 2 hours per day default
+      };
+      this.acaManager = new ACAManager(sessionId, workspace, acaConfig);
+      this.acaManager.start();
+    }
+
     this.loadHistory();
     this.initMcpServers();
   }
@@ -179,6 +200,11 @@ export class Agent {
 
   async stopMcpServers() {
     await this.mcpManager.stopAll();
+
+    // Stop ACA manager if running
+    if (this.acaManager) {
+      this.acaManager.stop();
+    }
   }
 
   cancelProcessing() {
@@ -519,6 +545,8 @@ export class Agent {
       tmpMemory: this.tmpMemory,
       searchConfig: this.globalConfig?.search,
       mcpManager: this.mcpManager,
+      a2aRegistry: this.a2aRegistry,
+      acaManager: this.acaManager,
       scheduleList: this.scheduleAccess ? () => this.scheduleAccess!.list() : undefined,
       scheduleCreate: this.scheduleAccess ? (input) => this.scheduleAccess!.create(input) : undefined,
       scheduleUpdate: this.scheduleAccess ? (scheduleId, patch) => this.scheduleAccess!.update(scheduleId, patch) : undefined,
@@ -760,6 +788,8 @@ export class Agent {
       tmpMemory: this.tmpMemory,
       searchConfig: this.globalConfig?.search,
       mcpManager: this.mcpManager,
+      a2aRegistry: this.a2aRegistry,
+      acaManager: this.acaManager,
       scheduleList: this.scheduleAccess ? () => this.scheduleAccess!.list() : undefined,
       scheduleCreate: this.scheduleAccess ? (input) => this.scheduleAccess!.create(input) : undefined,
       scheduleUpdate: this.scheduleAccess ? (scheduleId, patch) => this.scheduleAccess!.update(scheduleId, patch) : undefined,
