@@ -13,6 +13,8 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.26.0",
+    "@slack/rtm-api": "^7.0.4",
+    "@slack/web-api": "^7.12.0",
     "cron-parser": "^5.5.0",
     "discord.js": "^14.25.1",
     "dotenv": "^17.3.1",

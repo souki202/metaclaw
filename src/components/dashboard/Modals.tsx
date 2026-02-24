@@ -233,7 +233,7 @@ export const SessionSettingsModal = ({
   onDelete,
 }: any) => {
   const [tab, setTab] = useState<
-    "general" | "consult" | "discord" | "mcp" | "tools"
+    "general" | "consult" | "discord" | "slack" | "mcp" | "tools"
   >("general");
   const [config, setConfig] = useState<any>({});
   const [toolsList, setToolsList] = useState<any[]>([]);
@@ -273,6 +273,14 @@ export const SessionSettingsModal = ({
       .map((s) => s.trim())
       .filter(Boolean);
     setNested(["discord", field], arr);
+  };
+
+  const setSlackArray = (field: string, csv: string) => {
+    const arr = csv
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    setNested(["slack", field], arr);
   };
 
   const groupedTools = React.useMemo(() => {
@@ -369,6 +377,14 @@ export const SessionSettingsModal = ({
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(configToSave.discord),
+      });
+    }
+
+    if (configToSave.slack) {
+      await fetch(`/api/sessions/${sessionId}/slack`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(configToSave.slack),
       });
     }
 
@@ -533,6 +549,12 @@ export const SessionSettingsModal = ({
               onClick={() => setTab("discord")}
             >
               Discord
+            </div>
+            <div
+              className={`modal-tab ${tab === "slack" ? "active" : ""}`}
+              onClick={() => setTab("slack")}
+            >
+              Slack
             </div>
             <div
               className={`modal-tab ${tab === "mcp" ? "active" : ""}`}
@@ -773,6 +795,98 @@ export const SessionSettingsModal = ({
                         value={config.discord?.prefix || ""}
                         onChange={(e) =>
                           setNested(["discord", "prefix"], e.target.value)
+                        }
+                        placeholder="!chat "
+                      />
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {tab === "slack" && (
+            <div>
+              <div className="form-group">
+                <label className="form-checkbox">
+                  <input
+                    type="checkbox"
+                    checked={config.slack?.enabled ?? false}
+                    onChange={(e) =>
+                      setNested(["slack", "enabled"], e.target.checked)
+                    }
+                  />
+                  <span>Enable Slack integration</span>
+                </label>
+              </div>
+
+              {config.slack?.enabled && (
+                <>
+                  <div className="form-group">
+                    <label className="form-label">Bot Token</label>
+                    <input
+                      type="password"
+                      className="form-input mono"
+                      value={config.slack?.botToken || ""}
+                      onChange={(e) =>
+                        setNested(["slack", "botToken"], e.target.value)
+                      }
+                      placeholder="xoxb-..."
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">App Token (optional)</label>
+                    <input
+                      type="password"
+                      className="form-input mono"
+                      value={config.slack?.appToken || ""}
+                      onChange={(e) =>
+                        setNested(["slack", "appToken"], e.target.value)
+                      }
+                      placeholder="xapp-..."
+                    />
+                  </div>
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label className="form-label">
+                        Target Channels (CSV)
+                      </label>
+                      <input
+                        className="form-input mono"
+                        value={(config.slack?.channels || []).join(", ")}
+                        onChange={(e) => setSlackArray("channels", e.target.value)}
+                        placeholder="C01234567, C07654321"
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Target Teams (CSV)</label>
+                      <input
+                        className="form-input mono"
+                        value={(config.slack?.teams || []).join(", ")}
+                        onChange={(e) => setSlackArray("teams", e.target.value)}
+                        placeholder="T01234567"
+                      />
+                    </div>
+                  </div>
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label className="form-label">Allowed Users (CSV)</label>
+                      <input
+                        className="form-input mono"
+                        value={(config.slack?.allowFrom || []).join(", ")}
+                        onChange={(e) =>
+                          setSlackArray("allowFrom", e.target.value)
+                        }
+                        placeholder="U0123ABC, U0456DEF"
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Command Prefix</label>
+                      <input
+                        className="form-input mono"
+                        value={config.slack?.prefix || ""}
+                        onChange={(e) =>
+                          setNested(["slack", "prefix"], e.target.value)
                         }
                         placeholder="!chat "
                       />

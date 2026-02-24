@@ -83,6 +83,16 @@ export interface SessionDiscordConfig {
   prefix?: string;
 }
 
+export interface SessionSlackConfig {
+  enabled: boolean;
+  botToken?: string;
+  appToken?: string;
+  channels?: string[];
+  teams?: string[];
+  allowFrom?: string[];
+  prefix?: string;
+}
+
 export interface McpServerConfig {
   command?: string;
   args?: string[];
@@ -107,6 +117,7 @@ export interface SessionConfig {
     memory: boolean;
   };
   discord?: SessionDiscordConfig;
+  slack?: SessionSlackConfig;
   context?: {
     compressionThreshold?: number;
     keepRecentMessages?: number;

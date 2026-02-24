@@ -219,6 +219,35 @@ export class SessionManager {
     return fallbackSessionId;
   }
 
+  // Find which session a Slack channel/team belongs to
+  resolveSlackSession(teamId?: string, channelId?: string, userId?: string, botToken?: string): string | null {
+    let fallbackSessionId: string | null = null;
+    for (const [sessionId, sessionConfig] of Object.entries(this.config.sessions)) {
+      const slackCfg = sessionConfig.slack;
+      if (!slackCfg || !slackCfg.enabled) continue;
+      if (botToken && slackCfg.botToken !== botToken) continue;
+
+      if (fallbackSessionId === null) {
+        fallbackSessionId = sessionId;
+      }
+
+      if (channelId && slackCfg.channels?.includes(channelId)) {
+        if (!slackCfg.allowFrom || slackCfg.allowFrom.length === 0 || (userId && slackCfg.allowFrom.includes(userId))) {
+          return sessionId;
+        }
+      }
+
+      if (teamId && slackCfg.teams?.includes(teamId)) {
+        if (!slackCfg.allowFrom || slackCfg.allowFrom.length === 0 || (userId && slackCfg.allowFrom.includes(userId))) {
+          return sessionId;
+        }
+      }
+    }
+
+    // Default: use first session that matches the token if no specific routing
+    return fallbackSessionId;
+  }
+
   // 現在の設定を取得
   getConfig(): Config {
     return this.config;

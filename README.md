@@ -2,13 +2,14 @@
 
 **WIP**
 
-A multi-session AI personal agent system featuring Discord integration, a modern Next.js web dashboard, long-term vector memory, workspace sandboxing, Playwright browser automation, Vision capabilities, and full self-modification tools.
+A multi-session AI personal agent system featuring Discord / Slack integration, a modern Next.js web dashboard, long-term vector memory, workspace sandboxing, Playwright browser automation, Vision capabilities, and full self-modification tools.
 
 ## Features
 
 - **Multi-session Architecture** — Run multiple isolated AI agents concurrently, each maintaining its own identity, memory tier, workspace, and capabilities.
 - **Web Dashboard** — Modern Next.js UI (default `http://localhost:3020`) for real-time streaming chat, workspace file editing, memory viewing, and system configuration. Features dark/light mode and chat cancellation.
 - **Discord Integration** — Bidirectional chat synchronization. Route specific Discord channels or guilds to dedicated agent sessions, complete with image and attachment support.
+- **Slack Integration** — Bidirectional chat synchronization via Slack bot tokens. Route specific channels or teams to dedicated agent sessions.
 - **Browser Automation** — Advanced web interaction using Playwright. The AI can navigate, click, type, and take visual screenshots. Users can track the AI's browser activity in real-time and manually intervene if needed.
 - **Vision & Image Support** — Full multi-part message support. AI can process real-time screenshots and images uploaded via dashboard drag-and-drop or Discord.
 - **Model Context Protocol (MCP)** — Dynamically connect to local or remote standard MCP servers to expand the AI's toolset. Manage connection statuses directly via the dashboard.
@@ -37,12 +38,11 @@ The dashboard will be at `http://localhost:8080` (or the port configured in `con
 
 ## Configuration
 
-`config.json` supports configuring the UI dashboard, Discord token, and multiple agent sessions:
+`config.json` supports configuring the UI dashboard and multiple agent sessions:
 
 | Field | Description |
 |---|---|
 | `dashboard.port` | Dashboard port (default 8080) |
-| `discord.token` | Discord bot token |
 | `sessions.*` | Session definitions (multiple supported) |
 
 ### Session Config
@@ -99,12 +99,12 @@ You only need `self_restart` for changes that cannot be hot-reloaded safely (e.g
 
 Agent sessions are deeply isolated — each uniquely provisions:
 - Workspace directories and sandboxed file systems
-- Live conversation history (including Discord interactions)
+- Live conversation history (including Discord / Slack interactions)
 - Long-term memory and short term task logic
 - Respective standard AI and embedding provider settings
 - Tool module and MCP configurations
 
-Using Discord routing, configure `discord.channels` and `discord.allowFrom` strictly per session to map dynamic discord ecosystems directly back to unique AI personalities seamlessly.
+Using channel routing, configure `discord.*` and/or `slack.*` (`channels`, `allowFrom`, etc.) per session to map specific chat ecosystems back to unique AI personalities.
 
 ## Memory System Architecture
 

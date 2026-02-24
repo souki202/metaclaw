@@ -20,6 +20,7 @@ export async function GET() {
       tools: configs[id]?.tools,
       allowSelfModify: configs[id]?.allowSelfModify,
       discord: configs[id]?.discord,
+      slack: configs[id]?.slack,
     }));
 
     return NextResponse.json(sessionList);
@@ -58,6 +59,7 @@ export async function POST(request: Request) {
       allowSelfModify: body.allowSelfModify ?? baseSession?.allowSelfModify ?? false,
       tools: body.tools || baseSession?.tools || { exec: true, web: true, memory: true },
       discord: body.discord || baseSession?.discord,
+      slack: body.slack || baseSession?.slack,
       consultAi: body.consultAi || baseSession?.consultAi,
       mcpServers: baseSession?.mcpServers,
       disabledTools: baseSession?.disabledTools,

@@ -7,6 +7,7 @@ import 'dotenv/config';
 import { loadConfig } from './config.js';
 import { SessionManager } from './core/sessions.js';
 import { DiscordChannel } from './channels/discord.js';
+import { SlackChannel } from './channels/slack.js';
 import { logger } from './logger.js';
 import type { DashboardEvent } from './types.js';
 import { setGlobalState, broadcastSseEvent } from './global-state.js';
@@ -14,6 +15,7 @@ import { setGlobalState, broadcastSseEvent } from './global-state.js';
 let started = false;
 let currentSessions: SessionManager | null = null;
 let currentDiscordBots: Map<string, DiscordChannel> = new Map();
+let currentSlackBots: Map<string, SlackChannel> = new Map();
 let signalHandlersRegistered = false;
 
 /**
@@ -29,11 +31,15 @@ async function stopBackend() {
     for (const bot of currentDiscordBots.values()) {
       await bot.stop().catch((e) => logger.error('Discord stop error:', e));
     }
+    for (const bot of currentSlackBots.values()) {
+      await bot.stop().catch((e) => logger.error('Slack stop error:', e));
+    }
   } catch (e: unknown) {
     logger.error('Stop error:', (e as Error).message);
   }
   currentSessions = null;
   currentDiscordBots.clear();
+  currentSlackBots.clear();
 }
 
 export async function initializeBackend() {
@@ -92,6 +98,28 @@ export async function initializeBackend() {
       logger.info(`Discord bot started for token ending in ...${token.slice(-4)}`);
     } catch (e: unknown) {
       logger.error(`Discord bot failed for token ...${token.slice(-4)}: ${(e as Error).message}`);
+    }
+  }
+
+  // Slack ボット起動
+  const slackBots = new Map<string, SlackChannel>();
+  currentSlackBots = slackBots;
+  const activeSlackTokens = new Set<string>();
+
+  for (const s of Object.values(config.sessions)) {
+    if (s.slack?.enabled && s.slack?.botToken) {
+      activeSlackTokens.add(s.slack.botToken);
+    }
+  }
+
+  for (const token of activeSlackTokens) {
+    const slack = new SlackChannel(token, sessions);
+    try {
+      await slack.start();
+      slackBots.set(token, slack);
+      logger.info(`Slack bot started for token ending in ...${token.slice(-4)}`);
+    } catch (e: unknown) {
+      logger.error(`Slack bot failed for token ...${token.slice(-4)}: ${(e as Error).message}`);
     }
   }
 

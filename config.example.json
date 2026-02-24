@@ -41,6 +41,12 @@
       "discord": {
         "allowFrom": ["YOUR_DISCORD_USER_ID"],
         "channels": ["YOUR_DISCORD_CHANNEL_ID"]
+      },
+      "slack": {
+        "enabled": false,
+        "botToken": "xoxb-YOUR_SLACK_BOT_TOKEN",
+        "channels": ["YOUR_SLACK_CHANNEL_ID"],
+        "allowFrom": ["YOUR_SLACK_USER_ID"]
       }
     },
     "coder": {
