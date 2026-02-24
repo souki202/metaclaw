@@ -45,6 +45,7 @@ The dashboard will be at `http://localhost:8080` (or the port configured in `con
 | Field | Description |
 |---|---|
 | `dashboard.port` | Dashboard port (default 8080) |
+| `providerTemplates.*` | Reusable provider configurations (endpoint, API key, models) |
 | `sessions.*` | Session definitions (multiple supported) |
 
 ### Session Config
@@ -61,6 +62,7 @@ The dashboard will be at `http://localhost:8080` (or the port configured in `con
 | `allowSelfModify` | Allow AI to modify its own source code within the engine |
 | `tools.*` | Tool capability toggles (e.g. `exec`, `web`, `browser`, `memory`) |
 | `a2a.enabled` | Enable Agent-to-Agent communication (default: false) |
+| `a2a.hiddenFromAgents` | Hide this session from list_agents discovery (default: false) |
 | `aca.enabled` | Enable Autonomous Curiosity Architecture (default: false) |
 | `aca.scanInterval` | Minutes between frontier scans (default: 60) |
 | `aca.maxGoalsPerCycle` | Max objectives per scan (default: 3) |
@@ -78,6 +80,7 @@ Each session maintains an isolated workspace directory containing:
 | `MEMORY.md` | Core quick-reference memory loaded into every conversation |
 | `TMP_MEMORY.md` | Ephemeral, short-term context that persists across quick restarts |
 | `CURIOSITY.md` | (ACA only) Autonomous curiosity state, frontiers, and objectives |
+| `session_messages.jsonl` | (A2A only) Inter-session message history and threads |
 | `schedules.json` | Registered self-wakeup schedules for the session |
 | `memory/vectors.json` | Long-term semantic memory (managed actively by AI) |
 | `history.jsonl` | Conversation and external activity history log |
@@ -117,19 +120,28 @@ Using channel routing, configure `discord.*` and/or `slack.*` (`channels`, `allo
 
 ### Agent-to-Agent (A2A) Communication
 
-Enable inter-agent collaboration by setting `a2a.enabled: true` in your session configuration. Agents can:
-- Discover each other's capabilities through Agent Cards
-- Delegate tasks to other agents
-- Exchange messages via a zero-trust message queue
-- Respond to task requests autonomously
+Enable inter-agent collaboration by setting `a2a.enabled: true` in your session configuration. The enhanced A2A system enables:
+- **Session-to-Session Communication**: Direct messaging between AI sessions (not abstract agents)
+- **Asynchronous Task Delegation**: Non-blocking task assignments with status tracking
+- **AI-Driven Session Creation**: Create new sessions dynamically with custom identities
+- **Provider Templates**: Reusable API configurations for multiple sessions
+- **Session Visibility Control**: Hide management sessions from discovery
+- **Message Persistence**: Conversation history saved to workspace
 
 **Available A2A Tools:**
-- `list_agents` - Discover all registered agents and their capabilities
-- `find_agents` - Search for agents by capability or specialization
-- `send_to_agent` - Delegate a task to another agent
-- `check_a2a_messages` - Check for incoming messages
-- `respond_to_agent` - Reply to task requests
-- `get_my_card` - View your own agent card
+- `list_agents` - Discover all registered sessions and their capabilities
+- `create_session` - Dynamically create new AI sessions with custom configurations
+- `list_provider_templates` - View available API provider configurations
+- `send_message_to_session` - Send direct messages to other sessions
+- `read_session_messages` - Check and read incoming messages
+- `delegate_task_async` - Delegate tasks asynchronously without blocking
+- `check_async_tasks` - Monitor delegated task status and results
+- `complete_async_task` - Mark delegated tasks as complete with results
+
+**Documentation:**
+- [A2A Tools Quick Reference](A2A_TOOLS_REFERENCE.md) - Tool usage and examples
+- [Enhanced A2A Implementation](ENHANCED_A2A_IMPLEMENTATION.md) - Architecture and details
+- [Testing Guide](TESTING_ENHANCED_A2A.md) - Comprehensive test suite
 
 ### Autonomous Curiosity Architecture (ACA)
 
