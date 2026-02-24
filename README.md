@@ -7,6 +7,8 @@ A multi-session AI personal agent system featuring Discord / Slack integration, 
 ## Features
 
 - **Multi-session Architecture** — Run multiple isolated AI agents concurrently, each maintaining its own identity, memory tier, workspace, and capabilities.
+- **Agent-to-Agent (A2A) Communication** — Enable inter-agent collaboration through a JSON-RPC style messaging protocol. Agents can discover capabilities, delegate tasks, and coordinate work autonomously.
+- **Autonomous Curiosity Architecture (ACA)** — Agents autonomously detect knowledge gaps and capability frontiers, generating self-directed learning objectives. See `CURIOSITY.md` in workspace for state tracking.
 - **Web Dashboard** — Modern Next.js UI (default `http://localhost:3020`) for real-time streaming chat, workspace file editing, memory viewing, and system configuration. Features dark/light mode and chat cancellation.
 - **Discord Integration** — Bidirectional chat synchronization. Route specific Discord channels or guilds to dedicated agent sessions, complete with image and attachment support.
 - **Slack Integration** — Bidirectional chat synchronization via Slack bot tokens. Route specific channels or teams to dedicated agent sessions.
@@ -58,6 +60,10 @@ The dashboard will be at `http://localhost:8080` (or the port configured in `con
 | `restrictToWorkspace` | Limit AI file and command access to workspace bounds |
 | `allowSelfModify` | Allow AI to modify its own source code within the engine |
 | `tools.*` | Tool capability toggles (e.g. `exec`, `web`, `browser`, `memory`) |
+| `a2a.enabled` | Enable Agent-to-Agent communication (default: false) |
+| `aca.enabled` | Enable Autonomous Curiosity Architecture (default: false) |
+| `aca.scanInterval` | Minutes between frontier scans (default: 60) |
+| `aca.maxGoalsPerCycle` | Max objectives per scan (default: 3) |
 
 > Note: You can use any OpenAI-compatible API endpoints natively (e.g., Anthropic, Ollama, OpenRouter).
 
@@ -71,6 +77,7 @@ Each session maintains an isolated workspace directory containing:
 | `USER.md` | Information about you — preferences, timezone, projects |
 | `MEMORY.md` | Core quick-reference memory loaded into every conversation |
 | `TMP_MEMORY.md` | Ephemeral, short-term context that persists across quick restarts |
+| `CURIOSITY.md` | (ACA only) Autonomous curiosity state, frontiers, and objectives |
 | `schedules.json` | Registered self-wakeup schedules for the session |
 | `memory/vectors.json` | Long-term semantic memory (managed actively by AI) |
 | `history.jsonl` | Conversation and external activity history log |
@@ -105,6 +112,52 @@ Agent sessions are deeply isolated — each uniquely provisions:
 - Tool module and MCP configurations
 
 Using channel routing, configure `discord.*` and/or `slack.*` (`channels`, `allowFrom`, etc.) per session to map specific chat ecosystems back to unique AI personalities.
+
+## Advanced Features
+
+### Agent-to-Agent (A2A) Communication
+
+Enable inter-agent collaboration by setting `a2a.enabled: true` in your session configuration. Agents can:
+- Discover each other's capabilities through Agent Cards
+- Delegate tasks to other agents
+- Exchange messages via a zero-trust message queue
+- Respond to task requests autonomously
+
+**Available A2A Tools:**
+- `list_agents` - Discover all registered agents and their capabilities
+- `find_agents` - Search for agents by capability or specialization
+- `send_to_agent` - Delegate a task to another agent
+- `check_a2a_messages` - Check for incoming messages
+- `respond_to_agent` - Reply to task requests
+- `get_my_card` - View your own agent card
+
+### Autonomous Curiosity Architecture (ACA)
+
+Enable autonomous learning by setting `aca.enabled: true`. The system will:
+- Automatically scan workspace files to detect knowledge and capability gaps
+- Generate self-directed learning objectives based on detected frontiers
+- Track progress and metrics in `CURIOSITY.md`
+- Optionally auto-schedule objectives for background execution
+
+**Available ACA Tools:**
+- `view_curiosity_state` - View detected frontiers and metrics
+- `view_objectives` - See proposed and active objectives
+- `trigger_curiosity_scan` - Manually trigger a frontier scan
+- `schedule_objective` - Schedule an objective for execution
+- `complete_objective` - Mark objectives as completed with results
+
+**Configuration:**
+```json
+{
+  "aca": {
+    "enabled": true,
+    "scanInterval": 60,
+    "maxGoalsPerCycle": 3
+  }
+}
+```
+
+See [ADVANCED_FEATURES.md](ADVANCED_FEATURES.md) for detailed documentation on A2A, ACA, and ELL (Experience-driven Lifelong Learning).
 
 ## Memory System Architecture
 
