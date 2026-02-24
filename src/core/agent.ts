@@ -523,6 +523,7 @@ export class Agent {
       scheduleCreate: this.scheduleAccess ? (input) => this.scheduleAccess!.create(input) : undefined,
       scheduleUpdate: this.scheduleAccess ? (scheduleId, patch) => this.scheduleAccess!.update(scheduleId, patch) : undefined,
       scheduleDelete: this.scheduleAccess ? (scheduleId) => this.scheduleAccess!.remove(scheduleId) : undefined,
+      clearHistory: () => this.clearHistory(),
     };
     let tools = await buildTools(toolCtx);
 
@@ -763,6 +764,7 @@ export class Agent {
       scheduleCreate: this.scheduleAccess ? (input) => this.scheduleAccess!.create(input) : undefined,
       scheduleUpdate: this.scheduleAccess ? (scheduleId, patch) => this.scheduleAccess!.update(scheduleId, patch) : undefined,
       scheduleDelete: this.scheduleAccess ? (scheduleId) => this.scheduleAccess!.remove(scheduleId) : undefined,
+      clearHistory: () => this.clearHistory(),
     };
     return buildTools(toolCtx);
   }

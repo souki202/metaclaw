@@ -36,6 +36,7 @@ export interface ToolContext {
   scheduleCreate?: (input: ScheduleUpsertInput) => SessionSchedule;
   scheduleUpdate?: (scheduleId: string, patch: Partial<ScheduleUpsertInput>) => SessionSchedule;
   scheduleDelete?: (scheduleId: string) => boolean;
+  clearHistory?: () => void;
 }
 
 function formatSchedule(schedule: SessionSchedule): string {
@@ -317,6 +318,20 @@ export async function buildTools(ctx: ToolContext): Promise<ToolDefinition[]> {
           seconds: { type: 'number', description: 'Number of seconds to sleep.' },
         },
         required: ['seconds'],
+      },
+    },
+  });
+
+  // History tools
+  tools.push({
+    type: 'function',
+    function: {
+      name: 'clear_history',
+      description: 'Delete all conversation history for this session. Use this tool only when the user explicitly requests it or when a task is completed and the context should be reset. IMPORTANT: Before calling this tool, ensure you have saved all important information, facts, or context to MEMORY.md (using memory_update_quick) or long-term memory (using memory_save) to preserve it across history deletion.',
+      parameters: {
+        type: 'object',
+        properties: {},
+        required: [],
       },
     },
   });
@@ -1150,6 +1165,12 @@ export async function executeTool(
       await new Promise((resolve) => setTimeout(resolve, seconds * 1000));
       const now = new Date();
       return { success: true, output: `Sleep completed. Current time: ${now.toLocaleString()}` };
+    }
+
+    case 'clear_history': {
+      if (!ctx.clearHistory) return { success: false, output: 'Clear history tool not available.' };
+      ctx.clearHistory();
+      return { success: true, output: 'Conversation history deleted. This will be the last message in the old history.' };
     }
 
     case 'self_list':
