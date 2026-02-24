@@ -7,6 +7,7 @@ import { createLogger } from '../logger.js';
 import { resolveProvider as resolveProviderConfig } from '../config.js';
 import { A2ARegistry } from '../a2a/registry.js';
 import { generateAgentCard } from '../a2a/card-generator.js';
+import { SessionCommsManager } from '../a2a/session-comms.js';
 
 const log = createLogger('sessions');
 
@@ -34,6 +35,7 @@ export class SessionManager {
   private schedules = new ScheduleManager();
   private config: Config;
   private a2aRegistry = new A2ARegistry();
+  private commsManager = new SessionCommsManager();
 
   constructor(config: Config) {
     this.config = config;
@@ -47,6 +49,13 @@ export class SessionManager {
    */
   getA2ARegistry(): A2ARegistry {
     return this.a2aRegistry;
+  }
+
+  /**
+   * Get the communications manager
+   */
+  getCommsManager(): SessionCommsManager {
+    return this.commsManager;
   }
 
   /**

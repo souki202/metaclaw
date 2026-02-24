@@ -32,6 +32,7 @@ export interface AgentCard {
   availableTools: string[];
   status: 'active' | 'idle' | 'busy';
   lastUpdated: string;
+  hiddenFromAgents?: boolean; // If true, won't appear in list_agents
 }
 
 /**

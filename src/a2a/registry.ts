@@ -61,10 +61,18 @@ export class A2ARegistry {
   }
 
   /**
-   * Get all registered agent cards
+   * Get all registered agent cards (excluding hidden ones by default)
    */
-  getAllCards(): AgentCard[] {
-    return Array.from(this.registry.values()).map(entry => entry.card);
+  getAllCards(includeHidden: boolean = false): AgentCard[] {
+    const cards: AgentCard[] = [];
+    for (const entry of this.registry.values()) {
+      // Skip hidden agents unless explicitly requested
+      if (!includeHidden && (entry.card as any).hiddenFromAgents) {
+        continue;
+      }
+      cards.push(entry.card);
+    }
+    return cards;
   }
 
   /**
