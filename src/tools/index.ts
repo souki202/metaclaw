@@ -16,8 +16,11 @@ import type { QuickMemory } from '../memory/quick.js';
 import type { McpClientManager } from './mcp-client.js';
 import type { A2ARegistry } from '../a2a/registry.js';
 import { listAgents, findAgents, sendToAgent, checkA2AMessages, respondToAgent, getMyCard } from '../a2a/tools.js';
+import { createSession, sendMessageToSession, readSessionMessages, delegateTaskAsync, checkAsyncTasks, completeAsyncTask, listProviderTemplates } from '../a2a/enhanced-tools.js';
 import type { ACAManager } from '../aca/manager.js';
 import { viewCuriosityState, viewObjectives, triggerCuriosityScan, scheduleObjective, completeObjective } from '../aca/tools.js';
+import type { SessionCommsManager } from '../a2a/session-comms.js';
+import type { SessionManager } from '../core/sessions.js';
 
 const CURRENT_OS = process.platform === 'win32'
   ? 'Windows'
@@ -38,6 +41,8 @@ export interface ToolContext {
   mcpManager?: McpClientManager;
   a2aRegistry?: A2ARegistry;
   acaManager?: ACAManager;
+  commsManager?: SessionCommsManager;
+  sessionManager?: SessionManager;
   scheduleList?: () => SessionSchedule[];
   scheduleCreate?: (input: ScheduleUpsertInput) => SessionSchedule;
   scheduleUpdate?: (scheduleId: string, patch: Partial<ScheduleUpsertInput>) => SessionSchedule;
@@ -400,6 +405,124 @@ export async function buildTools(ctx: ToolContext): Promise<ToolDefinition[]> {
             type: 'object',
             properties: {},
             required: [],
+          },
+        },
+      },
+      // Enhanced A2A tools for session management and communication
+      {
+        type: 'function',
+        function: {
+          name: 'create_session',
+          description: 'Create a new AI session dynamically with custom configuration. Requires provider template to be configured.',
+          parameters: {
+            type: 'object',
+            properties: {
+              sessionId: { type: 'string', description: 'Unique ID for the new session (e.g., "researcher", "coder")' },
+              name: { type: 'string', description: 'Display name for the session' },
+              description: { type: 'string', description: 'Description of the session purpose' },
+              providerTemplate: { type: 'string', description: 'Provider template to use (use list_provider_templates to see options)' },
+              model: { type: 'string', description: 'Model to use (optional, defaults to template default)' },
+              workspace: { type: 'string', description: 'Workspace directory (optional, auto-generated if not provided)' },
+              identityContent: { type: 'string', description: 'Custom IDENTITY.md content defining who the agent is' },
+              soulContent: { type: 'string', description: 'Custom SOUL.md content for deeper personality' },
+              userContent: { type: 'string', description: 'Custom USER.md content with user information' },
+              memoryContent: { type: 'string', description: 'Custom MEMORY.md content for core memory' },
+              restrictToWorkspace: { type: 'boolean', description: 'Restrict file access to workspace (default: true)' },
+              allowSelfModify: { type: 'boolean', description: 'Allow session to modify its own code (default: false)' },
+              a2aEnabled: { type: 'boolean', description: 'Enable A2A for this session (default: true)' },
+              hiddenFromAgents: { type: 'boolean', description: 'Hide this session from list_agents (default: false)' },
+            },
+            required: ['sessionId', 'name', 'providerTemplate'],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'list_provider_templates',
+          description: 'List available provider templates that can be used to create new sessions.',
+          parameters: {
+            type: 'object',
+            properties: {},
+            required: [],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'send_message_to_session',
+          description: 'Send a direct message to another session. This is for conversational communication, not task delegation.',
+          parameters: {
+            type: 'object',
+            properties: {
+              target_session: { type: 'string', description: 'The session ID to send the message to' },
+              message: { type: 'string', description: 'The message content' },
+              thread_id: { type: 'string', description: 'Optional thread ID to group related messages' },
+            },
+            required: ['target_session', 'message'],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'read_session_messages',
+          description: 'Read messages sent to this session from other sessions.',
+          parameters: {
+            type: 'object',
+            properties: {
+              thread_id: { type: 'string', description: 'Optional: Filter messages by thread ID' },
+              mark_as_read: { type: 'boolean', description: 'Mark unread messages as read after viewing (default: false)' },
+            },
+            required: [],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'delegate_task_async',
+          description: 'Delegate a task to another session asynchronously. Returns immediately without waiting for completion. Use check_async_tasks to monitor progress.',
+          parameters: {
+            type: 'object',
+            properties: {
+              target_session: { type: 'string', description: 'The session ID to delegate the task to' },
+              task: { type: 'string', description: 'Description of the task to be performed' },
+              context: { type: 'object', description: 'Optional context or parameters for the task' },
+            },
+            required: ['target_session', 'task'],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'check_async_tasks',
+          description: 'Check the status of async tasks you have delegated to other sessions.',
+          parameters: {
+            type: 'object',
+            properties: {
+              task_id: { type: 'string', description: 'Optional: Check specific task by ID. If not provided, lists all tasks.' },
+            },
+            required: [],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'complete_async_task',
+          description: 'Mark an async task as completed (called by the session executing the task).',
+          parameters: {
+            type: 'object',
+            properties: {
+              task_id: { type: 'string', description: 'The task ID to complete' },
+              success: { type: 'boolean', description: 'Whether the task was completed successfully' },
+              result: { type: 'string', description: 'The result or output of the task' },
+              error: { type: 'string', description: 'Error message if task failed' },
+            },
+            required: ['task_id', 'success'],
           },
         },
       }
@@ -1382,6 +1505,46 @@ export async function executeTool(
 
     case 'get_my_card':
       return getMyCard(ctx);
+
+    // Enhanced A2A tools
+    case 'create_session':
+      return createSession(ctx, args as any);
+
+    case 'list_provider_templates':
+      return listProviderTemplates(ctx);
+
+    case 'send_message_to_session':
+      return sendMessageToSession(ctx, {
+        target_session: args.target_session as string,
+        message: args.message as string,
+        thread_id: args.thread_id as string | undefined,
+      });
+
+    case 'read_session_messages':
+      return readSessionMessages(ctx, {
+        thread_id: args.thread_id as string | undefined,
+        mark_as_read: args.mark_as_read as boolean | undefined,
+      });
+
+    case 'delegate_task_async':
+      return delegateTaskAsync(ctx, {
+        target_session: args.target_session as string,
+        task: args.task as string,
+        context: args.context as Record<string, unknown> | undefined,
+      });
+
+    case 'check_async_tasks':
+      return checkAsyncTasks(ctx, {
+        task_id: args.task_id as string | undefined,
+      });
+
+    case 'complete_async_task':
+      return completeAsyncTask(ctx, {
+        task_id: args.task_id as string,
+        success: args.success as boolean,
+        result: args.result as string | undefined,
+        error: args.error as string | undefined,
+      });
 
     // ACA tools
     case 'view_curiosity_state':

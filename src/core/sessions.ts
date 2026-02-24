@@ -108,10 +108,16 @@ export class SessionManager {
         update: (scheduleId, patch) => this.updateSchedule(sessionId, scheduleId, patch),
         remove: (scheduleId) => this.deleteSchedule(sessionId, scheduleId),
       },
-      this.a2aRegistry
+      this.a2aRegistry,
+      this.commsManager,
+      () => this
     );
     this.agents.set(sessionId, agent);
     this.schedules.loadSession(sessionId, workspace);
+
+    // Load persisted messages if they exist
+    this.commsManager.loadMessagesFromFile(sessionId, workspace);
+
     log.info(`Started session: ${sessionId} (workspace: ${workspace})`);
 
     // Register agent card if A2A is enabled
@@ -148,6 +154,9 @@ export class SessionManager {
     const agent = this.agents.get(sessionId);
     if (agent) {
       agent.stopMcpServers().catch(e => log.error(`Error stopping MCP servers for ${sessionId}:`, e));
+      // Save messages before stopping
+      const workspace = agent.getWorkspace();
+      this.commsManager.saveMessagesToFile(sessionId, workspace);
     }
 
     // Unregister from A2A if enabled
@@ -169,6 +178,9 @@ export class SessionManager {
     const agent = this.agents.get(sessionId);
     if (agent) {
       agent.stopMcpServers().catch(e => log.error(`Error stopping MCP servers for ${sessionId}:`, e));
+      // Save messages before deleting
+      const workspace = agent.getWorkspace();
+      this.commsManager.saveMessagesToFile(sessionId, workspace);
     }
 
     // Unregister from A2A

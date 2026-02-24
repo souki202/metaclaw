@@ -11,6 +11,7 @@ import { createLogger } from '../logger.js';
 import type { A2ARegistry } from '../a2a/registry.js';
 import { ACAManager } from '../aca/manager.js';
 import type { ACAConfig } from '../aca/types.js';
+import type { SessionCommsManager } from '../a2a/session-comms.js';
 
 const MAX_ITERATIONS = 20;
 const RESTART_CODE = 75;
@@ -98,6 +99,8 @@ export class Agent {
   private scheduleAccess?: AgentScheduleAccess;
   private a2aRegistry?: A2ARegistry;
   private acaManager?: ACAManager;
+  private commsManager?: SessionCommsManager;
+  private getSessionManager?: () => any; // Getter to avoid circular dependency
   private abortController: AbortController | null = null;
   private activeProcessingCount = 0;
   private idleWaiters: Array<() => void> = [];
@@ -110,6 +113,8 @@ export class Agent {
     globalConfig?: Config,
     scheduleAccess?: AgentScheduleAccess,
     a2aRegistry?: A2ARegistry,
+    commsManager?: SessionCommsManager,
+    getSessionManager?: () => any,
   ) {
     this.sessionId = sessionId;
     this.config = config;
@@ -128,6 +133,8 @@ export class Agent {
     this.globalConfig = globalConfig;
     this.scheduleAccess = scheduleAccess;
     this.a2aRegistry = a2aRegistry;
+    this.commsManager = commsManager;
+    this.getSessionManager = getSessionManager;
 
     // Initialize ACA if enabled
     if (config.aca?.enabled) {
@@ -547,6 +554,8 @@ export class Agent {
       mcpManager: this.mcpManager,
       a2aRegistry: this.a2aRegistry,
       acaManager: this.acaManager,
+      commsManager: this.commsManager,
+      sessionManager: this.getSessionManager ? this.getSessionManager() : undefined,
       scheduleList: this.scheduleAccess ? () => this.scheduleAccess!.list() : undefined,
       scheduleCreate: this.scheduleAccess ? (input) => this.scheduleAccess!.create(input) : undefined,
       scheduleUpdate: this.scheduleAccess ? (scheduleId, patch) => this.scheduleAccess!.update(scheduleId, patch) : undefined,
@@ -790,6 +799,8 @@ export class Agent {
       mcpManager: this.mcpManager,
       a2aRegistry: this.a2aRegistry,
       acaManager: this.acaManager,
+      commsManager: this.commsManager,
+      sessionManager: this.getSessionManager ? this.getSessionManager() : undefined,
       scheduleList: this.scheduleAccess ? () => this.scheduleAccess!.list() : undefined,
       scheduleCreate: this.scheduleAccess ? (input) => this.scheduleAccess!.create(input) : undefined,
       scheduleUpdate: this.scheduleAccess ? (scheduleId, patch) => this.scheduleAccess!.update(scheduleId, patch) : undefined,
