@@ -26,15 +26,15 @@ export class FrontierDetector {
    * Perform a full frontier scan
    */
   async scan(): Promise<{
-    knowledge: KnowledgeFrontier[];
-    capability: CapabilityFrontier[];
+    knowledge: Omit<KnowledgeFrontier, 'id' | 'discoveredAt'>[];
+    capability: Omit<CapabilityFrontier, 'id' | 'discoveredAt'>[];
     scan: FrontierScan;
   }> {
     const startTime = Date.now();
     const filesAnalyzed: string[] = [];
 
-    const knowledge: KnowledgeFrontier[] = [];
-    const capability: CapabilityFrontier[] = [];
+    const knowledge: Omit<KnowledgeFrontier, 'id' | 'discoveredAt'>[] = [];
+    const capability: Omit<CapabilityFrontier, 'id' | 'discoveredAt'>[] = [];
 
     // Analyze key workspace files
     try {
@@ -80,11 +80,11 @@ export class FrontierDetector {
    * Scan USER.md for context and gaps
    */
   private async scanUserFile(): Promise<{
-    knowledge: KnowledgeFrontier[];
-    capability: CapabilityFrontier[];
+    knowledge: Omit<KnowledgeFrontier, 'id' | 'discoveredAt'>[];
+    capability: Omit<CapabilityFrontier, 'id' | 'discoveredAt'>[];
   }> {
-    const knowledge: KnowledgeFrontier[] = [];
-    const capability: CapabilityFrontier[] = [];
+    const knowledge: Omit<KnowledgeFrontier, 'id' | 'discoveredAt'>[] = [];
+    const capability: Omit<CapabilityFrontier, 'id' | 'discoveredAt'>[] = [];
 
     const userPath = path.join(this.workspace, 'USER.md');
 
@@ -105,7 +105,7 @@ export class FrontierDetector {
           relatedContext: ['USER.md'],
           importance: 0.6,
           explorationCost: 0.3,
-        } as Omit<KnowledgeFrontier, 'id' | 'discoveredAt'>);
+        });
       }
     }
 
@@ -120,7 +120,7 @@ export class FrontierDetector {
           potentialImprovement: 'Automate or complete this task',
           impact: 0.5,
           feasibility: 0.6,
-        } as Omit<CapabilityFrontier, 'id' | 'discoveredAt'>);
+        });
       }
     }
 
@@ -131,9 +131,9 @@ export class FrontierDetector {
    * Scan MEMORY.md for knowledge gaps
    */
   private async scanMemoryFile(): Promise<{
-    knowledge: KnowledgeFrontier[];
+    knowledge: Omit<KnowledgeFrontier, 'id' | 'discoveredAt'>[];
   }> {
-    const knowledge: KnowledgeFrontier[] = [];
+    const knowledge: Omit<KnowledgeFrontier, 'id' | 'discoveredAt'>[] = [];
 
     const memoryPath = path.join(this.workspace, 'MEMORY.md');
 
@@ -165,7 +165,7 @@ export class FrontierDetector {
               relatedContext: ['MEMORY.md'],
               importance: 0.5,
               explorationCost: 0.4,
-            } as Omit<KnowledgeFrontier, 'id' | 'discoveredAt'>);
+            });
             break; // Only add once per phrase
           }
         }
@@ -179,11 +179,11 @@ export class FrontierDetector {
    * Scan TMP_MEMORY.md for ongoing work and blockers
    */
   private async scanTmpMemoryFile(): Promise<{
-    knowledge: KnowledgeFrontier[];
-    capability: CapabilityFrontier[];
+    knowledge: Omit<KnowledgeFrontier, 'id' | 'discoveredAt'>[];
+    capability: Omit<CapabilityFrontier, 'id' | 'discoveredAt'>[];
   }> {
-    const knowledge: KnowledgeFrontier[] = [];
-    const capability: CapabilityFrontier[] = [];
+    const knowledge: Omit<KnowledgeFrontier, 'id' | 'discoveredAt'>[] = [];
+    const capability: Omit<CapabilityFrontier, 'id' | 'discoveredAt'>[] = [];
 
     const tmpPath = path.join(this.workspace, 'TMP_MEMORY.md');
 
@@ -211,7 +211,7 @@ export class FrontierDetector {
           potentialImprovement: 'Develop tool or acquire knowledge to unblock',
           impact: 0.7,
           feasibility: 0.5,
-        } as Omit<CapabilityFrontier, 'id' | 'discoveredAt'>);
+        });
       }
     }
 
@@ -226,7 +226,7 @@ export class FrontierDetector {
         potentialImprovement: 'Optimize task execution or develop automation',
         impact: 0.6,
         feasibility: 0.7,
-      } as Omit<CapabilityFrontier, 'id' | 'discoveredAt'>);
+      });
     }
 
     return { knowledge, capability };
@@ -236,9 +236,9 @@ export class FrontierDetector {
    * Scan history.jsonl for patterns and errors
    */
   private async scanHistoryFile(): Promise<{
-    capability: CapabilityFrontier[];
+    capability: Omit<CapabilityFrontier, 'id' | 'discoveredAt'>[];
   }> {
-    const capability: CapabilityFrontier[] = [];
+    const capability: Omit<CapabilityFrontier, 'id' | 'discoveredAt'>[] = [];
 
     const historyPath = path.join(this.workspace, 'history.jsonl');
 
@@ -295,7 +295,7 @@ export class FrontierDetector {
           potentialImprovement: 'Investigate root causes and improve tool reliability',
           impact: 0.8,
           feasibility: 0.6,
-        } as Omit<CapabilityFrontier, 'id' | 'discoveredAt'>);
+        });
       }
     } catch (error) {
       log.error('Error scanning history file:', error);

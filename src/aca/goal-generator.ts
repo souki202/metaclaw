@@ -20,10 +20,10 @@ export class GoalGenerator {
    * Generate objectives from knowledge frontiers
    */
   generateKnowledgeObjectives(
-    frontiers: KnowledgeFrontier[],
+    frontiers: (KnowledgeFrontier | Omit<KnowledgeFrontier, 'id' | 'discoveredAt'>)[],
     config: ACAConfig
-  ): AutonomousObjective[] {
-    const objectives: AutonomousObjective[] = [];
+  ): Omit<AutonomousObjective, 'id' | 'createdAt' | 'status'>[] {
+    const objectives: Omit<AutonomousObjective, 'id' | 'createdAt' | 'status'>[] = [];
 
     // Filter by importance threshold
     const relevantFrontiers = frontiers.filter(
@@ -40,7 +40,7 @@ export class GoalGenerator {
     );
 
     for (const frontier of topFrontiers) {
-      const objective = this.createKnowledgeObjective(frontier);
+      const objective = this.createKnowledgeObjective(frontier as KnowledgeFrontier);
       objectives.push(objective);
     }
 
@@ -51,10 +51,10 @@ export class GoalGenerator {
    * Generate objectives from capability frontiers
    */
   generateCapabilityObjectives(
-    frontiers: CapabilityFrontier[],
+    frontiers: (CapabilityFrontier | Omit<CapabilityFrontier, 'id' | 'discoveredAt'>)[],
     config: ACAConfig
-  ): AutonomousObjective[] {
-    const objectives: AutonomousObjective[] = [];
+  ): Omit<AutonomousObjective, 'id' | 'createdAt' | 'status'>[] {
+    const objectives: Omit<AutonomousObjective, 'id' | 'createdAt' | 'status'>[] = [];
 
     // Calculate priority score: impact * feasibility
     const scoredFrontiers = frontiers.map(f => ({
@@ -73,7 +73,7 @@ export class GoalGenerator {
 
     for (const { frontier, score } of topFrontiers) {
       if (score >= config.minImportanceThreshold) {
-        const objective = this.createCapabilityObjective(frontier);
+        const objective = this.createCapabilityObjective(frontier as CapabilityFrontier);
         objectives.push(objective);
       }
     }
@@ -84,7 +84,7 @@ export class GoalGenerator {
   /**
    * Create an objective from a knowledge frontier
    */
-  private createKnowledgeObjective(frontier: KnowledgeFrontier): AutonomousObjective {
+  private createKnowledgeObjective(frontier: KnowledgeFrontier | Omit<KnowledgeFrontier, 'id' | 'discoveredAt'>): Omit<AutonomousObjective, 'id' | 'createdAt' | 'status'> {
     let type: AutonomousObjective['type'] = 'explore_knowledge';
     let title = '';
     let description = '';
@@ -126,16 +126,16 @@ export class GoalGenerator {
       title,
       description,
       motivation,
-      frontierId: frontier.id,
+      frontierId: ('id' in frontier) ? frontier.id : undefined,
       priority: frontier.importance,
       estimatedDuration,
-    } as Omit<AutonomousObjective, 'id' | 'createdAt' | 'status'>;
+    };
   }
 
   /**
    * Create an objective from a capability frontier
    */
-  private createCapabilityObjective(frontier: CapabilityFrontier): AutonomousObjective {
+  private createCapabilityObjective(frontier: CapabilityFrontier | Omit<CapabilityFrontier, 'id' | 'discoveredAt'>): Omit<AutonomousObjective, 'id' | 'createdAt' | 'status'> {
     let type: AutonomousObjective['type'] = 'develop_capability';
     let title = '';
     let description = '';
@@ -181,16 +181,16 @@ export class GoalGenerator {
       title,
       description,
       motivation,
-      frontierId: frontier.id,
+      frontierId: ('id' in frontier) ? frontier.id : undefined,
       priority: frontier.impact * frontier.feasibility,
       estimatedDuration,
-    } as Omit<AutonomousObjective, 'id' | 'createdAt' | 'status'>;
+    };
   }
 
   /**
    * Prioritize objectives by multiple criteria
    */
-  prioritizeObjectives(objectives: AutonomousObjective[]): AutonomousObjective[] {
+  prioritizeObjectives(objectives: (AutonomousObjective | Omit<AutonomousObjective, 'id' | 'createdAt' | 'status'>)[]): (AutonomousObjective | Omit<AutonomousObjective, 'id' | 'createdAt' | 'status'>)[] {
     return objectives.sort((a, b) => {
       // Primary: priority score
       if (a.priority !== b.priority) {

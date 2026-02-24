@@ -5,7 +5,7 @@
  */
 
 import type { ToolResult } from '../types.js';
-import type { ToolContext } from './index.js';
+import type { ToolContext } from '../tools/index.js';
 import type { A2ARegistry } from '../a2a/registry.js';
 import type { AgentCard } from '../a2a/types.js';
 import { createLogger } from '../logger.js';
