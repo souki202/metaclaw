@@ -130,6 +130,18 @@ export interface SessionConfig {
   };
   mcpServers?: Record<string, McpServerConfig>;
   disabledTools?: string[];
+  a2a?: {
+    enabled: boolean;
+  };
+  aca?: {
+    enabled: boolean;
+    scanInterval?: number; // minutes between frontier scans
+    maxGoalsPerCycle?: number;
+  };
+  ell?: {
+    enabled: boolean;
+    minSuccessThreshold?: number; // minimum successful interactions before skill creation
+  };
 }
 
 export interface Config {
