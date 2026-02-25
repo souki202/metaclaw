@@ -1,5 +1,168 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { McpServerConfig } from "../types";
+
+// -------- ModelSelector Component --------
+const ModelSelector = ({
+  value,
+  onChange,
+  endpoint,
+  apiKey,
+  placeholder,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  endpoint: string;
+  apiKey: string;
+  placeholder?: string;
+}) => {
+  const [models, setModels] = useState<string[]>([]);
+  const [fetching, setFetching] = useState(false);
+  const [fetchError, setFetchError] = useState("");
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  const fetchModels = async () => {
+    if (!endpoint) return;
+    setFetching(true);
+    setFetchError("");
+    try {
+      const res = await fetch("/api/models", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ endpoint, apiKey }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setFetchError(data.error || "Failed to fetch models");
+      } else {
+        setModels(data.models || []);
+        setOpen(true);
+        setTimeout(() => searchRef.current?.focus(), 50);
+      }
+    } catch {
+      setFetchError("Network error");
+    } finally {
+      setFetching(false);
+    }
+  };
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (
+        dropdownRef.current &&
+        !dropdownRef.current.contains(e.target as Node)
+      ) {
+        setOpen(false);
+      }
+    };
+    if (open) document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  const filtered = models.filter((m) =>
+    m.toLowerCase().includes(search.toLowerCase()),
+  );
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <input
+          className="form-input mono"
+          style={{ flex: 1 }}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder || "model name"}
+        />
+        <button
+          type="button"
+          className="btn"
+          style={{ whiteSpace: "nowrap", padding: "6px 12px", fontSize: 13 }}
+          onClick={fetchModels}
+          disabled={fetching || !endpoint}
+          title={!endpoint ? "API Endpoint を入力してください" : ""}
+        >
+          {fetching ? "取得中…" : "モデル一覧"}
+        </button>
+      </div>
+      {fetchError && (
+        <div style={{ color: "var(--error, #f87171)", fontSize: 12 }}>
+          {fetchError}
+        </div>
+      )}
+      {open && models.length > 0 && (
+        <div
+          ref={dropdownRef}
+          style={{
+            border: "1px solid var(--border)",
+            borderRadius: 8,
+            background: "var(--bg-secondary)",
+            overflow: "hidden",
+            boxShadow: "0 4px 16px rgba(0,0,0,0.3)",
+          }}
+        >
+          <div style={{ padding: "8px" }}>
+            <input
+              ref={searchRef}
+              className="form-input mono"
+              style={{ fontSize: 13, padding: "6px 10px" }}
+              placeholder="モデルを検索…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+          <div style={{ maxHeight: 220, overflowY: "auto" }}>
+            {filtered.length === 0 ? (
+              <div
+                style={{
+                  padding: "8px 12px",
+                  color: "var(--text-dim)",
+                  fontSize: 13,
+                }}
+              >
+                該当なし
+              </div>
+            ) : (
+              filtered.map((m) => (
+                <div
+                  key={m}
+                  onClick={() => {
+                    onChange(m);
+                    setOpen(false);
+                    setSearch("");
+                  }}
+                  style={{
+                    padding: "7px 12px",
+                    cursor: "pointer",
+                    fontSize: 13,
+                    fontFamily: "monospace",
+                    background:
+                      value === m ? "var(--accent, #6366f1)" : "transparent",
+                    color: value === m ? "#fff" : "var(--text)",
+                  }}
+                  onMouseEnter={(e) => {
+                    if (value !== m)
+                      (e.currentTarget as HTMLElement).style.background =
+                        "var(--bg-primary)";
+                  }}
+                  onMouseLeave={(e) => {
+                    if (value !== m)
+                      (e.currentTarget as HTMLElement).style.background =
+                        "transparent";
+                  }}
+                >
+                  {m}
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
 
 const MCP_TEMPLATES: any = {
   custom: { id: "", command: "npx", args: "" },
@@ -492,12 +655,11 @@ export const SessionSettingsModal = ({
                   </div>
                   <div className="form-group">
                     <label className="form-label">Model</label>
-                    <input
-                      className="form-input mono"
+                    <ModelSelector
                       value={config.provider?.model || ""}
-                      onChange={(e) =>
-                        setNested(["provider", "model"], e.target.value)
-                      }
+                      onChange={(v) => setNested(["provider", "model"], v)}
+                      endpoint={config.provider?.endpoint || ""}
+                      apiKey={config.provider?.apiKey || ""}
                     />
                   </div>
 
@@ -699,13 +861,20 @@ export const SessionSettingsModal = ({
                   </div>
                   <div className="form-group">
                     <label className="form-label">Consult AI Model</label>
-                    <input
-                      className="form-input mono"
-                      placeholder={config.provider?.model}
+                    <ModelSelector
                       value={config.consultAi?.model || ""}
-                      onChange={(e) =>
-                        setNested(["consultAi", "model"], e.target.value)
+                      onChange={(v) => setNested(["consultAi", "model"], v)}
+                      endpoint={
+                        config.consultAi?.endpointUrl ||
+                        config.provider?.endpoint ||
+                        ""
                       }
+                      apiKey={
+                        config.consultAi?.apiKey ||
+                        config.provider?.apiKey ||
+                        ""
+                      }
+                      placeholder={config.provider?.model || "model name"}
                     />
                   </div>
                   <div className="form-group">
@@ -1408,4 +1577,3 @@ export const SessionSettingsModal = ({
     </div>
   );
 };
-
