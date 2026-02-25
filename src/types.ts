@@ -147,6 +147,7 @@ export interface SessionConfig {
 
 export interface ProviderTemplate {
   name: string;
+  description?: string;
   endpoint: string;
   apiKey: string;
   availableModels: string[];

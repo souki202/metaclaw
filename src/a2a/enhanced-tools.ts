@@ -531,6 +531,9 @@ export async function listProviderTemplates(ctx: EnhancedA2AToolContext): Promis
 
     for (const [id, template] of Object.entries(templates)) {
       lines.push(`### ${id}: ${template.name}`);
+      if (template.description) {
+        lines.push(`Description: ${template.description}`);
+      }
       lines.push(`Endpoint: ${template.endpoint}`);
       lines.push(`Default Model: ${template.defaultModel}`);
       lines.push(`Available Models: ${template.availableModels.join(', ')}`);
