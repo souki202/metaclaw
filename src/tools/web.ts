@@ -1,5 +1,6 @@
 import { GoogleAuth } from 'google-auth-library';
-import type { ToolResult, SearchConfig } from '../types.js';
+import type { ToolDefinition, ToolResult, SearchConfig } from '../types.js';
+import type { ToolContext } from './context.js';
 import { htmlToText } from './html-utils.js';
 
 export async function webFetch(url: string, selector?: string): Promise<ToolResult> {
@@ -157,5 +158,54 @@ export async function webSearch(query: string, config?: SearchConfig): Promise<T
     return { success: true, output: lines.join('\n\n') || 'No results found.' };
   } catch (e: unknown) {
     return { success: false, output: `Search error: ${(e as Error).message}` };
+  }
+}
+
+export function buildWebTools(ctx: ToolContext): ToolDefinition[] {
+  if (!ctx.config.tools.web) return [];
+  return [
+    {
+      type: 'function',
+      function: {
+        name: 'web_fetch',
+        description: 'Fetch content from a URL.',
+        parameters: {
+          type: 'object',
+          properties: {
+            url: { type: 'string', description: 'URL to fetch.' },
+          },
+          required: ['url'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'web_search',
+        description: 'Search the web for information.',
+        parameters: {
+          type: 'object',
+          properties: {
+            query: { type: 'string', description: 'Search query.' },
+          },
+          required: ['query'],
+        },
+      },
+    },
+  ];
+}
+
+export async function executeWebTool(
+  name: string,
+  args: Record<string, unknown>,
+  ctx: ToolContext
+): Promise<ToolResult | null> {
+  switch (name) {
+    case 'web_fetch':
+      return webFetch(args.url as string);
+    case 'web_search':
+      return webSearch(args.query as string, ctx.searchConfig);
+    default:
+      return null;
   }
 }

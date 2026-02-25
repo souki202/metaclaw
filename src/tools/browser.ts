@@ -1,4 +1,5 @@
-import type { ToolResult } from '../types.js';
+import type { ToolDefinition, ToolResult } from '../types.js';
+import type { ToolContext } from './context.js';
 import { chromium, Browser, BrowserContext, Page } from 'playwright';
 import fs from 'fs';
 import path from 'path';
@@ -625,5 +626,293 @@ export async function browserClose(): Promise<ToolResult> {
     return { success: true, output: 'Browser closed.' };
   } catch (e: unknown) {
     return { success: false, output: `Close error: ${(e as Error).message}` };
+  }
+}
+
+export function buildBrowserTools(_ctx: ToolContext): ToolDefinition[] {
+  return [
+    {
+      type: 'function',
+      function: {
+        name: 'browser_navigate',
+        description: 'Open a URL in a new browser tab. Always call this first before any other browser tool. Returns a page snapshot listing all interactive elements as [1] link "...", [2] button "...", [3] input[text] "..." etc. Use those numbers with browser_click, browser_type, and browser_select.',
+        parameters: {
+          type: 'object',
+          properties: {
+            url: { type: 'string', description: 'Full URL to navigate to (must include https://).' },
+          },
+          required: ['url'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'browser_click',
+        description: 'Click an element using its reference number [N] from the snapshot. Re-injects refs automatically so this works even after SPA re-renders. Returns an updated snapshot.',
+        parameters: {
+          type: 'object',
+          properties: {
+            ref: { type: 'number', description: 'Reference number of the element to click, e.g. 3 for [3].' },
+            page_id: { type: 'string', description: 'Page ID (optional, uses current page if omitted).' },
+          },
+          required: ['ref'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'browser_type',
+        description: 'Clear an input or textarea and type new text, targeting it by reference number [N] from the snapshot. Returns an updated snapshot.',
+        parameters: {
+          type: 'object',
+          properties: {
+            ref: { type: 'number', description: 'Reference number of the input element, e.g. 5 for [5].' },
+            text: { type: 'string', description: 'Text to enter (replaces any existing value).' },
+            page_id: { type: 'string', description: 'Page ID (optional, uses current page if omitted).' },
+          },
+          required: ['ref', 'text'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'browser_select',
+        description: 'Choose an option from a <select> dropdown by reference number [N] from the snapshot. Returns an updated snapshot.',
+        parameters: {
+          type: 'object',
+          properties: {
+            ref: { type: 'number', description: 'Reference number of the select element.' },
+            value: { type: 'string', description: 'Option value attribute or visible label text to select.' },
+            page_id: { type: 'string', description: 'Page ID (optional, uses current page if omitted).' },
+          },
+          required: ['ref', 'value'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'browser_snapshot',
+        description: 'Refresh the page snapshot to get current [N] reference numbers for all visible interactive elements. Call this after page changes or if your refs feel stale. Requires an open page (call browser_navigate first).',
+        parameters: {
+          type: 'object',
+          properties: {
+            page_id: { type: 'string', description: 'Page ID (optional, uses current page if omitted).' },
+          },
+          required: [],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'browser_press',
+        description: 'Press a keyboard key (e.g. Enter, Tab, Escape, ArrowDown). Returns an updated snapshot.',
+        parameters: {
+          type: 'object',
+          properties: {
+            key: { type: 'string', description: 'Key name: Enter, Tab, Escape, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Backspace, Delete, etc.' },
+            page_id: { type: 'string', description: 'Page ID (optional, uses current page if omitted).' },
+          },
+          required: ['key'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'browser_scroll',
+        description: 'Scroll the page to reveal more content. Returns an updated snapshot with newly visible elements.',
+        parameters: {
+          type: 'object',
+          properties: {
+            direction: { type: 'string', enum: ['up', 'down', 'top', 'bottom'], description: 'Scroll direction.' },
+            amount: { type: 'number', description: 'Pixels to scroll for up/down (default 300).' },
+            page_id: { type: 'string', description: 'Page ID (optional, uses current page if omitted).' },
+          },
+          required: ['direction'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'browser_screenshot',
+        description: 'Capture a screenshot as an image. Use only when the text snapshot is insufficient (e.g. charts, images, CAPTCHA, visual layout questions).',
+        parameters: {
+          type: 'object',
+          properties: {
+            page_id: { type: 'string', description: 'Page ID (optional, uses current page if omitted).' },
+          },
+          required: [],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'browser_evaluate',
+        description: 'Run arbitrary JavaScript in the page and return the result. Use for reading data or making programmatic changes not covered by other tools.',
+        parameters: {
+          type: 'object',
+          properties: {
+            script: { type: 'string', description: 'JavaScript to execute. May use return statements.' },
+            page_id: { type: 'string', description: 'Page ID (optional, uses current page if omitted).' },
+          },
+          required: ['script'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'browser_get_content',
+        description: 'Extract plain text from the page body or a specific element. Useful for scraping content without the noise of interactive element refs.',
+        parameters: {
+          type: 'object',
+          properties: {
+            selector: { type: 'string', description: 'CSS selector of the element to extract (optional, uses main content area if omitted).' },
+            page_id: { type: 'string', description: 'Page ID (optional, uses current page if omitted).' },
+          },
+          required: [],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'browser_get_simplified_html',
+        description: 'Get a simplified version of the page HTML. Retains structural tags but removes all attributes except src (for img) and href (for a). Also removes script, style, svg, canvas, and link tags. Useful for analyzing page structure without noise.',
+        parameters: {
+          type: 'object',
+          properties: {
+            page_id: { type: 'string', description: 'Page ID (optional, uses current page if omitted).' },
+          },
+          required: [],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'browser_wait_for',
+        description: 'Wait until a CSS selector becomes visible on the page, then return a fresh snapshot. Use when content loads asynchronously after an action.',
+        parameters: {
+          type: 'object',
+          properties: {
+            selector: { type: 'string', description: 'CSS selector to wait for.' },
+            timeout: { type: 'number', description: 'Max wait time in milliseconds (default 10000).' },
+            page_id: { type: 'string', description: 'Page ID (optional, uses current page if omitted).' },
+          },
+          required: ['selector'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'browser_get_url',
+        description: 'Get the current URL and page title.',
+        parameters: {
+          type: 'object',
+          properties: {
+            page_id: { type: 'string', description: 'Page ID (optional, uses current page if omitted).' },
+          },
+          required: [],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'browser_list_pages',
+        description: 'List all open browser tabs with their IDs, titles, and URLs.',
+        parameters: { type: 'object', properties: {}, required: [] },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'browser_switch_page',
+        description: 'Switch the active tab to a different open page.',
+        parameters: {
+          type: 'object',
+          properties: {
+            page_id: { type: 'string', description: 'Page ID to switch to (from browser_list_pages).' },
+          },
+          required: ['page_id'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'browser_close_page',
+        description: 'Close a specific page or the current page.',
+        parameters: {
+          type: 'object',
+          properties: {
+            page_id: { type: 'string', description: 'Page ID to close (optional, closes current page if not specified).' },
+          },
+          required: [],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'browser_close',
+        description: 'Close the browser and all pages.',
+        parameters: { type: 'object', properties: {}, required: [] },
+      },
+    },
+  ];
+}
+
+export async function executeBrowserTool(
+  name: string,
+  args: Record<string, unknown>,
+  ctx: ToolContext
+): Promise<ToolResult | null> {
+  switch (name) {
+    case 'browser_snapshot':
+      return browserSnapshot(args.page_id as string | undefined);
+    case 'browser_navigate':
+      return browserNavigate(args.url as string);
+    case 'browser_click':
+      return browserClick(args.ref as number, args.page_id as string | undefined);
+    case 'browser_type':
+      return browserType(args.ref as number, args.text as string, args.page_id as string | undefined);
+    case 'browser_select':
+      return browserSelect(args.ref as number, args.value as string, args.page_id as string | undefined);
+    case 'browser_screenshot':
+      return browserScreenshot(args.page_id as string | undefined, ctx.sessionId, ctx.sessionDir);
+    case 'browser_evaluate':
+      return browserEvaluate(args.script as string, args.page_id as string | undefined);
+    case 'browser_get_content':
+      return browserGetContent(args.selector as string | undefined, args.page_id as string | undefined);
+    case 'browser_get_simplified_html':
+      return browserGetSimplifiedHtml(args.page_id as string | undefined);
+    case 'browser_wait_for':
+      return browserWaitFor(args.selector as string, args.timeout as number | undefined, args.page_id as string | undefined);
+    case 'browser_scroll':
+      return browserScroll(args.direction as 'up' | 'down' | 'top' | 'bottom', args.amount as number | undefined, args.page_id as string | undefined);
+    case 'browser_press':
+      return browserPress(args.key as string, args.page_id as string | undefined);
+    case 'browser_get_url':
+      return browserGetUrl(args.page_id as string | undefined);
+    case 'browser_list_pages':
+      return browserListPages();
+    case 'browser_switch_page':
+      return browserSwitchPage(args.page_id as string);
+    case 'browser_close_page':
+      return browserClosePage(args.page_id as string | undefined);
+    case 'browser_close':
+      return browserClose();
+    default:
+      return null;
   }
 }

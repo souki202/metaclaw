@@ -4,8 +4,8 @@
  * Tools for agents to interact with the autonomous curiosity system.
  */
 
-import type { ToolResult } from '../types.js';
-import type { ToolContext } from '../tools/index.js';
+import type { ToolDefinition, ToolResult } from '../types.js';
+import type { ToolContext } from '../tools/context.js';
 import type { ACAManager } from './manager.js';
 import { createLogger } from '../logger.js';
 
@@ -320,5 +320,98 @@ export async function completeObjective(
       success: false,
       output: `Error: ${error instanceof Error ? error.message : String(error)}`,
     };
+  }
+}
+
+export function buildAcaTools(ctx: ToolContext): ToolDefinition[] {
+  if (!ctx.acaManager || !ctx.config.aca?.enabled) return [];
+  return [
+    {
+      type: 'function',
+      function: {
+        name: 'view_curiosity_state',
+        description: 'View the current autonomous curiosity state, including knowledge and capability frontiers.',
+        parameters: { type: 'object', properties: {}, required: [] },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'view_objectives',
+        description: 'View generated autonomous objectives, both active and proposed.',
+        parameters: { type: 'object', properties: {}, required: [] },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'trigger_curiosity_scan',
+        description: 'Manually trigger a curiosity scan to detect new frontiers and generate objectives.',
+        parameters: { type: 'object', properties: {}, required: [] },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'schedule_objective',
+        description: 'Schedule a proposed objective for execution.',
+        parameters: {
+          type: 'object',
+          properties: {
+            objective_id: { type: 'string', description: 'ID of the objective to schedule.' },
+            schedule_at: { type: 'string', description: 'Optional ISO datetime when to execute the objective.' },
+          },
+          required: ['objective_id'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'complete_objective',
+        description: 'Mark an objective as completed or abandoned, recording results.',
+        parameters: {
+          type: 'object',
+          properties: {
+            objective_id: { type: 'string', description: 'ID of the objective being completed.' },
+            success: { type: 'boolean', description: 'Whether the objective was successfully completed.' },
+            summary: { type: 'string', description: 'Summary of what was accomplished or why it failed.' },
+            new_knowledge: { type: 'string', description: 'New knowledge gained (one fact per line).' },
+            new_capabilities: { type: 'string', description: 'New capabilities acquired (one skill per line).' },
+          },
+          required: ['objective_id', 'success', 'summary'],
+        },
+      },
+    },
+  ];
+}
+
+export async function executeAcaTool(
+  name: string,
+  args: Record<string, unknown>,
+  ctx: ToolContext
+): Promise<ToolResult | null> {
+  switch (name) {
+    case 'view_curiosity_state':
+      return viewCuriosityState(ctx);
+    case 'view_objectives':
+      return viewObjectives(ctx);
+    case 'trigger_curiosity_scan':
+      return triggerCuriosityScan(ctx);
+    case 'schedule_objective':
+      return scheduleObjective(ctx, {
+        objective_id: args.objective_id as string,
+        schedule_at: args.schedule_at as string | undefined,
+      });
+    case 'complete_objective':
+      return completeObjective(ctx, {
+        objective_id: args.objective_id as string,
+        success: args.success as boolean,
+        summary: args.summary as string,
+        new_knowledge: args.new_knowledge as string | undefined,
+        new_capabilities: args.new_capabilities as string | undefined,
+      });
+    default:
+      return null;
   }
 }

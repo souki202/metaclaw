@@ -1,7 +1,11 @@
 import fs from 'fs';
 import path from 'path';
 import { execFile } from 'child_process';
-import type { ToolResult } from '../types.js';
+import type { ToolDefinition, ToolResult } from '../types.js';
+import type { ToolContext } from './context.js';
+import { CURRENT_OS } from './context.js';
+import { selfFileSearch, selfTextSearch } from './search.js';
+import { gitStatus, gitDiff, gitDiffStaged, gitLog, gitCommit, gitBranch, gitCheckout, gitStash, gitReset, gitPush, gitPull } from './git.js';
 
 const ROOT = process.cwd();
 const SRC_DIR = path.join(ROOT, 'src');
@@ -249,4 +253,396 @@ export function selfExec(command: string, timeout?: number): Promise<ToolResult>
       resolve({ success: false, output: `Error: ${err.message}` });
     });
   });
+}
+
+export function buildSelfTools(ctx: ToolContext): ToolDefinition[] {
+  if (!ctx.config.allowSelfModify) return [];
+  return [
+    {
+      type: 'function',
+      function: {
+        name: 'self_list',
+        description: 'List files in the meta-claw source code directory (src/).',
+        parameters: {
+          type: 'object',
+          properties: {
+            subdir: { type: 'string', description: 'Subdirectory within src/ to list.' },
+          },
+          required: [],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'self_read',
+        description: 'Read a source file from meta-claw src/.',
+        parameters: {
+          type: 'object',
+          properties: {
+            path: { type: 'string', description: 'Path relative to src/.' },
+          },
+          required: ['path'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'self_write',
+        description: 'Write/modify a source file in meta-claw src/. Use self_restart afterward to apply changes.',
+        parameters: {
+          type: 'object',
+          properties: {
+            path: { type: 'string', description: 'Path relative to src/.' },
+            content: { type: 'string', description: 'New file content.' },
+          },
+          required: ['path', 'content'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'self_edit',
+        description: 'Replace a specific string in a source file in meta-claw src/. Use self_restart afterward.',
+        parameters: {
+          type: 'object',
+          properties: {
+            path: { type: 'string', description: 'Path relative to src/.' },
+            old_string: { type: 'string', description: 'String to replace.' },
+            new_string: { type: 'string', description: 'Replacement string.' },
+          },
+          required: ['path', 'old_string', 'new_string'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'self_restart',
+        description: 'Restart meta-claw to apply self-modifications. All sessions will restart. NOTE: With Next.js hot reload, this is only needed for changes that cannot be hot-reloaded (npm install, config changes, native module updates). Regular code changes in src/ or app/ are hot-reloaded automatically.',
+        parameters: {
+          type: 'object',
+          properties: {
+            reason: { type: 'string', description: 'Reason for restart.' },
+          },
+          required: [],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'self_read_config',
+        description: 'Read the system config (API keys are redacted).',
+        parameters: { type: 'object', properties: {}, required: [] },
+      },
+    },
+    // Git tools
+    {
+      type: 'function',
+      function: {
+        name: 'self_git_status',
+        description: "Show git working tree status of the AI system's own repository (meta-claw).",
+        parameters: { type: 'object', properties: {}, required: [] },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'self_git_diff',
+        description: "Show unstaged changes in the AI system's own repository. Optionally filter by path.",
+        parameters: {
+          type: 'object',
+          properties: {
+            path: { type: 'string', description: 'File path to diff (optional).' },
+          },
+          required: [],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'self_git_diff_staged',
+        description: "Show staged (cached) changes in the AI system's own repository. Optionally filter by path.",
+        parameters: {
+          type: 'object',
+          properties: {
+            path: { type: 'string', description: 'File path to diff (optional).' },
+          },
+          required: [],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'self_git_log',
+        description: "Show recent commit history of the AI system's own repository.",
+        parameters: {
+          type: 'object',
+          properties: {
+            count: { type: 'number', description: 'Number of commits to show (default 20).' },
+          },
+          required: [],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'self_git_commit',
+        description: "Stage all changes and commit to the AI system's own repository with a message.",
+        parameters: {
+          type: 'object',
+          properties: {
+            message: { type: 'string', description: 'Commit message.' },
+          },
+          required: ['message'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'self_git_branch',
+        description: "List all branches (local and remote) of the AI system's own repository.",
+        parameters: { type: 'object', properties: {}, required: [] },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'self_git_checkout',
+        description: "Switch to a branch or restore files in the AI system's own repository.",
+        parameters: {
+          type: 'object',
+          properties: {
+            ref: { type: 'string', description: 'Branch name, tag, or commit hash.' },
+          },
+          required: ['ref'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'self_git_stash',
+        description: "Stash changes in the AI system's own repository. Actions: push (default), pop, list, drop, apply, show.",
+        parameters: {
+          type: 'object',
+          properties: {
+            action: { type: 'string', description: 'Stash action (push, pop, list, drop, apply, show).' },
+            message: { type: 'string', description: 'Stash message (only for push action).' },
+          },
+          required: [],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'self_git_reset',
+        description: "Reset current HEAD of the AI system's own repository to a commit. Use for reverting changes.",
+        parameters: {
+          type: 'object',
+          properties: {
+            mode: { type: 'string', description: 'Reset mode: soft, mixed (default), or hard.' },
+            ref: { type: 'string', description: 'Commit ref to reset to (e.g., HEAD~1).' },
+          },
+          required: [],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'self_git_push',
+        description: "Push commits from the AI system's own repository to remote repository.",
+        parameters: {
+          type: 'object',
+          properties: {
+            remote: { type: 'string', description: 'Remote name (default: origin).' },
+            branch: { type: 'string', description: 'Branch name.' },
+          },
+          required: [],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'self_git_pull',
+        description: "Pull changes for the AI system's own repository from remote repository.",
+        parameters: {
+          type: 'object',
+          properties: {
+            remote: { type: 'string', description: 'Remote name (default: origin).' },
+            branch: { type: 'string', description: 'Branch name.' },
+          },
+          required: [],
+        },
+      },
+    },
+    // Root-level file access tools
+    {
+      type: 'function',
+      function: {
+        name: 'self_read_root',
+        description: 'Read a file from the project root. Allowed: package.json, tsconfig.json, .gitignore, .env, and files in src/, scripts/, templates/, .agents/.',
+        parameters: {
+          type: 'object',
+          properties: {
+            path: { type: 'string', description: 'Path relative to project root (e.g., "package.json", "scripts/runner.js").' },
+          },
+          required: ['path'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'self_write_root',
+        description: 'Write a file in the project root. Same access restrictions as self_read_root.',
+        parameters: {
+          type: 'object',
+          properties: {
+            path: { type: 'string', description: 'Path relative to project root.' },
+            content: { type: 'string', description: 'New file content.' },
+          },
+          required: ['path', 'content'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'self_edit_root',
+        description: 'Replace a string in a file in the project root. Same access restrictions as self_read_root.',
+        parameters: {
+          type: 'object',
+          properties: {
+            path: { type: 'string', description: 'Path relative to project root.' },
+            old_string: { type: 'string', description: 'String to replace.' },
+            new_string: { type: 'string', description: 'Replacement string.' },
+          },
+          required: ['path', 'old_string', 'new_string'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'self_file_search',
+        description: 'Find files in the mini-claw project (src/, scripts/, templates/, root configs) by name or path pattern. Same pattern semantics as file_search. Use for self-modification tasks to locate source files quickly.',
+        parameters: {
+          type: 'object',
+          properties: {
+            pattern: { type: 'string', description: 'Filename pattern or glob (e.g. "*.ts", "agent", "src/tools/*.ts").' },
+            max_results: { type: 'number', description: 'Max files to return (default 60).' },
+          },
+          required: ['pattern'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'self_text_search',
+        description: 'Search the mini-claw project source code for a query string or regex. Like grep over the whole codebase. Use for self-modification tasks to find function definitions, usages, or config values.',
+        parameters: {
+          type: 'object',
+          properties: {
+            query: { type: 'string', description: 'Text or regex pattern to search for.' },
+            pattern: { type: 'string', description: 'Glob to restrict which files are searched (e.g. "*.ts", "src/tools/*.ts").' },
+            is_regex: { type: 'boolean', description: 'Treat query as a regular expression (default false).' },
+            case_sensitive: { type: 'boolean', description: 'Case-sensitive matching (default false).' },
+            context_lines: { type: 'number', description: 'Lines of context before/after each match, 0-5 (default 0).' },
+            max_matches: { type: 'number', description: 'Maximum matching lines to return (default 50).' },
+          },
+          required: ['query'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'self_exec',
+        description: `Execute a shell command in the project root directory (e.g., npm install, npx tsc). Current runtime OS: ${CURRENT_OS}.`,
+        parameters: {
+          type: 'object',
+          properties: {
+            command: { type: 'string', description: 'Shell command to run.' },
+            timeout: { type: 'number', description: 'Timeout in ms (default 60000).' },
+          },
+          required: ['command'],
+        },
+      },
+    },
+  ];
+}
+
+export async function executeSelfTool(
+  name: string,
+  args: Record<string, unknown>,
+  _ctx: ToolContext
+): Promise<ToolResult | null> {
+  switch (name) {
+    case 'self_list':
+      return selfList(args.subdir as string | undefined);
+    case 'self_read':
+      return selfRead(args.path as string);
+    case 'self_write':
+      return selfWrite(args.path as string, args.content as string);
+    case 'self_edit':
+      return selfEdit(args.path as string, args.old_string as string, args.new_string as string);
+    case 'self_restart':
+      return selfRestart(args.reason as string | undefined);
+    case 'self_read_config':
+      return readConfigFile();
+    case 'self_git_status':
+      return gitStatus();
+    case 'self_git_diff':
+      return gitDiff(args.path as string | undefined);
+    case 'self_git_diff_staged':
+      return gitDiffStaged(args.path as string | undefined);
+    case 'self_git_log':
+      return gitLog(args.count as number | undefined);
+    case 'self_git_commit':
+      return gitCommit(args.message as string);
+    case 'self_git_branch':
+      return gitBranch();
+    case 'self_git_checkout':
+      return gitCheckout(args.ref as string);
+    case 'self_git_stash':
+      return gitStash(args.action as string | undefined, args.message as string | undefined);
+    case 'self_git_reset':
+      return gitReset(args.mode as string | undefined, args.ref as string | undefined);
+    case 'self_git_push':
+      return gitPush(args.remote as string | undefined, args.branch as string | undefined);
+    case 'self_git_pull':
+      return gitPull(args.remote as string | undefined, args.branch as string | undefined);
+    case 'self_read_root':
+      return selfReadRoot(args.path as string);
+    case 'self_write_root':
+      return selfWriteRoot(args.path as string, args.content as string);
+    case 'self_edit_root':
+      return selfEditRoot(args.path as string, args.old_string as string, args.new_string as string);
+    case 'self_file_search':
+      return selfFileSearch(args.pattern as string, { maxResults: args.max_results as number | undefined });
+    case 'self_text_search':
+      return selfTextSearch(args.query as string, {
+        pattern: args.pattern as string | undefined,
+        isRegex: args.is_regex as boolean | undefined,
+        caseSensitive: args.case_sensitive as boolean | undefined,
+        contextLines: args.context_lines as number | undefined,
+        maxMatches: args.max_matches as number | undefined,
+      });
+    case 'self_exec':
+      return selfExec(args.command as string, args.timeout as number | undefined);
+    default:
+      return null;
+  }
 }

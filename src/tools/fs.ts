@@ -1,6 +1,8 @@
 import fs from 'fs';
 import path from 'path';
-import type { ToolResult } from '../types.js';
+import type { ToolDefinition, ToolResult } from '../types.js';
+import type { ToolContext } from './context.js';
+import { fileSearch, textSearch } from './search.js';
 
 function resolveSafe(workspace: string, filePath: string, restrict: boolean): string | null {
   const resolved = path.resolve(workspace, filePath);
@@ -99,5 +101,151 @@ export function deleteFile(workspace: string, filePath: string, restrict: boolea
     return { success: true, output: `Deleted: ${filePath}` };
   } catch (e: unknown) {
     return { success: false, output: `Delete error: ${(e as Error).message}` };
+  }
+}
+
+export function buildFsTools(_ctx: ToolContext): ToolDefinition[] {
+  return [
+    {
+      type: 'function',
+      function: {
+        name: 'read_file',
+        description: 'Read a file from the workspace.',
+        parameters: {
+          type: 'object',
+          properties: {
+            path: { type: 'string', description: 'File path relative to workspace.' },
+          },
+          required: ['path'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'write_file',
+        description: 'Write content to a file in the workspace.',
+        parameters: {
+          type: 'object',
+          properties: {
+            path: { type: 'string', description: 'File path relative to workspace.' },
+            content: { type: 'string', description: 'Content to write.' },
+          },
+          required: ['path', 'content'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'edit_file',
+        description: 'Replace a specific string in a file.',
+        parameters: {
+          type: 'object',
+          properties: {
+            path: { type: 'string', description: 'File path relative to workspace.' },
+            old_string: { type: 'string', description: 'String to replace.' },
+            new_string: { type: 'string', description: 'Replacement string.' },
+          },
+          required: ['path', 'old_string', 'new_string'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'list_dir',
+        description: 'List files in a directory within the workspace.',
+        parameters: {
+          type: 'object',
+          properties: {
+            path: { type: 'string', description: 'Directory path relative to workspace. Defaults to root.' },
+          },
+          required: [],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'delete_file',
+        description: 'Delete a file from the workspace.',
+        parameters: {
+          type: 'object',
+          properties: {
+            path: { type: 'string', description: 'File path relative to workspace.' },
+          },
+          required: ['path'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'file_search',
+        description: 'Find files in the workspace by name or path pattern. Pattern examples: "*.ts" (any TS file), "config" (name contains "config"), "src/tools/*.ts" (specific directory), "**/*.json" (recursive). Returns results sorted by most recently modified.',
+        parameters: {
+          type: 'object',
+          properties: {
+            pattern: { type: 'string', description: 'Filename pattern or glob (e.g. "*.ts", "config", "src/**/*.json").' },
+            max_results: { type: 'number', description: 'Max files to return (default 60).' },
+          },
+          required: ['pattern'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'text_search',
+        description: 'Search file contents in the workspace for a query string or regex. Like grep. Returns file paths and matching lines with optional surrounding context.',
+        parameters: {
+          type: 'object',
+          properties: {
+            query: { type: 'string', description: 'Text or regex pattern to search for.' },
+            pattern: { type: 'string', description: 'Glob to restrict which files are searched (e.g. "*.ts", "src/**/*.ts").' },
+            is_regex: { type: 'boolean', description: 'Treat query as a regular expression (default false).' },
+            case_sensitive: { type: 'boolean', description: 'Case-sensitive matching (default false).' },
+            context_lines: { type: 'number', description: 'Lines of context before/after each match, 0–5 (default 0).' },
+            max_matches: { type: 'number', description: 'Maximum matching lines to return (default 50).' },
+          },
+          required: ['query'],
+        },
+      },
+    },
+  ];
+}
+
+export async function executeFsTool(
+  name: string,
+  args: Record<string, unknown>,
+  ctx: ToolContext
+): Promise<ToolResult | null> {
+  const { workspace } = ctx;
+  const restrict = ctx.config.restrictToWorkspace;
+
+  switch (name) {
+    case 'read_file':
+      return readFile(workspace, args.path as string, restrict);
+    case 'write_file':
+      return writeFile(workspace, args.path as string, args.content as string, restrict);
+    case 'edit_file':
+      return editFile(workspace, args.path as string, args.old_string as string, args.new_string as string, restrict);
+    case 'list_dir':
+      return listDir(workspace, (args.path as string) ?? '.', restrict);
+    case 'delete_file':
+      return deleteFile(workspace, args.path as string, restrict);
+    case 'file_search':
+      return fileSearch(args.pattern as string, workspace, { maxResults: args.max_results as number | undefined });
+    case 'text_search':
+      return textSearch(args.query as string, workspace, {
+        pattern: args.pattern as string | undefined,
+        isRegex: args.is_regex as boolean | undefined,
+        caseSensitive: args.case_sensitive as boolean | undefined,
+        contextLines: args.context_lines as number | undefined,
+        maxMatches: args.max_matches as number | undefined,
+      });
+    default:
+      return null;
   }
 }

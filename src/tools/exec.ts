@@ -1,7 +1,9 @@
 import { execFile } from 'child_process';
 import path from 'path';
 import iconv from 'iconv-lite';
-import type { ToolResult } from '../types.js';
+import type { ToolDefinition, ToolResult } from '../types.js';
+import type { ToolContext } from './context.js';
+import { CURRENT_OS } from './context.js';
 
 const DANGEROUS_PATTERNS = [
   /\brm\s+-rf?\b/i,
@@ -121,4 +123,41 @@ function decodeBuffer(buffer: Buffer): string {
   }
   
   return buffer.toString('utf8');
+}
+
+export function buildExecTools(ctx: ToolContext): ToolDefinition[] {
+  if (!ctx.config.tools.exec) return [];
+  return [
+    {
+      type: 'function',
+      function: {
+        name: 'exec',
+        description: `Execute a shell command. Each operation is independent, and operations such as "cd" are not carried over. Current runtime OS: ${CURRENT_OS}.`,
+        parameters: {
+          type: 'object',
+          properties: {
+            command: { type: 'string', description: 'Shell command to run.' },
+            cwd: { type: 'string', description: 'Working directory (relative to workspace).' },
+            timeout: { type: 'number', description: 'Timeout in milliseconds (default 30000).' },
+          },
+          required: ['command'],
+        },
+      },
+    },
+  ];
+}
+
+export async function executeExecTool(
+  name: string,
+  args: Record<string, unknown>,
+  ctx: ToolContext
+): Promise<ToolResult | null> {
+  if (name !== 'exec') return null;
+  return execTool({
+    command: args.command as string,
+    cwd: args.cwd as string | undefined,
+    timeout: args.timeout as number | undefined,
+    workspace: ctx.workspace,
+    restrictToWorkspace: ctx.config.restrictToWorkspace,
+  });
 }
