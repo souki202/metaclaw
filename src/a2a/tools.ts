@@ -4,8 +4,8 @@
  * Tools for inter-agent communication and collaboration.
  */
 
-import type { ToolResult } from '../types.js';
-import type { ToolContext } from '../tools/index.js';
+import type { ToolDefinition, ToolResult } from '../types.js';
+import type { ToolContext } from '../tools/context.js';
 import type { A2ARegistry } from '../a2a/registry.js';
 import type { AgentCard } from '../a2a/types.js';
 import { createLogger } from '../logger.js';
@@ -377,5 +377,126 @@ export async function getMyCard(ctx: A2AToolContext): Promise<ToolResult> {
       success: false,
       output: `Error: ${error instanceof Error ? error.message : String(error)}`,
     };
+  }
+}
+
+export function buildA2ATools(ctx: ToolContext): ToolDefinition[] {
+  if (!ctx.a2aRegistry || !ctx.config.a2a?.enabled) return [];
+  return [
+    {
+      type: 'function',
+      function: {
+        name: 'list_agents',
+        description: 'List all available agents in the system with their capabilities and specializations.',
+        parameters: { type: 'object', properties: {}, required: [] },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'find_agents',
+        description: 'Find agents with specific capabilities or specializations.',
+        parameters: {
+          type: 'object',
+          properties: {
+            capability: { type: 'string', description: 'Capability name to search for (e.g., research_topic, automate_web_task).' },
+            specialization: { type: 'string', description: 'Specialization to search for (e.g., web-research, code-execution).' },
+          },
+          required: [],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'send_to_agent',
+        description: 'Send a task request to another agent. The target agent will process the task and you can check for responses later.',
+        parameters: {
+          type: 'object',
+          properties: {
+            target_session: { type: 'string', description: 'Session ID of the target agent.' },
+            task: { type: 'string', description: 'Description of the task to delegate to the agent.' },
+            context: { type: 'object', description: 'Additional context or data needed for the task.' },
+            priority: { type: 'string', enum: ['low', 'normal', 'high'], description: 'Task priority level.' },
+            timeout: { type: 'number', description: 'Timeout in seconds for the task.' },
+          },
+          required: ['target_session', 'task'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'check_a2a_messages',
+        description: 'Check for incoming messages from other agents, including task requests and responses.',
+        parameters: { type: 'object', properties: {}, required: [] },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'respond_to_agent',
+        description: 'Respond to a task request from another agent with results or an error.',
+        parameters: {
+          type: 'object',
+          properties: {
+            message_id: { type: 'string', description: 'ID of the message to respond to.' },
+            success: { type: 'boolean', description: 'Whether the task was completed successfully.' },
+            output: { type: 'string', description: 'Task result or error message.' },
+            data: { type: 'object', description: 'Additional data to send back.' },
+            error_code: { type: 'string', description: 'Error code if task failed.' },
+            error_message: { type: 'string', description: 'Error message if task failed.' },
+          },
+          required: ['message_id', 'success', 'output'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'get_my_card',
+        description: 'View your own agent card showing your capabilities and status.',
+        parameters: { type: 'object', properties: {}, required: [] },
+      },
+    },
+  ];
+}
+
+export async function executeA2ATool(
+  name: string,
+  args: Record<string, unknown>,
+  ctx: ToolContext
+): Promise<ToolResult | null> {
+  switch (name) {
+    case 'list_agents':
+      return listAgents(ctx);
+    case 'find_agents':
+      return findAgents(ctx, {
+        capability: args.capability as string | undefined,
+        specialization: args.specialization as string | undefined,
+      });
+    case 'send_to_agent':
+      return sendToAgent(ctx, {
+        target_session: args.target_session as string,
+        task: args.task as string,
+        context: args.context as Record<string, unknown> | undefined,
+        priority: args.priority as 'low' | 'normal' | 'high' | undefined,
+        timeout: args.timeout as number | undefined,
+      });
+    case 'check_a2a_messages':
+      return checkA2AMessages(ctx);
+    case 'respond_to_agent':
+      return respondToAgent(ctx, {
+        message_id: args.message_id as string,
+        success: args.success as boolean,
+        output: args.output as string,
+        data: args.data as Record<string, unknown> | undefined,
+        error_code: args.error_code as string | undefined,
+        error_message: args.error_message as string | undefined,
+      });
+    case 'get_my_card':
+      return getMyCard(ctx);
+    default:
+      return null;
   }
 }

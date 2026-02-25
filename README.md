@@ -9,7 +9,7 @@ A multi-session AI personal agent system featuring Discord / Slack integration, 
 - **Multi-session Architecture** — Run multiple isolated AI agents concurrently, each maintaining its own identity, memory tier, workspace, and capabilities.
 - **Agent-to-Agent (A2A) Communication** — Enable inter-agent collaboration through a JSON-RPC style messaging protocol. Agents can discover capabilities, delegate tasks, and coordinate work autonomously.
 - **Autonomous Curiosity Architecture (ACA)** — Agents autonomously detect knowledge gaps and capability frontiers, generating self-directed learning objectives. See `CURIOSITY.md` in workspace for state tracking.
-- **Web Dashboard** — Modern Next.js UI (default `http://localhost:3020`) for real-time streaming chat, workspace file editing, memory viewing, and system configuration. Features dark/light mode and chat cancellation.
+- **Web Dashboard** — Modern Next.js UI (default `http://localhost:8080`) for real-time streaming chat, workspace file editing, memory viewing, and system configuration. Features dark/light mode and chat cancellation.
 - **Discord Integration** — Bidirectional chat synchronization. Route specific Discord channels or guilds to dedicated agent sessions, complete with image and attachment support.
 - **Slack Integration** — Bidirectional chat synchronization via Slack bot tokens. Route specific channels or teams to dedicated agent sessions.
 - **Browser Automation** — Advanced web interaction using Playwright. The AI can navigate, click, type, and take visual screenshots. Users can track the AI's browser activity in real-time and manually intervene if needed.
@@ -137,11 +137,6 @@ Enable inter-agent collaboration by setting `a2a.enabled: true` in your session 
 - `delegate_task_async` - Delegate tasks asynchronously without blocking
 - `check_async_tasks` - Monitor delegated task status and results
 - `complete_async_task` - Mark delegated tasks as complete with results
-
-**Documentation:**
-- [A2A Tools Quick Reference](A2A_TOOLS_REFERENCE.md) - Tool usage and examples
-- [Enhanced A2A Implementation](ENHANCED_A2A_IMPLEMENTATION.md) - Architecture and details
-- [Testing Guide](TESTING_ENHANCED_A2A.md) - Comprehensive test suite
 
 ### Autonomous Curiosity Architecture (ACA)
 
