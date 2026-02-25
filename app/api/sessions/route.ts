@@ -21,6 +21,7 @@ export async function GET() {
       allowSelfModify: configs[id]?.allowSelfModify,
       discord: configs[id]?.discord,
       slack: configs[id]?.slack,
+      isBusy: sessions.getAgent(id)?.isProcessing() ?? false,
     }));
 
     return NextResponse.json(sessionList);
@@ -77,6 +78,24 @@ export async function POST(request: Request) {
         data: event.data,
         timestamp: new Date().toISOString(),
       });
+
+      // busy_change イベントはセッションリストの更新もトリガーする
+      if (event.type === 'busy_change') {
+        broadcastSseEvent({
+          type: 'session_list_update',
+          sessionId: event.sessionId,
+          data: event.data,
+          timestamp: new Date().toISOString(),
+        });
+      }
+    });
+
+    // セッション作成をフロントエンドに通知
+    broadcastSseEvent({
+      type: 'session_list_update',
+      sessionId,
+      data: { action: 'created', id: sessionId, name: newSession.name },
+      timestamp: new Date().toISOString(),
     });
 
     return NextResponse.json({ ok: true, id: sessionId, session: newSession });

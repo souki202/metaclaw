@@ -106,6 +106,7 @@ export function generateAgentCard(
     availableTools: availableTools.filter(tool => !config.disabledTools?.includes(tool)),
     status: 'active',
     lastUpdated: new Date().toISOString(),
+    hiddenFromAgents: config.a2a?.hiddenFromAgents || false,
   };
 }
 

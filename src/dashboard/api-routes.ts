@@ -146,12 +146,52 @@ export async function setupApiRoutes(
       return true;
     }
 
-    const filePath = path.join(agent.getWorkspace(), filename);
+    const filePath = path.join(agent.getSessionDir(), filename);
     if (!fs.existsSync(filePath)) {
       sendJson(res, { content: '' });
       return true;
     }
     sendJson(res, { content: fs.readFileSync(filePath, 'utf-8') });
+    return true;
+  }
+
+  // GET /api/sessions/:id/images/:filename
+  const getImagesMatch = matchRoute(pathname, '/api/sessions/:id/images/:filename');
+  if (method === 'GET' && getImagesMatch) {
+    const agent = sessions.getAgent(getImagesMatch.params.id);
+    if (!agent) {
+      sendJson(res, { error: 'Session not found' }, 404);
+      return true;
+    }
+    const filePath = path.join(agent.getSessionDir(), 'screenshots', getImagesMatch.params.filename);
+    if (!fs.existsSync(filePath)) {
+      sendJson(res, { error: 'Not found' }, 404);
+      return true;
+    }
+    const ext = path.extname(filePath).toLowerCase().replace('.', '');
+    const mime = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : ext === 'png' ? 'image/png' : ext === 'gif' ? 'image/gif' : ext === 'webp' ? 'image/webp' : 'application/octet-stream';
+    res.setHeader('Content-Type', mime);
+    fs.createReadStream(filePath).pipe(res);
+    return true;
+  }
+
+  // GET /api/sessions/:id/uploads/:filename
+  const getUploadsMatch = matchRoute(pathname, '/api/sessions/:id/uploads/:filename');
+  if (method === 'GET' && getUploadsMatch) {
+    const agent = sessions.getAgent(getUploadsMatch.params.id);
+    if (!agent) {
+      sendJson(res, { error: 'Session not found' }, 404);
+      return true;
+    }
+    const filePath = path.join(agent.getSessionDir(), 'uploads', getUploadsMatch.params.filename);
+    if (!fs.existsSync(filePath)) {
+      sendJson(res, { error: 'Not found' }, 404);
+      return true;
+    }
+    const ext = path.extname(filePath).toLowerCase().replace('.', '');
+    const mime = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : ext === 'png' ? 'image/png' : ext === 'gif' ? 'image/gif' : ext === 'webp' ? 'image/webp' : 'application/octet-stream';
+    res.setHeader('Content-Type', mime);
+    fs.createReadStream(filePath).pipe(res);
     return true;
   }
 
@@ -173,7 +213,7 @@ export async function setupApiRoutes(
 
     try {
       const body = await parseBody(req);
-      const filePath = path.join(agent.getWorkspace(), filename);
+      const filePath = path.join(agent.getSessionDir(), filename);
       fs.mkdirSync(path.dirname(filePath), { recursive: true });
       fs.writeFileSync(filePath, body.content, 'utf-8');
       sendJson(res, { ok: true });
@@ -191,7 +231,7 @@ export async function setupApiRoutes(
       sendJson(res, { error: 'Session not found' }, 404);
       return true;
     }
-    const vectorPath = path.join(agent.getWorkspace(), 'memory', 'vectors.json');
+    const vectorPath = path.join(agent.getSessionDir(), 'memory', 'vectors.json');
     if (!fs.existsSync(vectorPath)) {
       sendJson(res, []);
       return true;

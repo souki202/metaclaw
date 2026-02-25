@@ -3,6 +3,7 @@ export interface SessionData {
   name: string;
   description?: string;
   model?: string;
+  isBusy?: boolean;
 }
 
 export interface Skill {

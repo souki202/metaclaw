@@ -11,8 +11,9 @@ import { createLogger } from '../logger.js';
 import type { A2ARegistry } from '../a2a/registry.js';
 import { ACAManager } from '../aca/manager.js';
 import type { ACAConfig } from '../aca/types.js';
+import type { SessionCommsManager } from '../a2a/session-comms.js';
 
-const MAX_ITERATIONS = 20;
+const MAX_ITERATIONS = 100;
 const RESTART_CODE = 75;
 
 // Remove image_url content parts from messages for models that don't support vision.
@@ -83,6 +84,7 @@ export interface AgentScheduleAccess {
 export class Agent {
   private sessionId: string;
   private config: SessionConfig;
+  private sessionDir: string;
   private workspace: string;
   private provider: OpenAIProvider;
   private providerConfig: ProviderConfig;
@@ -98,6 +100,8 @@ export class Agent {
   private scheduleAccess?: AgentScheduleAccess;
   private a2aRegistry?: A2ARegistry;
   private acaManager?: ACAManager;
+  private commsManager?: SessionCommsManager;
+  private getSessionManager?: () => any; // Getter to avoid circular dependency
   private abortController: AbortController | null = null;
   private activeProcessingCount = 0;
   private idleWaiters: Array<() => void> = [];
@@ -105,29 +109,35 @@ export class Agent {
   constructor(
     sessionId: string,
     config: SessionConfig,
+    sessionDir: string,
     workspace: string,
     onEvent?: EventCallback,
     globalConfig?: Config,
     scheduleAccess?: AgentScheduleAccess,
     a2aRegistry?: A2ARegistry,
+    commsManager?: SessionCommsManager,
+    getSessionManager?: () => any,
   ) {
     this.sessionId = sessionId;
     this.config = config;
+    this.sessionDir = sessionDir;
     this.workspace = workspace;
 
     // プロバイダー設定を解決
     this.providerConfig = this.resolveProviderConfig();
     this.provider = new OpenAIProvider(this.providerConfig);
-    this.quickMemory = new QuickMemory(workspace);
-    this.tmpMemory = new QuickMemory(workspace, 'TMP_MEMORY.md');
-    this.vectorMemory = new VectorMemory(workspace, sessionId, this.provider);
+    this.quickMemory = new QuickMemory(sessionDir);
+    this.tmpMemory = new QuickMemory(sessionDir, 'TMP_MEMORY.md');
+    this.vectorMemory = new VectorMemory(sessionDir, sessionId, this.provider);
     this.mcpManager = new McpClientManager(globalConfig?.search, workspace);
-    this.files = new WorkspaceFiles(workspace);
+    this.files = new WorkspaceFiles(sessionDir);
     this.log = createLogger(`agent:${sessionId}`);
     this.onEvent = onEvent;
     this.globalConfig = globalConfig;
     this.scheduleAccess = scheduleAccess;
     this.a2aRegistry = a2aRegistry;
+    this.commsManager = commsManager;
+    this.getSessionManager = getSessionManager;
 
     // Initialize ACA if enabled
     if (config.aca?.enabled) {
@@ -148,7 +158,7 @@ export class Agent {
   }
 
   private loadHistory() {
-    const historyPath = path.join(this.workspace, 'history.jsonl');
+    const historyPath = path.join(this.sessionDir, 'history.jsonl');
     if (fs.existsSync(historyPath)) {
       try {
         const content = fs.readFileSync(historyPath, 'utf-8');
@@ -229,7 +239,11 @@ export class Agent {
   }
 
   private beginProcessing() {
+    const wasIdle = this.activeProcessingCount === 0;
     this.activeProcessingCount += 1;
+    if (wasIdle) {
+      this.emit('busy_change', { isBusy: true });
+    }
   }
 
   private endProcessing() {
@@ -237,10 +251,13 @@ export class Agent {
       this.activeProcessingCount -= 1;
     }
 
-    if (this.activeProcessingCount === 0 && this.idleWaiters.length > 0) {
-      const waiters = this.idleWaiters.splice(0, this.idleWaiters.length);
-      for (const resolve of waiters) {
-        resolve();
+    if (this.activeProcessingCount === 0) {
+      this.emit('busy_change', { isBusy: false });
+      if (this.idleWaiters.length > 0) {
+        const waiters = this.idleWaiters.splice(0, this.idleWaiters.length);
+        for (const resolve of waiters) {
+          resolve();
+        }
       }
     }
   }
@@ -380,7 +397,7 @@ export class Agent {
   }
 
   private saveHistory(message: ChatMessage) {
-    const historyPath = path.join(this.workspace, 'history.jsonl');
+    const historyPath = path.join(this.sessionDir, 'history.jsonl');
     fs.mkdirSync(path.dirname(historyPath), { recursive: true });
     const line = JSON.stringify({ ...message, timestamp: new Date().toISOString() });
     fs.appendFileSync(historyPath, line + '\n', 'utf-8');
@@ -399,9 +416,9 @@ export class Agent {
 
     let filePath: string | null = null;
     if (uploadsMatch) {
-      filePath = path.join(this.workspace, 'uploads', uploadsMatch[1]);
+      filePath = path.join(this.sessionDir, 'uploads', uploadsMatch[1]);
     } else if (imagesMatch) {
-      filePath = path.join(this.workspace, 'screenshots', imagesMatch[1]);
+      filePath = path.join(this.sessionDir, 'screenshots', imagesMatch[1]);
     }
 
     if (filePath && fs.existsSync(filePath)) {
@@ -540,6 +557,7 @@ export class Agent {
       sessionId: this.sessionId,
       config: this.config,
       workspace: this.workspace,
+      sessionDir: this.sessionDir,
       vectorMemory: this.vectorMemory,
       quickMemory: this.quickMemory,
       tmpMemory: this.tmpMemory,
@@ -547,6 +565,8 @@ export class Agent {
       mcpManager: this.mcpManager,
       a2aRegistry: this.a2aRegistry,
       acaManager: this.acaManager,
+      commsManager: this.commsManager,
+      sessionManager: this.getSessionManager ? this.getSessionManager() : undefined,
       scheduleList: this.scheduleAccess ? () => this.scheduleAccess!.list() : undefined,
       scheduleCreate: this.scheduleAccess ? (input) => this.scheduleAccess!.create(input) : undefined,
       scheduleUpdate: this.scheduleAccess ? (scheduleId, patch) => this.scheduleAccess!.update(scheduleId, patch) : undefined,
@@ -673,7 +693,7 @@ export class Agent {
               this.saveHistory(toolMsg);
 
               // Drop resume marker
-              const resumePath = path.join(this.workspace, '.resume');
+              const resumePath = path.join(this.sessionDir, '.resume');
               fs.writeFileSync(resumePath, 'resume', 'utf-8');
 
               // Set final response and break
@@ -759,7 +779,7 @@ export class Agent {
 
   clearHistory() {
     this.history = [];
-    const historyPath = path.join(this.workspace, 'history.jsonl');
+    const historyPath = path.join(this.sessionDir, 'history.jsonl');
     if (fs.existsSync(historyPath)) {
       try {
         fs.unlinkSync(historyPath);
@@ -778,11 +798,16 @@ export class Agent {
     return this.workspace;
   }
 
+  getSessionDir(): string {
+    return this.sessionDir;
+  }
+
   async getAvailableTools(): Promise<ToolDefinition[]> {
     const toolCtx: ToolContext = {
       sessionId: this.sessionId,
       config: this.config,
       workspace: this.workspace,
+      sessionDir: this.sessionDir,
       vectorMemory: this.vectorMemory,
       quickMemory: this.quickMemory,
       tmpMemory: this.tmpMemory,
@@ -790,6 +815,8 @@ export class Agent {
       mcpManager: this.mcpManager,
       a2aRegistry: this.a2aRegistry,
       acaManager: this.acaManager,
+      commsManager: this.commsManager,
+      sessionManager: this.getSessionManager ? this.getSessionManager() : undefined,
       scheduleList: this.scheduleAccess ? () => this.scheduleAccess!.list() : undefined,
       scheduleCreate: this.scheduleAccess ? (input) => this.scheduleAccess!.create(input) : undefined,
       scheduleUpdate: this.scheduleAccess ? (scheduleId, patch) => this.scheduleAccess!.update(scheduleId, patch) : undefined,

@@ -133,6 +133,7 @@ header .status {
   font-weight: 700;
   color: var(--bg);
   flex-shrink: 0;
+  position: relative;
 }
 
 .session-item .info {
@@ -153,6 +154,36 @@ header .status {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* Busy state indicator */
+
+.busy-dot {
+  position: absolute;
+  bottom: -1px;
+  right: -1px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--yellow);
+  border: 2px solid var(--surface);
+  animation: busyPulse 1.2s ease-in-out infinite;
+}
+
+@keyframes busyPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.55; transform: scale(0.8); }
+}
+
+.busy-label {
+  color: var(--yellow);
+  font-size: 11px;
+  animation: busyLabelPulse 1.2s ease-in-out infinite;
+}
+
+@keyframes busyLabelPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
 }
 
 .sidebar-footer {
@@ -413,6 +444,38 @@ header .status {
   max-width: 600px;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.tool-event-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  user-select: none;
+}
+
+.tool-event-header:hover {
+  opacity: 0.8;
+}
+
+.tool-event-toggle {
+  font-size: 10px;
+  color: var(--text2);
+  transition: transform 0.2s;
+  margin-left: 8px;
+}
+
+.tool-event.expanded .tool-event-toggle {
+  transform: rotate(90deg);
+}
+
+.tool-event-content {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  max-height: 400px;
+  overflow-y: auto;
+  font-size: 11px;
 }
 
 .tool-event .tool-name {
@@ -1213,4 +1276,50 @@ textarea::placeholder {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* Skeleton Loading */
+@keyframes shimmer {
+  0% { background-position: -400px 0; }
+  100% { background-position: 400px 0; }
+}
+
+.skeleton-line {
+  height: 14px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--surface2) 25%, var(--border) 50%, var(--surface2) 75%);
+  background-size: 800px 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+  margin-bottom: 8px;
+}
+
+.skeleton-line.short { width: 40%; }
+.skeleton-line.medium { width: 65%; }
+.skeleton-line.full { width: 100%; }
+.skeleton-line.label {
+  height: 11px;
+  width: 30%;
+  margin-bottom: 6px;
+}
+
+.skeleton-input {
+  height: 34px;
+  border-radius: var(--radius);
+  background: linear-gradient(90deg, var(--surface2) 25%, var(--border) 50%, var(--surface2) 75%);
+  background-size: 800px 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+  margin-bottom: 16px;
+  border: 1px solid var(--border);
+}
+
+.modal-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 0;
+}
+
+.close-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
 }

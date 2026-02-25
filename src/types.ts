@@ -132,6 +132,7 @@ export interface SessionConfig {
   disabledTools?: string[];
   a2a?: {
     enabled: boolean;
+    hiddenFromAgents?: boolean; // If true, this session won't appear in list_agents
   };
   aca?: {
     enabled: boolean;
@@ -144,12 +145,24 @@ export interface SessionConfig {
   };
 }
 
+export interface ProviderTemplate {
+  name: string;
+  description?: string;
+  endpoint: string;
+  apiKey: string;
+  availableModels: string[];
+  defaultModel: string;
+  embeddingModel?: string;
+  contextWindow?: number;
+}
+
 export interface Config {
   dashboard: {
     enabled: boolean;
     port: number;
   };
   search?: SearchConfig;
+  providerTemplates?: Record<string, ProviderTemplate>;
   sessions: Record<string, SessionConfig>;
 }
 
@@ -181,8 +194,54 @@ export interface ScheduleUpsertInput {
 }
 
 export interface DashboardEvent {
-  type: 'message' | 'tool_call' | 'tool_result' | 'system' | 'memory_update' | 'stream' | 'connected' | 'schedule_update';
+  type: 'message' | 'tool_call' | 'tool_result' | 'system' | 'memory_update' | 'stream' | 'connected' | 'schedule_update' | 'session_list_update';
   sessionId: string;
   data: unknown;
   timestamp: string;
+}
+
+export interface SessionMessage {
+  id: string;
+  from: string;
+  to: string;
+  content: string;
+  timestamp: string;
+  read: boolean;
+  threadId?: string; // For tracking conversation threads
+}
+
+export interface AsyncTask {
+  id: string;
+  fromSession: string;
+  toSession: string;
+  task: string;
+  context?: Record<string, unknown>;
+  status: 'pending' | 'processing' | 'completed' | 'failed';
+  result?: string;
+  error?: string;
+  createdAt: string;
+  startedAt?: string;
+  completedAt?: string;
+}
+
+export interface SessionCreationParams {
+  sessionId: string;
+  name: string;
+  description?: string;
+  providerTemplate: string;
+  model?: string;
+  workspace?: string;
+  identityContent?: string;
+  soulContent?: string;
+  userContent?: string;
+  memoryContent?: string;
+  restrictToWorkspace?: boolean;
+  allowSelfModify?: boolean;
+  tools?: {
+    exec?: boolean;
+    web?: boolean;
+    memory?: boolean;
+  };
+  a2aEnabled?: boolean;
+  hiddenFromAgents?: boolean;
 }

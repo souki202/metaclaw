@@ -169,9 +169,9 @@ export async function sendToAgent(
         `Task sent to agent: ${targetCard.agentName}`,
         `Request ID: ${message.id}`,
         `Task: ${args.task}`,
-        `Priority: ${args.priority || 'normal'}`,
-        '',
-        'The target agent will process this task and you can check for responses using check_a2a_messages.',
+        'The target agent will process this task in the background.',
+        'You can check for responses using check_a2a_messages.',
+        'IMPORTANT: Do not poll continuously. Use the sleep tool to wait (e.g., 5-10 seconds) before checking again, or work on other tasks.',
       ].join('\n'),
     };
   } catch (error) {
@@ -233,6 +233,7 @@ export async function checkA2AMessages(ctx: A2AToolContext): Promise<ToolResult>
     }
 
     lines.push('\n\nUse respond_to_agent to reply to requests.');
+    lines.push('If waiting for responses, use the sleep tool to avoid busy polling limits.');
 
     return {
       success: true,

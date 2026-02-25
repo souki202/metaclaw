@@ -6,10 +6,40 @@
   "discord": {
     "token": "YOUR_DISCORD_BOT_TOKEN"
   },
+  "providerTemplates": {
+    "openai": {
+      "name": "OpenAI",
+      "description": "Standard high-performance models for general purpose tasks, coding, and reasoning.",
+      "endpoint": "https://api.openai.com/v1",
+      "apiKey": "sk-YOUR_OPENAI_API_KEY",
+      "availableModels": [
+        "gpt-4o",
+        "gpt-4o-mini",
+        "gpt-4-turbo",
+        "gpt-3.5-turbo"
+      ],
+      "defaultModel": "gpt-4o",
+      "embeddingModel": "text-embedding-3-small",
+      "contextWindow": 128000
+    },
+    "anthropic": {
+      "name": "Anthropic",
+      "description": "Advanced models with large context windows, excellent for deep analysis and long documents.",
+      "endpoint": "https://api.anthropic.com/v1",
+      "apiKey": "sk-ant-YOUR_ANTHROPIC_API_KEY",
+      "availableModels": [
+        "claude-3-5-sonnet-20241022",
+        "claude-3-opus-20240229",
+        "claude-3-sonnet-20240229"
+      ],
+      "defaultModel": "claude-3-5-sonnet-20241022",
+      "contextWindow": 200000
+    }
+  },
   "sessions": {
     "default": {
       "name": "Claw",
-      "description": "Default AI personal agent session",
+      "description": "Default AI personal agent session with A2A and ACA enabled",
       "provider": {
         "endpoint": "https://api.openai.com/v1",
         "apiKey": "sk-YOUR_API_KEY",
@@ -38,6 +68,14 @@
         "compressionThreshold": 0.8,
         "keepRecentMessages": 20
       },
+      "a2a": {
+        "enabled": true
+      },
+      "aca": {
+        "enabled": true,
+        "scanInterval": 60,
+        "maxGoalsPerCycle": 3
+      },
       "discord": {
         "allowFrom": ["YOUR_DISCORD_USER_ID"],
         "channels": ["YOUR_DISCORD_CHANNEL_ID"]
@@ -51,7 +89,7 @@
     },
     "coder": {
       "name": "CodeClaw",
-      "description": "A session focused on software development",
+      "description": "A session focused on software development with A2A collaboration",
       "provider": {
         "endpoint": "https://api.openai.com/v1",
         "apiKey": "sk-YOUR_API_KEY",
@@ -78,6 +116,53 @@
       "context": {
         "compressionThreshold": 0.75,
         "keepRecentMessages": 30
+      },
+      "a2a": {
+        "enabled": true
+      },
+      "aca": {
+        "enabled": true,
+        "scanInterval": 120,
+        "maxGoalsPerCycle": 5
+      }
+    },
+    "researcher": {
+      "name": "Research Agent",
+      "description": "A specialized research agent with web search and memory capabilities",
+      "provider": {
+        "endpoint": "https://api.openai.com/v1",
+        "apiKey": "sk-YOUR_API_KEY",
+        "model": "gpt-4o",
+        "embeddingModel": "text-embedding-3-small",
+        "contextWindow": 128000
+      },
+      "workspace": "./data/sessions/researcher",
+      "restrictToWorkspace": true,
+      "allowSelfModify": false,
+      "tools": {
+        "exec": false,
+        "web": true,
+        "memory": true
+      },
+      "mcpServers": {
+        "consult-ai": {
+          "type": "builtin-consult",
+          "endpointUrl": "https://api.openai.com/v1",
+          "apiKey": "sk-YOUR_API_KEY",
+          "enabled": true
+        }
+      },
+      "context": {
+        "compressionThreshold": 0.7,
+        "keepRecentMessages": 40
+      },
+      "a2a": {
+        "enabled": true
+      },
+      "aca": {
+        "enabled": true,
+        "scanInterval": 90,
+        "maxGoalsPerCycle": 4
       }
     }
   }

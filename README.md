@@ -7,6 +7,8 @@ A multi-session AI personal agent system featuring Discord / Slack integration, 
 ## Features
 
 - **Multi-session Architecture** — Run multiple isolated AI agents concurrently, each maintaining its own identity, memory tier, workspace, and capabilities.
+- **Agent-to-Agent (A2A) Communication** — Enable inter-agent collaboration through a JSON-RPC style messaging protocol. Agents can discover capabilities, delegate tasks, and coordinate work autonomously.
+- **Autonomous Curiosity Architecture (ACA)** — Agents autonomously detect knowledge gaps and capability frontiers, generating self-directed learning objectives. See `CURIOSITY.md` in workspace for state tracking.
 - **Web Dashboard** — Modern Next.js UI (default `http://localhost:3020`) for real-time streaming chat, workspace file editing, memory viewing, and system configuration. Features dark/light mode and chat cancellation.
 - **Discord Integration** — Bidirectional chat synchronization. Route specific Discord channels or guilds to dedicated agent sessions, complete with image and attachment support.
 - **Slack Integration** — Bidirectional chat synchronization via Slack bot tokens. Route specific channels or teams to dedicated agent sessions.
@@ -43,6 +45,7 @@ The dashboard will be at `http://localhost:8080` (or the port configured in `con
 | Field | Description |
 |---|---|
 | `dashboard.port` | Dashboard port (default 8080) |
+| `providerTemplates.*` | Reusable provider configurations (endpoint, API key, models) |
 | `sessions.*` | Session definitions (multiple supported) |
 
 ### Session Config
@@ -58,6 +61,11 @@ The dashboard will be at `http://localhost:8080` (or the port configured in `con
 | `restrictToWorkspace` | Limit AI file and command access to workspace bounds |
 | `allowSelfModify` | Allow AI to modify its own source code within the engine |
 | `tools.*` | Tool capability toggles (e.g. `exec`, `web`, `browser`, `memory`) |
+| `a2a.enabled` | Enable Agent-to-Agent communication (default: false) |
+| `a2a.hiddenFromAgents` | Hide this session from list_agents discovery (default: false) |
+| `aca.enabled` | Enable Autonomous Curiosity Architecture (default: false) |
+| `aca.scanInterval` | Minutes between frontier scans (default: 60) |
+| `aca.maxGoalsPerCycle` | Max objectives per scan (default: 3) |
 
 > Note: You can use any OpenAI-compatible API endpoints natively (e.g., Anthropic, Ollama, OpenRouter).
 
@@ -71,6 +79,8 @@ Each session maintains an isolated workspace directory containing:
 | `USER.md` | Information about you — preferences, timezone, projects |
 | `MEMORY.md` | Core quick-reference memory loaded into every conversation |
 | `TMP_MEMORY.md` | Ephemeral, short-term context that persists across quick restarts |
+| `CURIOSITY.md` | (ACA only) Autonomous curiosity state, frontiers, and objectives |
+| `session_messages.jsonl` | (A2A only) Inter-session message history and threads |
 | `schedules.json` | Registered self-wakeup schedules for the session |
 | `memory/vectors.json` | Long-term semantic memory (managed actively by AI) |
 | `history.jsonl` | Conversation and external activity history log |
@@ -105,6 +115,61 @@ Agent sessions are deeply isolated — each uniquely provisions:
 - Tool module and MCP configurations
 
 Using channel routing, configure `discord.*` and/or `slack.*` (`channels`, `allowFrom`, etc.) per session to map specific chat ecosystems back to unique AI personalities.
+
+## Advanced Features
+
+### Agent-to-Agent (A2A) Communication
+
+Enable inter-agent collaboration by setting `a2a.enabled: true` in your session configuration. The enhanced A2A system enables:
+- **Session-to-Session Communication**: Direct messaging between AI sessions (not abstract agents)
+- **Asynchronous Task Delegation**: Non-blocking task assignments with status tracking
+- **AI-Driven Session Creation**: Create new sessions dynamically with custom identities
+- **Provider Templates**: Reusable API configurations for multiple sessions
+- **Session Visibility Control**: Hide management sessions from discovery
+- **Message Persistence**: Conversation history saved to workspace
+
+**Available A2A Tools:**
+- `list_agents` - Discover all registered sessions and their capabilities
+- `create_session` - Dynamically create new AI sessions with custom configurations
+- `list_provider_templates` - View available API provider configurations
+- `send_message_to_session` - Send direct messages to other sessions
+- `read_session_messages` - Check and read incoming messages
+- `delegate_task_async` - Delegate tasks asynchronously without blocking
+- `check_async_tasks` - Monitor delegated task status and results
+- `complete_async_task` - Mark delegated tasks as complete with results
+
+**Documentation:**
+- [A2A Tools Quick Reference](A2A_TOOLS_REFERENCE.md) - Tool usage and examples
+- [Enhanced A2A Implementation](ENHANCED_A2A_IMPLEMENTATION.md) - Architecture and details
+- [Testing Guide](TESTING_ENHANCED_A2A.md) - Comprehensive test suite
+
+### Autonomous Curiosity Architecture (ACA)
+
+Enable autonomous learning by setting `aca.enabled: true`. The system will:
+- Automatically scan workspace files to detect knowledge and capability gaps
+- Generate self-directed learning objectives based on detected frontiers
+- Track progress and metrics in `CURIOSITY.md`
+- Optionally auto-schedule objectives for background execution
+
+**Available ACA Tools:**
+- `view_curiosity_state` - View detected frontiers and metrics
+- `view_objectives` - See proposed and active objectives
+- `trigger_curiosity_scan` - Manually trigger a frontier scan
+- `schedule_objective` - Schedule an objective for execution
+- `complete_objective` - Mark objectives as completed with results
+
+**Configuration:**
+```json
+{
+  "aca": {
+    "enabled": true,
+    "scanInterval": 60,
+    "maxGoalsPerCycle": 3
+  }
+}
+```
+
+See [ADVANCED_FEATURES.md](ADVANCED_FEATURES.md) for detailed documentation on A2A, ACA, and ELL (Experience-driven Lifelong Learning).
 
 ## Memory System Architecture
 

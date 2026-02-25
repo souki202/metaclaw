@@ -63,8 +63,8 @@ function toFunctionCallOutput(content: string | ContentPart[] | null): string {
   });
 }
 
-function toResponsesInput(messages: ChatMessage[]): Array<Record<string, unknown>> {
-  const input: Array<Record<string, unknown>> = [];
+function toResponsesInput(messages: ChatMessage[]): Array<any> {
+  const input: Array<any> = [];
 
   for (const message of messages) {
     if (message.role === 'tool') {
@@ -96,7 +96,7 @@ function toResponsesInput(messages: ChatMessage[]): Array<Record<string, unknown
   return input;
 }
 
-function toResponsesTools(tools?: ToolDefinition[]): Array<Record<string, unknown>> | undefined {
+function toResponsesTools(tools?: ToolDefinition[]): Array<any> | undefined {
   if (!tools || tools.length === 0) return undefined;
   return tools.map((tool) => ({
     type: 'function',

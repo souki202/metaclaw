@@ -92,9 +92,27 @@ export class DashboardServer {
       const filename = req.params.filename;
       if (!allowed.includes(filename)) return res.status(403).json({ error: 'Not allowed' });
 
-      const filePath = path.join(agent.getWorkspace(), filename);
+      const filePath = path.join(agent.getSessionDir(), filename);
       if (!fs.existsSync(filePath)) return res.json({ content: '' });
       res.json({ content: fs.readFileSync(filePath, 'utf-8') });
+    });
+
+    // API: read screenshot
+    this.app.get('/api/sessions/:id/images/:filename', (req, res) => {
+      const agent = this.sessions.getAgent(req.params.id);
+      if (!agent) return res.status(404).json({ error: 'Session not found' });
+      const filePath = path.join(agent.getSessionDir(), 'screenshots', req.params.filename);
+      if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Not found' });
+      res.sendFile(filePath);
+    });
+
+    // API: read upload
+    this.app.get('/api/sessions/:id/uploads/:filename', (req, res) => {
+      const agent = this.sessions.getAgent(req.params.id);
+      if (!agent) return res.status(404).json({ error: 'Session not found' });
+      const filePath = path.join(agent.getSessionDir(), 'uploads', req.params.filename);
+      if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Not found' });
+      res.sendFile(filePath);
     });
 
     // API: write workspace file
@@ -107,7 +125,7 @@ export class DashboardServer {
       if (!allowed.includes(filename)) return res.status(403).json({ error: 'Not allowed' });
 
       const { content } = req.body;
-      const filePath = path.join(agent.getWorkspace(), filename);
+      const filePath = path.join(agent.getSessionDir(), filename);
       fs.mkdirSync(path.dirname(filePath), { recursive: true });
       fs.writeFileSync(filePath, content, 'utf-8');
       res.json({ ok: true });
@@ -118,7 +136,7 @@ export class DashboardServer {
       const agent = this.sessions.getAgent(req.params.id);
       if (!agent) return res.status(404).json({ error: 'Session not found' });
       // Read vectors.json directly
-      const vectorPath = path.join(agent.getWorkspace(), 'memory', 'vectors.json');
+      const vectorPath = path.join(agent.getSessionDir(), 'memory', 'vectors.json');
       if (!fs.existsSync(vectorPath)) return res.json([]);
       try {
         const entries = JSON.parse(fs.readFileSync(vectorPath, 'utf-8'));
