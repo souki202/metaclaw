@@ -13,18 +13,18 @@ const log = createLogger('sessions');
 
 const TEMPLATE_DIR = path.resolve(process.cwd(), 'templates');
 
-function initWorkspace(workspace: string) {
-  fs.mkdirSync(workspace, { recursive: true });
-  fs.mkdirSync(path.join(workspace, 'memory'), { recursive: true });
+function initSessionDir(sessionDir: string) {
+  fs.mkdirSync(sessionDir, { recursive: true });
+  fs.mkdirSync(path.join(sessionDir, 'memory'), { recursive: true });
 
   const files = ['IDENTITY.md', 'SOUL.md', 'USER.md', 'MEMORY.md', 'TMP_MEMORY.md'];
   for (const file of files) {
-    const dest = path.join(workspace, file);
+    const dest = path.join(sessionDir, file);
     if (!fs.existsSync(dest)) {
       const tmpl = path.join(TEMPLATE_DIR, file);
       if (fs.existsSync(tmpl)) {
         fs.copyFileSync(tmpl, dest);
-        log.info(`Initialized ${file} in workspace: ${workspace}`);
+        log.info(`Initialized ${file} in session directory: ${sessionDir}`);
       }
     }
   }
@@ -72,9 +72,11 @@ export class SessionManager {
    */
   private loadAllSessionSchedules() {
     for (const [sessionId, sessionConfig] of Object.entries(this.config.sessions)) {
+      const sessionDir = this.resolveSessionDir(sessionId);
       const workspace = this.resolveWorkspace(sessionConfig);
-      initWorkspace(workspace);
-      this.schedules.loadSession(sessionId, workspace);
+      fs.mkdirSync(workspace, { recursive: true });
+      initSessionDir(sessionDir);
+      this.schedules.loadSession(sessionId, sessionDir);
     }
   }
 
@@ -94,31 +96,34 @@ export class SessionManager {
 
   startSession(sessionId: string, sessionConfig: SessionConfig, onEvent?: EventCallback) {
     const workspace = this.resolveWorkspace(sessionConfig);
-    initWorkspace(workspace);
+    fs.mkdirSync(workspace, { recursive: true });
+    const sessionDir = this.resolveSessionDir(sessionId);
+    initSessionDir(sessionDir);
 
     const agent = new Agent(
       sessionId,
       sessionConfig,
+      sessionDir,
       workspace,
       onEvent,
       this.config,
       {
         list: () => this.getSchedules(sessionId),
-        create: (input) => this.createSchedule(sessionId, input),
-        update: (scheduleId, patch) => this.updateSchedule(sessionId, scheduleId, patch),
-        remove: (scheduleId) => this.deleteSchedule(sessionId, scheduleId),
+        create: (input: ScheduleUpsertInput) => this.createSchedule(sessionId, input),
+        update: (scheduleId: string, patch: Partial<ScheduleUpsertInput>) => this.updateSchedule(sessionId, scheduleId, patch),
+        remove: (scheduleId: string) => this.deleteSchedule(sessionId, scheduleId),
       },
       this.a2aRegistry,
       this.commsManager,
       () => this
     );
     this.agents.set(sessionId, agent);
-    this.schedules.loadSession(sessionId, workspace);
+    this.schedules.loadSession(sessionId, sessionDir);
 
     // Load persisted messages if they exist
-    this.commsManager.loadMessagesFromFile(sessionId, workspace);
+    this.commsManager.loadMessagesFromFile(sessionId, sessionDir);
 
-    log.info(`Started session: ${sessionId} (workspace: ${workspace})`);
+    log.info(`Started session: ${sessionId} (sessionDir: ${sessionDir}, workspace: ${workspace})`);
 
     // Register agent card if A2A is enabled
     if (sessionConfig.a2a?.enabled) {
@@ -127,7 +132,7 @@ export class SessionManager {
       );
     }
 
-    const resumePath = path.join(workspace, '.resume');
+    const resumePath = path.join(sessionDir, '.resume');
     if (fs.existsSync(resumePath)) {
       try {
         fs.unlinkSync(resumePath);
@@ -155,8 +160,8 @@ export class SessionManager {
     if (agent) {
       agent.stopMcpServers().catch(e => log.error(`Error stopping MCP servers for ${sessionId}:`, e));
       // Save messages before stopping
-      const workspace = agent.getWorkspace();
-      this.commsManager.saveMessagesToFile(sessionId, workspace);
+      const sessionDir = agent.getSessionDir();
+      this.commsManager.saveMessagesToFile(sessionId, sessionDir);
     }
 
     // Unregister from A2A if enabled
@@ -179,8 +184,8 @@ export class SessionManager {
     if (agent) {
       agent.stopMcpServers().catch(e => log.error(`Error stopping MCP servers for ${sessionId}:`, e));
       // Save messages before deleting
-      const workspace = agent.getWorkspace();
-      this.commsManager.saveMessagesToFile(sessionId, workspace);
+      const sessionDir = agent.getSessionDir();
+      this.commsManager.saveMessagesToFile(sessionId, sessionDir);
     }
 
     // Unregister from A2A
@@ -214,6 +219,10 @@ export class SessionManager {
     const ws = sessionConfig.workspace;
     if (path.isAbsolute(ws)) return ws;
     return path.resolve(process.cwd(), ws);
+  }
+
+  resolveSessionDir(sessionId: string): string {
+    return path.join(process.cwd(), 'data', 'sessions', sessionId);
   }
 
   async stopAll() {

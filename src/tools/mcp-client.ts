@@ -354,7 +354,7 @@ Identify potential risks or edge cases.
         throw new Error('endpointUrl is required for consult-ai');
       }
 
-      const client = McpClientManager.createOpenAIClient(normalizedConfig.apiKey, normalizedConfig.endpointUrl);
+      const client = McpClientManager.createOpenAIClient(normalizedConfig.apiKey as string, normalizedConfig.endpointUrl);
 
       try {
         const response = await client.responses.create({

@@ -34,6 +34,7 @@ export interface ToolContext {
   sessionId: string;
   config: SessionConfig;
   workspace: string;
+  sessionDir: string;
   vectorMemory?: VectorMemory;
   quickMemory?: QuickMemory;
   tmpMemory?: QuickMemory;
@@ -1349,7 +1350,7 @@ export async function executeTool(
       return browserSelect(args.ref as number, args.value as string, args.page_id as string | undefined);
 
     case 'browser_screenshot':
-      return browserScreenshot(args.page_id as string | undefined, ctx.sessionId, workspace);
+      return browserScreenshot(args.page_id as string | undefined, ctx.sessionId, ctx.sessionDir);
 
     case 'browser_evaluate':
       return browserEvaluate(args.script as string, args.page_id as string | undefined);

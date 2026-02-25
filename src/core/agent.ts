@@ -84,6 +84,7 @@ export interface AgentScheduleAccess {
 export class Agent {
   private sessionId: string;
   private config: SessionConfig;
+  private sessionDir: string;
   private workspace: string;
   private provider: OpenAIProvider;
   private providerConfig: ProviderConfig;
@@ -108,6 +109,7 @@ export class Agent {
   constructor(
     sessionId: string,
     config: SessionConfig,
+    sessionDir: string,
     workspace: string,
     onEvent?: EventCallback,
     globalConfig?: Config,
@@ -118,16 +120,17 @@ export class Agent {
   ) {
     this.sessionId = sessionId;
     this.config = config;
+    this.sessionDir = sessionDir;
     this.workspace = workspace;
 
     // プロバイダー設定を解決
     this.providerConfig = this.resolveProviderConfig();
     this.provider = new OpenAIProvider(this.providerConfig);
-    this.quickMemory = new QuickMemory(workspace);
-    this.tmpMemory = new QuickMemory(workspace, 'TMP_MEMORY.md');
-    this.vectorMemory = new VectorMemory(workspace, sessionId, this.provider);
+    this.quickMemory = new QuickMemory(sessionDir);
+    this.tmpMemory = new QuickMemory(sessionDir, 'TMP_MEMORY.md');
+    this.vectorMemory = new VectorMemory(sessionDir, sessionId, this.provider);
     this.mcpManager = new McpClientManager(globalConfig?.search, workspace);
-    this.files = new WorkspaceFiles(workspace);
+    this.files = new WorkspaceFiles(sessionDir);
     this.log = createLogger(`agent:${sessionId}`);
     this.onEvent = onEvent;
     this.globalConfig = globalConfig;
@@ -155,7 +158,7 @@ export class Agent {
   }
 
   private loadHistory() {
-    const historyPath = path.join(this.workspace, 'history.jsonl');
+    const historyPath = path.join(this.sessionDir, 'history.jsonl');
     if (fs.existsSync(historyPath)) {
       try {
         const content = fs.readFileSync(historyPath, 'utf-8');
@@ -394,7 +397,7 @@ export class Agent {
   }
 
   private saveHistory(message: ChatMessage) {
-    const historyPath = path.join(this.workspace, 'history.jsonl');
+    const historyPath = path.join(this.sessionDir, 'history.jsonl');
     fs.mkdirSync(path.dirname(historyPath), { recursive: true });
     const line = JSON.stringify({ ...message, timestamp: new Date().toISOString() });
     fs.appendFileSync(historyPath, line + '\n', 'utf-8');
@@ -413,9 +416,9 @@ export class Agent {
 
     let filePath: string | null = null;
     if (uploadsMatch) {
-      filePath = path.join(this.workspace, 'uploads', uploadsMatch[1]);
+      filePath = path.join(this.sessionDir, 'uploads', uploadsMatch[1]);
     } else if (imagesMatch) {
-      filePath = path.join(this.workspace, 'screenshots', imagesMatch[1]);
+      filePath = path.join(this.sessionDir, 'screenshots', imagesMatch[1]);
     }
 
     if (filePath && fs.existsSync(filePath)) {
@@ -554,6 +557,7 @@ export class Agent {
       sessionId: this.sessionId,
       config: this.config,
       workspace: this.workspace,
+      sessionDir: this.sessionDir,
       vectorMemory: this.vectorMemory,
       quickMemory: this.quickMemory,
       tmpMemory: this.tmpMemory,
@@ -689,7 +693,7 @@ export class Agent {
               this.saveHistory(toolMsg);
 
               // Drop resume marker
-              const resumePath = path.join(this.workspace, '.resume');
+              const resumePath = path.join(this.sessionDir, '.resume');
               fs.writeFileSync(resumePath, 'resume', 'utf-8');
 
               // Set final response and break
@@ -775,7 +779,7 @@ export class Agent {
 
   clearHistory() {
     this.history = [];
-    const historyPath = path.join(this.workspace, 'history.jsonl');
+    const historyPath = path.join(this.sessionDir, 'history.jsonl');
     if (fs.existsSync(historyPath)) {
       try {
         fs.unlinkSync(historyPath);
@@ -794,11 +798,16 @@ export class Agent {
     return this.workspace;
   }
 
+  getSessionDir(): string {
+    return this.sessionDir;
+  }
+
   async getAvailableTools(): Promise<ToolDefinition[]> {
     const toolCtx: ToolContext = {
       sessionId: this.sessionId,
       config: this.config,
       workspace: this.workspace,
+      sessionDir: this.sessionDir,
       vectorMemory: this.vectorMemory,
       quickMemory: this.quickMemory,
       tmpMemory: this.tmpMemory,

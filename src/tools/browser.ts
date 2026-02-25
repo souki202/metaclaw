@@ -355,7 +355,7 @@ export async function browserSelect(ref: number, value: string, pageId?: string)
 export async function browserScreenshot(
   pageId?: string,
   sessionId?: string,
-  workspace?: string,
+  sessionDir?: string,
 ): Promise<ToolResult> {
   const page = await getPage(pageId);
   if (!page) {
@@ -370,8 +370,8 @@ export async function browserScreenshot(
 
     // Save to workspace; expose via server URL (/api/sessions/:id/images/:file)
     let imageUrl: string | undefined;
-    if (workspace && sessionId) {
-      const dir = path.join(workspace, 'screenshots');
+    if (sessionDir && sessionId) {
+      const dir = path.join(sessionDir, 'screenshots');
       fs.mkdirSync(dir, { recursive: true });
       const filename = `screenshot_${Date.now()}.png`;
       fs.writeFileSync(path.join(dir, filename), buf);
