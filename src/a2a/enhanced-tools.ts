@@ -213,6 +213,8 @@ export async function sendMessageToSession(
         args.thread_id ? `Thread ID: ${args.thread_id}` : '',
         '',
         'The target session will receive your message.',
+        'Note: The target session receives this like a normal user message. If you expect a reply, ensure you explicitly asked them to use send_message_to_session back to you.',
+        'Do not continuously poll with read_session_messages. Use the sleep tool to wait for a reply.',
       ].filter(l => l).join('\n'),
     };
   } catch (error) {
@@ -361,7 +363,9 @@ export async function delegateTaskAsync(
         `Async task delegated to ${args.target_session}`,
         `Task ID: ${task.id}`,
         '',
-        'The task is processing in the background. Use check_async_tasks to monitor progress.',
+        'The task is processing in the background.',
+        'Use check_async_tasks to monitor progress.',
+        'IMPORTANT: Do not poll continuously. Use the sleep tool (5-10 seconds) between checks.',
       ].join('\n'),
     };
   } catch (error) {
@@ -434,7 +438,7 @@ export async function checkAsyncTasks(
         lines.push(`Status: ${task.status}`);
         lines.push(`Task: ${task.task.substring(0, 100)}${task.task.length > 100 ? '...' : ''}`);
         if (task.result) {
-          lines.push(`Result: ${task.result.substring(0, 100)}${task.result.length > 100 ? '...' : ''}`);
+          lines.push(`Result: ${task.result.substring(0, 500)}${task.result.length > 500 ? '...' : ''}`);
         }
         lines.push('');
       }
@@ -462,6 +466,7 @@ export async function completeAsyncTask(
     task_id: string;
     success: boolean;
     result?: string;
+    output?: string;
     error?: string;
   }
 ): Promise<ToolResult> {
@@ -493,7 +498,7 @@ export async function completeAsyncTask(
     ctx.commsManager.updateTaskStatus(
       args.task_id,
       args.success ? 'completed' : 'failed',
-      args.result,
+      args.output || args.result,
       args.error
     );
 
@@ -501,7 +506,7 @@ export async function completeAsyncTask(
       success: true,
       output: [
         `Task ${args.task_id} marked as ${args.success ? 'completed' : 'failed'}`,
-        args.result ? `Result: ${args.result}` : '',
+        (args.output || args.result) ? `Result: ${args.output || args.result}` : '',
         args.error ? `Error: ${args.error}` : '',
       ].filter(l => l).join('\n'),
     };

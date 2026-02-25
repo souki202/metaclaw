@@ -453,7 +453,7 @@ export async function buildTools(ctx: ToolContext): Promise<ToolDefinition[]> {
         type: 'function',
         function: {
           name: 'send_message_to_session',
-          description: 'Send a direct message to another session. This is for conversational communication, not task delegation.',
+          description: 'Send a direct message to another session. This is for conversational communication. The target agent will receive it as a normal user message. If you expect a reply, explicitly state they should use send_message_to_session back to you.',
           parameters: {
             type: 'object',
             properties: {
@@ -520,7 +520,8 @@ export async function buildTools(ctx: ToolContext): Promise<ToolDefinition[]> {
             properties: {
               task_id: { type: 'string', description: 'The task ID to complete' },
               success: { type: 'boolean', description: 'Whether the task was completed successfully' },
-              result: { type: 'string', description: 'The result or output of the task' },
+              output: { type: 'string', description: 'The result or output of the task' },
+              result: { type: 'string', description: 'Alias for output (deprecated, use output)' },
               error: { type: 'string', description: 'Error message if task failed' },
             },
             required: ['task_id', 'success'],

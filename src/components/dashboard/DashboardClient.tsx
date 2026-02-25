@@ -116,42 +116,51 @@ export default function DashboardClient() {
 
     if (event.type === "tool_call") {
       setIsThinking(true);
-      const toolLines = event.data.tools.map((t: any) => {
-        let line = `⚙ ${t.name}`;
+      const toolEvents = event.data.tools.map((t: any) => {
+        let argsObj = {};
         if (t.args) {
           try {
-            const parsed =
-              typeof t.args === "string" ? JSON.parse(t.args) : t.args;
-            const summary = Object.entries(parsed)
-              .map(([k, v]) => {
-                const val = typeof v === "string" ? v : JSON.stringify(v);
-                return `${k}: ${val.length > 60 ? val.slice(0, 57) + "..." : val}`;
-              })
-              .join(", ");
-            if (summary) line += `\n  ${summary.slice(0, 120)}`;
+            argsObj = typeof t.args === "string" ? JSON.parse(t.args) : t.args;
           } catch {}
         }
-        return line;
+        return { name: t.name, args: argsObj, success: null };
       });
       newMsgs.push({
-        toolEvents: toolLines.map((text: string) => ({ text, success: null })),
+        toolEvents,
       });
     } else if (event.type === "tool_result") {
       const ok = event.data.success;
-      const textToAppend = `${ok ? "✓" : "✗"} ${event.data.tool}: ${event.data.output?.slice(0, 300)}`;
+      const toolName = event.data.tool;
+      const output = event.data.output || "";
 
       const lastMsg = newMsgs[newMsgs.length - 1];
       if (lastMsg && lastMsg.toolEvents) {
         // Prevent duplicate appending
         const isDuplicate = lastMsg.toolEvents.some(
-          (e: any) => e.text === textToAppend,
+          (e: any) => e.name === toolName && e.success !== null,
         );
         if (!isDuplicate) {
-          lastMsg.toolEvents.push({ text: textToAppend, success: ok });
+          // Find the matching tool call and update its success/output
+          const eventIndex = lastMsg.toolEvents.findIndex(
+            (e: any) => e.name === toolName && e.success === null,
+          );
+          if (eventIndex >= 0) {
+            lastMsg.toolEvents[eventIndex] = {
+              ...lastMsg.toolEvents[eventIndex],
+              success: ok,
+              output: output,
+            };
+          } else {
+            lastMsg.toolEvents.push({
+              name: toolName,
+              success: ok,
+              output: output,
+            });
+          }
         }
       } else {
         newMsgs.push({
-          toolEvents: [{ text: textToAppend, success: ok }],
+          toolEvents: [{ name: toolName, success: ok, output: output }],
         });
       }
     } else if (event.type === "stream") {
@@ -275,29 +284,22 @@ export default function DashboardClient() {
           m.tool_calls &&
           m.tool_calls.length > 0
         ) {
-          const toolLines = m.tool_calls.map((t: any) => {
-            let line = `⚙ ${t.function.name}`;
+          currentToolEvents = m.tool_calls.map((t: any) => {
+            let argsObj = {};
             if (t.function.arguments) {
               try {
-                const parsed =
+                argsObj =
                   typeof t.function.arguments === "string"
                     ? JSON.parse(t.function.arguments)
                     : t.function.arguments;
-                const summary = Object.entries(parsed)
-                  .map(([k, v]) => {
-                    const val = typeof v === "string" ? v : JSON.stringify(v);
-                    return `${k}: ${val.length > 60 ? val.slice(0, 57) + "..." : val}`;
-                  })
-                  .join(", ");
-                if (summary) line += `\n  ${summary.slice(0, 120)}`;
               } catch {}
             }
-            return line;
+            return {
+              name: t.function.name,
+              args: argsObj,
+              success: null,
+            };
           });
-          currentToolEvents = toolLines.map((text: string) => ({
-            text,
-            success: null,
-          }));
           formatted.push({ toolEvents: currentToolEvents });
           const assistantText = contentToText(m.content);
           if (assistantText) {
@@ -314,8 +316,24 @@ export default function DashboardClient() {
           }
           const toolText = contentToText(m.content);
           const ok = !toolText.startsWith("Error: ");
-          const textToAppend = `${ok ? "✓" : "✗"} ${m.name}: ${toolText.slice(0, 300)}`;
-          currentToolEvents.push({ text: textToAppend, success: ok });
+
+          // Match with existing pending tool call if any
+          const eventIndex = currentToolEvents.findIndex(
+            (e: any) => e.name === m.name && e.success === null,
+          );
+          if (eventIndex >= 0) {
+            currentToolEvents[eventIndex] = {
+              ...currentToolEvents[eventIndex],
+              success: ok,
+              output: toolText,
+            };
+          } else {
+            currentToolEvents.push({
+              name: m.name,
+              success: ok,
+              output: toolText,
+            });
+          }
         } else if (m.role === "assistant" && (m.content || m.reasoning)) {
           const textContent = contentToText(m.content);
           formatted.push({

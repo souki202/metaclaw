@@ -18,7 +18,12 @@ interface ContentPart {
 
 interface ExtendedChatMessage extends ChatMessage {
   isStreaming?: boolean;
-  toolEvents?: { text: string; success: boolean | null }[];
+  toolEvents?: {
+    name: string;
+    args: Record<string, any>;
+    success: boolean | null;
+    output?: string;
+  }[];
   imageUrls?: string[];
   reasoning?: string;
 }
@@ -64,6 +69,110 @@ const ReasoningBlock: React.FC<{
         <span className="toggle-icon">▶</span>
       </div>
       {isExpanded && <div className="reasoning-content">{reasoning}</div>}
+    </div>
+  );
+};
+
+const ToolEventBlock: React.FC<{
+  event: {
+    name: string;
+    args: Record<string, any>;
+    success: boolean | null;
+    output?: string;
+  };
+}> = ({ event }) => {
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  const getStatusIcon = () => {
+    if (event.success === null) return "⏳";
+    if (event.success) return "✓";
+    return "✗";
+  };
+
+  const getStatusClass = () => {
+    if (event.success === null) return "";
+    if (event.success) return "tool-ok";
+    return "tool-err";
+  };
+
+  const formatData = (data: any) => {
+    if (typeof data === "string") return data;
+    try {
+      return JSON.stringify(data, null, 2);
+    } catch {
+      return String(data);
+    }
+  };
+
+  const summaryArgs = Object.entries(event.args)
+    .map(([k, v]) => {
+      const val = typeof v === "string" ? v : JSON.stringify(v);
+      return `${k}: ${val.length > 30 ? val.slice(0, 27) + "..." : val}`;
+    })
+    .join(", ");
+
+  const summaryText = summaryArgs
+    ? ` { ${summaryArgs.slice(0, 60)}${summaryArgs.length > 60 ? "..." : ""} }`
+    : "{}";
+
+  return (
+    <div className={`tool-event ${isExpanded ? "expanded" : ""}`}>
+      <div
+        className="tool-event-header"
+        onClick={() => setIsExpanded(!isExpanded)}
+      >
+        <div>
+          <span className={getStatusClass()}>{getStatusIcon()}</span>{" "}
+          <span className="tool-name">{event.name}</span>
+          {!isExpanded && (
+            <span style={{ opacity: 0.7, marginLeft: "8px" }}>
+              {summaryText}
+            </span>
+          )}
+        </div>
+        <span className="tool-event-toggle">▶</span>
+      </div>
+
+      {isExpanded && (
+        <div className="tool-event-content">
+          <div style={{ marginBottom: "8px" }}>
+            <strong style={{ opacity: 0.7 }}>Arguments:</strong>
+            <pre
+              style={{
+                margin: "4px 0",
+                background: "rgba(0,0,0,0.2)",
+                padding: "8px",
+                borderRadius: "4px",
+              }}
+            >
+              {formatData(event.args)}
+            </pre>
+          </div>
+
+          <div>
+            <strong style={{ opacity: 0.7 }}>Result:</strong>
+            {event.success === null ? (
+              <div
+                style={{ fontStyle: "italic", opacity: 0.7, marginTop: "4px" }}
+              >
+                Executing...
+              </div>
+            ) : (
+              <pre
+                style={{
+                  margin: "4px 0",
+                  background: "rgba(0,0,0,0.2)",
+                  padding: "8px",
+                  borderRadius: "4px",
+                  color: event.success ? "inherit" : "var(--red)",
+                }}
+              >
+                {formatData(event.output)}
+              </pre>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -424,19 +533,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
           <React.Fragment key={idx}>
             {m.toolEvents &&
               m.toolEvents.map((evt, eidx) => (
-                <div key={`evt-${idx}-${eidx}`} className="tool-event">
-                  <span
-                    className={
-                      evt.success === null
-                        ? ""
-                        : evt.success
-                          ? "tool-ok"
-                          : "tool-err"
-                    }
-                  >
-                    {evt.text}
-                  </span>
-                </div>
+                <ToolEventBlock key={`evt-${idx}-${eidx}`} event={evt} />
               ))}
 
             {(m.content || m.isStreaming || m.imageUrls || m.reasoning) && (

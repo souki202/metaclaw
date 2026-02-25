@@ -13,7 +13,7 @@ import { ACAManager } from '../aca/manager.js';
 import type { ACAConfig } from '../aca/types.js';
 import type { SessionCommsManager } from '../a2a/session-comms.js';
 
-const MAX_ITERATIONS = 20;
+const MAX_ITERATIONS = 100;
 const RESTART_CODE = 75;
 
 // Remove image_url content parts from messages for models that don't support vision.
