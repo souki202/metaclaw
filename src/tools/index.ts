@@ -16,7 +16,7 @@ import type { QuickMemory } from '../memory/quick.js';
 import type { McpClientManager } from './mcp-client.js';
 import type { A2ARegistry } from '../a2a/registry.js';
 import { listAgents, findAgents, sendToAgent, checkA2AMessages, respondToAgent, getMyCard } from '../a2a/tools.js';
-import { createSession, sendMessageToSession, readSessionMessages, delegateTaskAsync, checkAsyncTasks, completeAsyncTask, listProviderTemplates } from '../a2a/enhanced-tools.js';
+import { createSession, sendMessageToSession, readSessionMessages, getSessionOutputs, delegateTaskAsync, checkAsyncTasks, completeAsyncTask, listProviderTemplates } from '../a2a/enhanced-tools.js';
 import type { ACAManager } from '../aca/manager.js';
 import { viewCuriosityState, viewObjectives, triggerCuriosityScan, scheduleObjective, completeObjective } from '../aca/tools.js';
 import type { SessionCommsManager } from '../a2a/session-comms.js';
@@ -477,6 +477,21 @@ export async function buildTools(ctx: ToolContext): Promise<ToolDefinition[]> {
               mark_as_read: { type: 'boolean', description: 'Mark unread messages as read after viewing (default: false)' },
             },
             required: [],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'get_session_outputs',
+          description: 'Get the recent normal assistant outputs (messages with text content, not just tool calls) from a session. Useful for seeing what the session was thinking or reporting right before it stopped.',
+          parameters: {
+            type: 'object',
+            properties: {
+              session_id: { type: 'string', description: 'The session ID to retrieve outputs from' },
+              limit: { type: 'number', description: 'Number of recent outputs to retrieve (default: 5, max: 50)' },
+            },
+            required: ['session_id'],
           },
         },
       },
@@ -1526,6 +1541,12 @@ export async function executeTool(
       return readSessionMessages(ctx, {
         thread_id: args.thread_id as string | undefined,
         mark_as_read: args.mark_as_read as boolean | undefined,
+      });
+
+    case 'get_session_outputs':
+      return getSessionOutputs(ctx, {
+        session_id: args.session_id as string,
+        limit: args.limit as number,
       });
 
     case 'delegate_task_async':

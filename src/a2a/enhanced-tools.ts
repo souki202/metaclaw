@@ -569,3 +569,76 @@ export async function listProviderTemplates(ctx: EnhancedA2AToolContext): Promis
     };
   }
 }
+
+/**
+ * Get recent regular outputs from a session
+ */
+export async function getSessionOutputs(
+  ctx: EnhancedA2AToolContext,
+  args: { session_id: string; limit: number }
+): Promise<ToolResult> {
+  try {
+    if (!ctx.sessionManager) {
+      return {
+        success: false,
+        output: 'Session manager is not available.',
+      };
+    }
+
+    const agent = ctx.sessionManager.getAgent(args.session_id);
+    if (!agent) {
+      return {
+        success: false,
+        output: `Target session "${args.session_id}" not found or not running.`,
+      };
+    }
+
+    const extractContent = (content: any): string => {
+      if (!content) return '';
+      if (typeof content === 'string') return content;
+      if (Array.isArray(content)) {
+        return content.filter((p: any) => p.type === 'text').map((p: any) => p.text).join('\n');
+      }
+      return '';
+    };
+
+    const history = agent.getHistory();
+    const assistantMessages = history.filter(
+      (msg) => {
+        if (msg.role !== 'assistant') return false;
+        const text = extractContent(msg.content);
+        return text.trim() !== '';
+      }
+    );
+
+    const limit = Math.max(1, Math.min(args.limit || 5, 50));
+    const recentMessages = assistantMessages.slice(-limit);
+
+    if (recentMessages.length === 0) {
+      return {
+        success: true,
+        output: `No normal assistant outputs (with text content) found in the history of session "${args.session_id}".`,
+      };
+    }
+
+    const lines: string[] = [`Recent ${recentMessages.length} outputs for session "${args.session_id}":\n`];
+    for (let i = 0; i < recentMessages.length; i++) {
+      const msg = recentMessages[i];
+      lines.push(`--- Output ${i + 1} ---`);
+      lines.push(`Content: ${extractContent(msg.content)}`);
+      lines.push('');
+    }
+
+    return {
+      success: true,
+      output: lines.join('\n'),
+    };
+  } catch (error) {
+    log.error('Error getting session outputs:', error);
+    return {
+      success: false,
+      output: `Error: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}
+

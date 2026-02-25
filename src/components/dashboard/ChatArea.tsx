@@ -104,7 +104,7 @@ const ToolEventBlock: React.FC<{
     }
   };
 
-  const summaryArgs = Object.entries(event.args)
+  const summaryArgs = Object.entries(event.args || {})
     .map(([k, v]) => {
       const val = typeof v === "string" ? v : JSON.stringify(v);
       return `${k}: ${val.length > 30 ? val.slice(0, 27) + "..." : val}`;
@@ -145,7 +145,7 @@ const ToolEventBlock: React.FC<{
                 borderRadius: "4px",
               }}
             >
-              {formatData(event.args)}
+              {formatData(event.args || {})}
             </pre>
           </div>
 

@@ -279,35 +279,36 @@ export default function DashboardClient() {
             imageUrls: imageUrls.length > 0 ? imageUrls : undefined,
           });
           currentToolEvents = null;
-        } else if (
-          m.role === "assistant" &&
-          m.tool_calls &&
-          m.tool_calls.length > 0
-        ) {
-          currentToolEvents = m.tool_calls.map((t: any) => {
-            let argsObj = {};
-            if (t.function.arguments) {
-              try {
-                argsObj =
-                  typeof t.function.arguments === "string"
-                    ? JSON.parse(t.function.arguments)
-                    : t.function.arguments;
-              } catch {}
-            }
-            return {
-              name: t.function.name,
-              args: argsObj,
-              success: null,
-            };
-          });
-          formatted.push({ toolEvents: currentToolEvents });
+        } else if (m.role === "assistant") {
           const assistantText = contentToText(m.content);
-          if (assistantText) {
+          if (assistantText || m.reasoning) {
             formatted.push({
               role: "assistant",
               content: assistantText,
               reasoning: m.reasoning,
             });
+          }
+
+          if (m.tool_calls && m.tool_calls.length > 0) {
+            currentToolEvents = m.tool_calls.map((t: any) => {
+              let argsObj = {};
+              if (t.function.arguments) {
+                try {
+                  argsObj =
+                    typeof t.function.arguments === "string"
+                      ? JSON.parse(t.function.arguments)
+                      : t.function.arguments;
+                } catch {}
+              }
+              return {
+                name: t.function.name,
+                args: argsObj,
+                success: null,
+              };
+            });
+            formatted.push({ toolEvents: currentToolEvents });
+          } else {
+            currentToolEvents = null;
           }
         } else if (m.role === "tool") {
           if (!currentToolEvents) {
@@ -334,14 +335,6 @@ export default function DashboardClient() {
               output: toolText,
             });
           }
-        } else if (m.role === "assistant" && (m.content || m.reasoning)) {
-          const textContent = contentToText(m.content);
-          formatted.push({
-            role: "assistant",
-            content: textContent,
-            reasoning: m.reasoning,
-          });
-          currentToolEvents = null;
         }
       }
 
