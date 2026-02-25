@@ -3,7 +3,7 @@ import { McpServerConfig } from "./types";
 
 // -------- Global Settings Modal --------
 export const GlobalSettingsModal = ({ onClose, onSave }: any) => {
-  const [tab, setTab] = useState<"search" | "skills">("search");
+  const [tab, setTab] = useState<"search" | "skills" | "providers">("search");
   const [provider, setProvider] = useState("brave");
   const [braveKey, setBraveKey] = useState("");
   const [serperKey, setSerperKey] = useState("");
@@ -12,6 +12,18 @@ export const GlobalSettingsModal = ({ onClose, onSave }: any) => {
   const [vertexDatastore, setVertexDatastore] = useState("");
   const [skills, setSkills] = useState<any[]>([]);
   const [skillsLoading, setSkillsLoading] = useState(false);
+  const [providerTemplates, setProviderTemplates] = useState<Record<string, any>>({});
+  const [providersLoading, setProvidersLoading] = useState(false);
+  const [editingProvider, setEditingProvider] = useState<string | null>(null);
+  const [providerForm, setProviderForm] = useState({
+    name: "",
+    endpoint: "",
+    apiKey: "",
+    availableModels: [] as string[],
+    defaultModel: "",
+    embeddingModel: "",
+    contextWindow: "",
+  });
 
   useEffect(() => {
     fetch("/api/search")
@@ -41,6 +53,16 @@ export const GlobalSettingsModal = ({ onClose, onSave }: any) => {
         vertexDataStoreId: vertexDatastore,
       }),
     });
+
+    // Save provider templates if on that tab
+    if (tab === "providers") {
+      await fetch("/api/provider-templates", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(providerTemplates),
+      });
+    }
+
     onSave();
   };
 
@@ -56,6 +78,78 @@ export const GlobalSettingsModal = ({ onClose, onSave }: any) => {
       console.error("Failed to load skills", e);
     }
     setSkillsLoading(false);
+  };
+
+  const loadProviders = async () => {
+    setProvidersLoading(true);
+    try {
+      const res = await fetch("/api/provider-templates");
+      if (res.ok) {
+        const data = await res.json();
+        setProviderTemplates(data || {});
+      }
+    } catch (e) {
+      console.error("Failed to load provider templates", e);
+    }
+    setProvidersLoading(false);
+  };
+
+  const handleAddProvider = () => {
+    setEditingProvider("__new__");
+    setProviderForm({
+      name: "",
+      endpoint: "",
+      apiKey: "",
+      availableModels: [],
+      defaultModel: "",
+      embeddingModel: "",
+      contextWindow: "",
+    });
+  };
+
+  const handleEditProvider = (key: string) => {
+    const template = providerTemplates[key];
+    setEditingProvider(key);
+    setProviderForm({
+      name: template.name || "",
+      endpoint: template.endpoint || "",
+      apiKey: template.apiKey || "",
+      availableModels: template.availableModels || [],
+      defaultModel: template.defaultModel || "",
+      embeddingModel: template.embeddingModel || "",
+      contextWindow: template.contextWindow?.toString() || "",
+    });
+  };
+
+  const handleSaveProvider = () => {
+    if (!providerForm.name) return;
+
+    const key = editingProvider === "__new__" ? providerForm.name.toLowerCase().replace(/[^a-z0-9]/g, "-") : editingProvider!;
+    const newTemplate: any = {
+      name: providerForm.name,
+      endpoint: providerForm.endpoint,
+      apiKey: providerForm.apiKey,
+      availableModels: providerForm.availableModels,
+      defaultModel: providerForm.defaultModel,
+    };
+
+    if (providerForm.embeddingModel) {
+      newTemplate.embeddingModel = providerForm.embeddingModel;
+    }
+    if (providerForm.contextWindow) {
+      newTemplate.contextWindow = parseInt(providerForm.contextWindow, 10);
+    }
+
+    setProviderTemplates({
+      ...providerTemplates,
+      [key]: newTemplate,
+    });
+    setEditingProvider(null);
+  };
+
+  const handleDeleteProvider = (key: string) => {
+    const { [key]: _, ...rest } = providerTemplates;
+    setProviderTemplates(rest);
   };
 
   return (
@@ -74,6 +168,15 @@ export const GlobalSettingsModal = ({ onClose, onSave }: any) => {
               onClick={() => setTab("search")}
             >
               Search Engine
+            </div>
+            <div
+              className={`modal-tab ${tab === "providers" ? "active" : ""}`}
+              onClick={() => {
+                setTab("providers");
+                loadProviders();
+              }}
+            >
+              Provider Templates
             </div>
             <div
               className={`modal-tab ${tab === "skills" ? "active" : ""}`}
@@ -191,6 +294,158 @@ export const GlobalSettingsModal = ({ onClose, onSave }: any) => {
               )}
             </div>
           )}
+
+          {tab === "providers" && (
+            <div className="settings-section" style={{ marginTop: 20 }}>
+              {providersLoading ? (
+                <div className="empty" style={{ padding: "24px 0" }}>
+                  Loading provider templates...
+                </div>
+              ) : (
+                <>
+                  {editingProvider ? (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                      <div className="form-group">
+                        <label className="form-label">Template Name</label>
+                        <input
+                          className="form-input"
+                          value={providerForm.name}
+                          onChange={(e) => setProviderForm({ ...providerForm, name: e.target.value })}
+                          placeholder="e.g., OpenAI, Anthropic"
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">API Endpoint</label>
+                        <input
+                          className="form-input mono"
+                          value={providerForm.endpoint}
+                          onChange={(e) => setProviderForm({ ...providerForm, endpoint: e.target.value })}
+                          placeholder="https://api.openai.com/v1"
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">API Key</label>
+                        <input
+                          type="password"
+                          className="form-input mono"
+                          value={providerForm.apiKey}
+                          onChange={(e) => setProviderForm({ ...providerForm, apiKey: e.target.value })}
+                          placeholder="sk-..."
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Available Models (comma-separated)</label>
+                        <input
+                          className="form-input mono"
+                          value={providerForm.availableModels.join(", ")}
+                          onChange={(e) => setProviderForm({
+                            ...providerForm,
+                            availableModels: e.target.value.split(",").map(s => s.trim()).filter(Boolean)
+                          })}
+                          placeholder="gpt-4o, gpt-4o-mini"
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Default Model</label>
+                        <input
+                          className="form-input mono"
+                          value={providerForm.defaultModel}
+                          onChange={(e) => setProviderForm({ ...providerForm, defaultModel: e.target.value })}
+                          placeholder="gpt-4o"
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Embedding Model (optional)</label>
+                        <input
+                          className="form-input mono"
+                          value={providerForm.embeddingModel}
+                          onChange={(e) => setProviderForm({ ...providerForm, embeddingModel: e.target.value })}
+                          placeholder="text-embedding-3-small"
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Context Window (optional)</label>
+                        <input
+                          type="number"
+                          className="form-input"
+                          value={providerForm.contextWindow}
+                          onChange={(e) => setProviderForm({ ...providerForm, contextWindow: e.target.value })}
+                          placeholder="128000"
+                        />
+                      </div>
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <button className="btn" onClick={() => setEditingProvider(null)}>
+                          Cancel
+                        </button>
+                        <button className="btn primary" onClick={handleSaveProvider}>
+                          {editingProvider === "__new__" ? "Add Template" : "Save Changes"}
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <div style={{ marginBottom: 16 }}>
+                        <button className="btn primary" onClick={handleAddProvider}>
+                          + Add Provider Template
+                        </button>
+                      </div>
+                      {Object.keys(providerTemplates).length === 0 ? (
+                        <div className="empty" style={{ padding: "24px 0" }}>
+                          No provider templates configured. Add one to get started.
+                        </div>
+                      ) : (
+                        <div className="env-list">
+                          {Object.entries(providerTemplates).map(([key, template]: [string, any]) => (
+                            <div
+                              key={key}
+                              className="env-item"
+                              style={{
+                                flexDirection: "column",
+                                alignItems: "flex-start",
+                                gap: 6,
+                              }}
+                            >
+                              <div style={{ display: "flex", justifyContent: "space-between", width: "100%" }}>
+                                <div className="env-name">{template.name}</div>
+                                <div style={{ display: "flex", gap: 8 }}>
+                                  <button
+                                    className="btn-icon"
+                                    onClick={() => handleEditProvider(key)}
+                                    title="Edit"
+                                  >
+                                    ✏️
+                                  </button>
+                                  <button
+                                    className="btn-icon"
+                                    onClick={() => handleDeleteProvider(key)}
+                                    title="Delete"
+                                  >
+                                    🗑️
+                                  </button>
+                                </div>
+                              </div>
+                              <div
+                                className="env-detail"
+                                style={{ fontSize: "13px", color: "var(--text-dim)" }}
+                              >
+                                {template.endpoint}
+                              </div>
+                              <div
+                                className="env-detail"
+                                style={{ fontSize: "13px", color: "var(--text-dim)" }}
+                              >
+                                Models: {template.availableModels?.join(", ") || "none"}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </>
+              )}
+            </div>
+          )}
         </div>
         <div className="modal-footer">
           <button className="btn" onClick={onClose}>
@@ -233,7 +488,7 @@ export const SessionSettingsModal = ({
   onDelete,
 }: any) => {
   const [tab, setTab] = useState<
-    "general" | "consult" | "discord" | "slack" | "mcp" | "tools"
+    "general" | "consult" | "discord" | "slack" | "mcp" | "tools" | "a2a"
   >("general");
   const [config, setConfig] = useState<any>({});
   const [toolsList, setToolsList] = useState<any[]>([]);
@@ -539,6 +794,12 @@ export const SessionSettingsModal = ({
               General
             </div>
             <div
+              className={`modal-tab ${tab === "a2a" ? "active" : ""}`}
+              onClick={() => setTab("a2a")}
+            >
+              A2A
+            </div>
+            <div
               className={`modal-tab ${tab === "consult" ? "active" : ""}`}
               onClick={() => setTab("consult")}
             >
@@ -667,6 +928,82 @@ export const SessionSettingsModal = ({
                   Delete Session
                 </button>
               </div>
+            </div>
+          )}
+
+          {tab === "a2a" && (
+            <div>
+              <div className="settings-title">Agent-to-Agent (A2A) Communication</div>
+              <p
+                style={{
+                  color: "var(--text-dim)",
+                  fontSize: "13px",
+                  marginBottom: 16,
+                }}
+              >
+                Configure inter-session communication and collaboration features.
+              </p>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                <label className="form-checkbox">
+                  <input
+                    type="checkbox"
+                    checked={config.a2a?.enabled ?? false}
+                    onChange={(e) =>
+                      setNested(["a2a", "enabled"], e.target.checked)
+                    }
+                  />
+                  Enable A2A Communication
+                </label>
+
+                {config.a2a?.enabled && (
+                  <label className="form-checkbox">
+                    <input
+                      type="checkbox"
+                      checked={config.a2a?.hiddenFromAgents ?? false}
+                      onChange={(e) =>
+                        setNested(["a2a", "hiddenFromAgents"], e.target.checked)
+                      }
+                    />
+                    Hide this session from other agents (coordinator mode)
+                  </label>
+                )}
+              </div>
+
+              {config.a2a?.enabled && (
+                <div style={{ marginTop: 20 }}>
+                  <div className="settings-title">A2A Tools Available</div>
+                  <div style={{ color: "var(--text-dim)", fontSize: "13px", marginTop: 8 }}>
+                    When A2A is enabled, this session can use the following tools:
+                  </div>
+                  <ul style={{ color: "var(--text-dim)", fontSize: "13px", marginTop: 8, paddingLeft: 20 }}>
+                    <li><code>list_agents</code> - Discover other AI sessions</li>
+                    <li><code>create_session</code> - Create new AI sessions dynamically</li>
+                    <li><code>list_provider_templates</code> - View available provider configs</li>
+                    <li><code>send_message_to_session</code> - Send direct messages</li>
+                    <li><code>read_session_messages</code> - Read incoming messages</li>
+                    <li><code>delegate_task_async</code> - Delegate tasks asynchronously</li>
+                    <li><code>check_async_tasks</code> - Monitor task status</li>
+                    <li><code>complete_async_task</code> - Complete delegated tasks</li>
+                  </ul>
+                </div>
+              )}
+
+              {!config.a2a?.enabled && (
+                <div
+                  style={{
+                    marginTop: 20,
+                    padding: 16,
+                    backgroundColor: "var(--bg-secondary)",
+                    borderRadius: 8,
+                    fontSize: "13px",
+                  }}
+                >
+                  <strong>About A2A:</strong> When enabled, this session can communicate
+                  with other sessions, delegate tasks, and participate in multi-agent
+                  workflows. Enable A2A on at least 2 sessions for collaboration.
+                </div>
+              )}
             </div>
           )}
 
