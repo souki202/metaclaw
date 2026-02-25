@@ -236,7 +236,11 @@ export class Agent {
   }
 
   private beginProcessing() {
+    const wasIdle = this.activeProcessingCount === 0;
     this.activeProcessingCount += 1;
+    if (wasIdle) {
+      this.emit('busy_change', { isBusy: true });
+    }
   }
 
   private endProcessing() {
@@ -244,10 +248,13 @@ export class Agent {
       this.activeProcessingCount -= 1;
     }
 
-    if (this.activeProcessingCount === 0 && this.idleWaiters.length > 0) {
-      const waiters = this.idleWaiters.splice(0, this.idleWaiters.length);
-      for (const resolve of waiters) {
-        resolve();
+    if (this.activeProcessingCount === 0) {
+      this.emit('busy_change', { isBusy: false });
+      if (this.idleWaiters.length > 0) {
+        const waiters = this.idleWaiters.splice(0, this.idleWaiters.length);
+        for (const resolve of waiters) {
+          resolve();
+        }
       }
     }
   }

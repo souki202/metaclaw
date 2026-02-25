@@ -24,7 +24,7 @@ export const GlobalSettingsModal = ({ onClose, onSave }: any) => {
     availableModels: [] as string[],
     defaultModel: "",
     description: "",
-    embeddingModel: "",
+    embeddingModel: "text-embedding-3-small",
     contextWindow: "",
   });
   const [configLoading, setConfigLoading] = useState(true);
@@ -167,7 +167,22 @@ export const GlobalSettingsModal = ({ onClose, onSave }: any) => {
   return (
     <div
       className="modal-overlay active"
-      onClick={configLoading ? undefined : handleSave}
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) {
+          (e.currentTarget as any)._isMouseDownOnOverlay = true;
+        } else {
+          (e.currentTarget as any)._isMouseDownOnOverlay = false;
+        }
+      }}
+      onClick={(e) => {
+        if (
+          e.target === e.currentTarget &&
+          (e.currentTarget as any)._isMouseDownOnOverlay
+        ) {
+          if (!configLoading) handleSave();
+        }
+        (e.currentTarget as any)._isMouseDownOnOverlay = false;
+      }}
     >
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
@@ -712,13 +727,46 @@ export const SessionSettingsModal = ({
         let groupName = "Built-in: Other";
         if (name.endsWith("_file") || name === "list_dir")
           groupName = "Built-in: Filesystem";
+        else if (name.endsWith("_search")) groupName = "Built-in: Search";
         else if (name.startsWith("memory_")) groupName = "Built-in: Memory";
+        else if (name.startsWith("schedule_"))
+          groupName = "Built-in: Scheduling";
         else if (name === "exec") groupName = "Built-in: Execution";
         else if (name.startsWith("web_")) groupName = "Built-in: Web";
         else if (name.startsWith("browser_")) groupName = "Built-in: Browser";
-        else if (name.startsWith("self_") || name.startsWith("read_config"))
+        else if (
+          name.startsWith("self_") ||
+          name === "read_config" ||
+          name === "read_config_file"
+        )
           groupName = "Built-in: System/Self";
         else if (name.startsWith("git_")) groupName = "Built-in: Git";
+        else if (
+          name === "list_agents" ||
+          name === "find_agents" ||
+          name === "send_to_agent" ||
+          name === "check_a2a_messages" ||
+          name === "respond_to_agent" ||
+          name === "get_my_card" ||
+          name === "create_session" ||
+          name === "list_provider_templates" ||
+          name === "send_message_to_session" ||
+          name === "read_session_messages" ||
+          name === "delegate_task_async" ||
+          name === "check_async_tasks" ||
+          name === "complete_async_task"
+        )
+          groupName = "Built-in: A2A";
+        else if (
+          name === "view_curiosity_state" ||
+          name === "view_objectives" ||
+          name === "trigger_curiosity_scan" ||
+          name === "schedule_objective" ||
+          name === "complete_objective"
+        )
+          groupName = "Built-in: ACA";
+        else if (name === "sleep" || name === "clear_history")
+          groupName = "Built-in: Utility";
 
         if (!groups[groupName]) groups[groupName] = [];
         groups[groupName].push(t);
@@ -934,7 +982,22 @@ export const SessionSettingsModal = ({
   return (
     <div
       className="modal-overlay active"
-      onClick={configLoading ? undefined : handleSave}
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) {
+          (e.currentTarget as any)._isMouseDownOnOverlay = true;
+        } else {
+          (e.currentTarget as any)._isMouseDownOnOverlay = false;
+        }
+      }}
+      onClick={(e) => {
+        if (
+          e.target === e.currentTarget &&
+          (e.currentTarget as any)._isMouseDownOnOverlay
+        ) {
+          if (!configLoading) handleSave();
+        }
+        (e.currentTarget as any)._isMouseDownOnOverlay = false;
+      }}
     >
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
@@ -2009,7 +2072,25 @@ export const NewSessionModal = ({ onClose, onSuccess }: any) => {
   };
 
   return (
-    <div className="modal-overlay active" onClick={onClose}>
+    <div
+      className="modal-overlay active"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) {
+          (e.currentTarget as any)._isMouseDownOnOverlay = true;
+        } else {
+          (e.currentTarget as any)._isMouseDownOnOverlay = false;
+        }
+      }}
+      onClick={(e) => {
+        if (
+          e.target === e.currentTarget &&
+          (e.currentTarget as any)._isMouseDownOnOverlay
+        ) {
+          onClose();
+        }
+        (e.currentTarget as any)._isMouseDownOnOverlay = false;
+      }}
+    >
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2>+ New Session</h2>

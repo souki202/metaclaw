@@ -66,6 +66,12 @@ export default function DashboardClient() {
           const event = JSON.parse(e.data);
           if (event.type === "connected") return;
 
+          // session_list_update: セッション一覧を再取得（新規作成/削除/busy変化）
+          if (event.type === "session_list_update") {
+            loadSessions();
+            return;
+          }
+
           // schedule_update はセッションフィルタ前に処理する（非表示セッションも更新）
           if (event.type === "schedule_update" && event.sessionId) {
             setSchedulesBySession((prev) => ({
@@ -198,7 +204,8 @@ export default function DashboardClient() {
         }
       } else if (
         event.data.role === "user" &&
-        event.data.channelId !== "dashboard"
+        event.data.channelId !== "dashboard" &&
+        event.data.channelId !== "system"
       ) {
         setIsThinking(true);
         newMsgs.push({

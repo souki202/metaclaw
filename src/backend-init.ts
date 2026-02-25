@@ -73,6 +73,16 @@ export async function initializeBackend() {
       data: event.data,
       timestamp: new Date().toISOString(),
     });
+
+    // busy_change イベントはセッションリストの更新もトリガーする
+    if (event.type === 'busy_change') {
+      broadcastSseEvent({
+        type: 'session_list_update',
+        sessionId: event.sessionId,
+        data: event.data,
+        timestamp: new Date().toISOString(),
+      });
+    }
   };
 
   // 全セッション起動

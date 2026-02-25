@@ -133,6 +133,7 @@ header .status {
   font-weight: 700;
   color: var(--bg);
   flex-shrink: 0;
+  position: relative;
 }
 
 .session-item .info {
@@ -153,6 +154,36 @@ header .status {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* Busy state indicator */
+
+.busy-dot {
+  position: absolute;
+  bottom: -1px;
+  right: -1px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--yellow);
+  border: 2px solid var(--surface);
+  animation: busyPulse 1.2s ease-in-out infinite;
+}
+
+@keyframes busyPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.55; transform: scale(0.8); }
+}
+
+.busy-label {
+  color: var(--yellow);
+  font-size: 11px;
+  animation: busyLabelPulse 1.2s ease-in-out infinite;
+}
+
+@keyframes busyLabelPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
 }
 
 .sidebar-footer {

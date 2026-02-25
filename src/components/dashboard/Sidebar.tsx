@@ -26,9 +26,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
           >
             <div className="avatar">
               {s.name ? s.name.charAt(0).toUpperCase() : "?"}
+              {s.isBusy && <span className="busy-dot" title="Busy" />}
             </div>
             <div className="info">
-              <div className="name">{s.name}</div>
+              <div className="name">
+                {s.name}
+                {s.isBusy && <span className="busy-label"> ⚙</span>}
+              </div>
               {s.model && <div className="model">{s.model}</div>}
             </div>
           </div>

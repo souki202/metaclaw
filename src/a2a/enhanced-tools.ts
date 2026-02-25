@@ -13,6 +13,7 @@ import fs from 'fs';
 import path from 'path';
 
 const log = createLogger('a2a-enhanced-tools');
+import { broadcastSseEvent } from '../global-state.js';
 
 export interface EnhancedA2AToolContext extends ToolContext {
   commsManager?: SessionCommsManager;
@@ -127,6 +128,14 @@ export async function createSession(
 
     // Start the new session
     const agent = ctx.sessionManager.startSession(args.sessionId, newSession);
+
+    // フロントエンドのセッションリストをリアルタイム更新
+    broadcastSseEvent({
+      type: 'session_list_update',
+      sessionId: args.sessionId,
+      data: { action: 'created', id: args.sessionId, name: args.name },
+      timestamp: new Date().toISOString(),
+    });
 
     log.info(`New session created: ${args.sessionId} by ${ctx.sessionId}`);
 

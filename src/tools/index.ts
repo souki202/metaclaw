@@ -1019,7 +1019,7 @@ export async function buildTools(ctx: ToolContext): Promise<ToolDefinition[]> {
       {
         type: 'function',
         function: {
-          name: 'git_status',
+          name: 'self_git_status',
           description: 'Show git working tree status of the AI system\'s own repository (meta-claw).',
           parameters: { type: 'object', properties: {}, required: [] },
         },
@@ -1027,7 +1027,7 @@ export async function buildTools(ctx: ToolContext): Promise<ToolDefinition[]> {
       {
         type: 'function',
         function: {
-          name: 'git_diff',
+          name: 'self_git_diff',
           description: 'Show unstaged changes in the AI system\'s own repository. Optionally filter by path.',
           parameters: {
             type: 'object',
@@ -1041,7 +1041,7 @@ export async function buildTools(ctx: ToolContext): Promise<ToolDefinition[]> {
       {
         type: 'function',
         function: {
-          name: 'git_diff_staged',
+          name: 'self_git_diff_staged',
           description: 'Show staged (cached) changes in the AI system\'s own repository. Optionally filter by path.',
           parameters: {
             type: 'object',
@@ -1055,7 +1055,7 @@ export async function buildTools(ctx: ToolContext): Promise<ToolDefinition[]> {
       {
         type: 'function',
         function: {
-          name: 'git_log',
+          name: 'self_git_log',
           description: 'Show recent commit history of the AI system\'s own repository.',
           parameters: {
             type: 'object',
@@ -1069,7 +1069,7 @@ export async function buildTools(ctx: ToolContext): Promise<ToolDefinition[]> {
       {
         type: 'function',
         function: {
-          name: 'git_commit',
+          name: 'self_git_commit',
           description: 'Stage all changes and commit to the AI system\'s own repository with a message.',
           parameters: {
             type: 'object',
@@ -1083,7 +1083,7 @@ export async function buildTools(ctx: ToolContext): Promise<ToolDefinition[]> {
       {
         type: 'function',
         function: {
-          name: 'git_branch',
+          name: 'self_git_branch',
           description: 'List all branches (local and remote) of the AI system\'s own repository.',
           parameters: { type: 'object', properties: {}, required: [] },
         },
@@ -1091,7 +1091,7 @@ export async function buildTools(ctx: ToolContext): Promise<ToolDefinition[]> {
       {
         type: 'function',
         function: {
-          name: 'git_checkout',
+          name: 'self_git_checkout',
           description: 'Switch to a branch or restore files in the AI system\'s own repository.',
           parameters: {
             type: 'object',
@@ -1105,7 +1105,7 @@ export async function buildTools(ctx: ToolContext): Promise<ToolDefinition[]> {
       {
         type: 'function',
         function: {
-          name: 'git_stash',
+          name: 'self_git_stash',
           description: 'Stash changes in the AI system\'s own repository. Actions: push (default), pop, list, drop, apply, show.',
           parameters: {
             type: 'object',
@@ -1120,7 +1120,7 @@ export async function buildTools(ctx: ToolContext): Promise<ToolDefinition[]> {
       {
         type: 'function',
         function: {
-          name: 'git_reset',
+          name: 'self_git_reset',
           description: 'Reset current HEAD of the AI system\'s own repository to a commit. Use for reverting changes.',
           parameters: {
             type: 'object',
@@ -1135,7 +1135,7 @@ export async function buildTools(ctx: ToolContext): Promise<ToolDefinition[]> {
       {
         type: 'function',
         function: {
-          name: 'git_push',
+          name: 'self_git_push',
           description: 'Push commits from the AI system\'s own repository to remote repository.',
           parameters: {
             type: 'object',
@@ -1150,7 +1150,7 @@ export async function buildTools(ctx: ToolContext): Promise<ToolDefinition[]> {
       {
         type: 'function',
         function: {
-          name: 'git_pull',
+          name: 'self_git_pull',
           description: 'Pull changes for the AI system\'s own repository from remote repository.',
           parameters: {
             type: 'object',
@@ -1589,37 +1589,37 @@ export async function executeTool(
     case 'self_read_config':
       return readConfigFile();
 
-    case 'git_status':
+    case 'self_git_status':
       return gitStatus();
 
-    case 'git_diff':
+    case 'self_git_diff':
       return gitDiff(args.path as string | undefined);
 
-    case 'git_diff_staged':
+    case 'self_git_diff_staged':
       return gitDiffStaged(args.path as string | undefined);
 
-    case 'git_log':
+    case 'self_git_log':
       return gitLog(args.count as number | undefined);
 
-    case 'git_commit':
+    case 'self_git_commit':
       return gitCommit(args.message as string);
 
-    case 'git_branch':
+    case 'self_git_branch':
       return gitBranch();
 
-    case 'git_checkout':
+    case 'self_git_checkout':
       return gitCheckout(args.ref as string);
 
-    case 'git_stash':
+    case 'self_git_stash':
       return gitStash(args.action as string | undefined, args.message as string | undefined);
 
-    case 'git_reset':
+    case 'self_git_reset':
       return gitReset(args.mode as string | undefined, args.ref as string | undefined);
 
-    case 'git_push':
+    case 'self_git_push':
       return gitPush(args.remote as string | undefined, args.branch as string | undefined);
 
-    case 'git_pull':
+    case 'self_git_pull':
       return gitPull(args.remote as string | undefined, args.branch as string | undefined);
 
     case 'self_read_root':
