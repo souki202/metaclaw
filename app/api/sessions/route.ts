@@ -59,6 +59,7 @@ export async function POST(request: Request) {
       restrictToWorkspace: body.restrictToWorkspace ?? baseSession?.restrictToWorkspace ?? true,
       allowSelfModify: body.allowSelfModify ?? baseSession?.allowSelfModify ?? false,
       tools: body.tools || baseSession?.tools || { exec: true, web: true, memory: true },
+      context: body.context || baseSession?.context,
       discord: body.discord || baseSession?.discord,
       slack: body.slack || baseSession?.slack,
       consultAi: body.consultAi || baseSession?.consultAi,

@@ -65,6 +65,7 @@
         }
       },
       "context": {
+        "maxTokens": 96000,
         "compressionThreshold": 0.8,
         "keepRecentMessages": 20
       },
@@ -114,6 +115,7 @@
         }
       },
       "context": {
+        "maxTokens": 64000,
         "compressionThreshold": 0.75,
         "keepRecentMessages": 30
       },
@@ -153,6 +155,7 @@
         }
       },
       "context": {
+        "maxTokens": 48000,
         "compressionThreshold": 0.7,
         "keepRecentMessages": 40
       },

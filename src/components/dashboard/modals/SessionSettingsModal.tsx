@@ -662,6 +662,68 @@ export const SessionSettingsModal = ({
                       apiKey={config.provider?.apiKey || ""}
                     />
                   </div>
+
+                  <div className="settings-title">Context</div>
+                  <div className="form-group">
+                    <label className="form-label">
+                      Max Context Tokens (per session)
+                    </label>
+                    <input
+                      type="number"
+                      min={1024}
+                      className="form-input mono"
+                      placeholder={String(
+                        config.provider?.contextWindow || 128000,
+                      )}
+                      value={config.context?.maxTokens ?? ""}
+                      onChange={(e) => {
+                        const parsed = Number.parseInt(e.target.value, 10);
+                        setNested(
+                          ["context", "maxTokens"],
+                          Number.isFinite(parsed) && parsed > 0
+                            ? parsed
+                            : undefined,
+                        );
+                      }}
+                    />
+                    <div
+                      style={{
+                        marginTop: 6,
+                        color: "var(--text-dim)",
+                        fontSize: 12,
+                      }}
+                    >
+                      Empty = provider contextWindow
+                    </div>
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">
+                      Memory Compression Model (optional)
+                    </label>
+                    <ModelSelector
+                      value={config.context?.memoryCompressionModel || ""}
+                      onChange={(v) =>
+                        setNested([
+                          "context",
+                          "memoryCompressionModel",
+                        ], v.trim() || undefined)
+                      }
+                      endpoint={config.provider?.endpoint || ""}
+                      apiKey={config.provider?.apiKey || ""}
+                      placeholder="empty = provider model"
+                    />
+                    <div
+                      style={{
+                        marginTop: 6,
+                        color: "var(--text-dim)",
+                        fontSize: 12,
+                      }}
+                    >
+                      未設定時は会話モデルを使用
+                    </div>
+                  </div>
+
                   <div className="settings-title">Other</div>
                   <div className="form-group">
                     <label className="form-label">Workspace Path</label>

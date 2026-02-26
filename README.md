@@ -57,6 +57,8 @@ The dashboard will be at `http://localhost:8080` (or the port configured in `con
 | `provider.model` | Model name (e.g. `gpt-4o`, `claude-3-5-sonnet`) |
 | `provider.embeddingModel` | Embedding model (e.g. `text-embedding-3-small`) |
 | `provider.contextWindow` | Context window size in tokens |
+| `context.maxTokens` | Per-session context upper limit (<= provider.contextWindow). Compression/pruning thresholds follow this value |
+| `context.memoryCompressionModel` | Optional model used for compressing recalled raw memories (fallback: `provider.model`) |
 | `workspace` | Directory for this session's sandbox files |
 | `restrictToWorkspace` | Limit AI file and command access to workspace bounds |
 | `allowSelfModify` | Allow AI to modify its own source code within the engine |

@@ -246,21 +246,22 @@ export class OpenAIProvider {
     }
   }
 
-  async summarize(messages: ChatMessage[]): Promise<string> {
-    const text = messages
-      .filter((m) => m.role !== 'system' && m.content)
-      .map((m) => `${m.role}: ${extractText(m.content)}`)
-      .join('\n');
-
+  async summarizeText(
+    text: string,
+    options: {
+      model?: string;
+      systemPrompt?: string;
+    } = {},
+  ): Promise<string> {
     const response = await this.client.responses.create({
-      model: this.config.model,
+      model: options.model || this.config.model,
       input: [
         {
           role: 'system',
           content: [
             {
               type: 'input_text',
-              text: 'Summarize the following conversation history concisely, preserving key facts, decisions, and context that would be needed to continue the conversation.',
+              text: options.systemPrompt || 'Summarize the following content concisely, preserving key facts, decisions, and context.',
             },
           ],
         },
@@ -276,5 +277,23 @@ export class OpenAIProvider {
       ],
     });
     return extractResponseText(response);
+  }
+
+  async summarize(
+    messages: ChatMessage[],
+    options: {
+      model?: string;
+      systemPrompt?: string;
+    } = {},
+  ): Promise<string> {
+    const text = messages
+      .filter((m) => m.role !== 'system' && m.content)
+      .map((m) => `${m.role}: ${extractText(m.content)}`)
+      .join('\n');
+
+    return this.summarizeText(text, {
+      model: options.model,
+      systemPrompt: options.systemPrompt || 'Summarize the following conversation history concisely, preserving key facts, decisions, and context that would be needed to continue the conversation.',
+    });
   }
 }

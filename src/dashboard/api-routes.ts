@@ -61,6 +61,66 @@ export async function setupApiRoutes(
   const pathname = url.pathname;
   const method = req.method!;
 
+  // GET /api/sessions/:id/artifacts/:path...
+  if (method === 'GET' && pathname.startsWith('/api/sessions/')) {
+    const parts = pathname.split('/').filter(Boolean);
+    if (parts.length >= 5 && parts[0] === 'api' && parts[1] === 'sessions' && parts[3] === 'artifacts') {
+      const sessionId = parts[2];
+      const artifactParts = parts.slice(4).map((segment) => {
+        try {
+          return decodeURIComponent(segment);
+        } catch {
+          return segment;
+        }
+      });
+
+      if (artifactParts.length === 0) {
+        sendJson(res, { error: 'Path required' }, 400);
+        return true;
+      }
+
+      const agent = sessions.getAgent(sessionId);
+      if (!agent) {
+        sendJson(res, { error: 'Session not found' }, 404);
+        return true;
+      }
+
+      const workspaceRoot = path.resolve(agent.getSessionDir());
+      const targetPath = path.resolve(workspaceRoot, artifactParts.join('/'));
+      const inWorkspace = targetPath === workspaceRoot || targetPath.startsWith(`${workspaceRoot}${path.sep}`);
+      if (!inWorkspace) {
+        sendJson(res, { error: 'Invalid path' }, 400);
+        return true;
+      }
+
+      if (!fs.existsSync(targetPath) || fs.statSync(targetPath).isDirectory()) {
+        sendJson(res, { error: 'Not found' }, 404);
+        return true;
+      }
+
+      const ext = path.extname(targetPath).toLowerCase();
+      const mime = ext === '.jpg' || ext === '.jpeg'
+        ? 'image/jpeg'
+        : ext === '.png'
+          ? 'image/png'
+          : ext === '.gif'
+            ? 'image/gif'
+            : ext === '.webp'
+              ? 'image/webp'
+              : ext === '.md'
+                ? 'text/markdown; charset=utf-8'
+                : ext === '.txt'
+                  ? 'text/plain; charset=utf-8'
+                  : ext === '.json'
+                    ? 'application/json; charset=utf-8'
+                    : 'application/octet-stream';
+
+      res.setHeader('Content-Type', mime);
+      fs.createReadStream(targetPath).pipe(res);
+      return true;
+    }
+  }
+
   // GET /api/sessions
   if (method === 'GET' && pathname === '/api/sessions') {
     const ids = sessions.getSessionIds();

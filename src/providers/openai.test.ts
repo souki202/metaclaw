@@ -163,3 +163,30 @@ test('summarize uses responses API', async () => {
   assert.equal(capturedParams.input[0].role, 'system');
   assert.equal(capturedParams.input[1].role, 'user');
 });
+
+test('summarizeText allows model override', async () => {
+  const provider = makeProvider() as any;
+  let capturedParams: any;
+
+  provider.client = {
+    responses: {
+      create: async (params: any) => {
+        capturedParams = params;
+        return { output_text: 'compressed recall' };
+      },
+    },
+    embeddings: {
+      create: async () => ({ data: [{ embedding: [0.1, 0.2, 0.3] }] }),
+    },
+  };
+
+  const result = await provider.summarizeText('raw memory corpus', {
+    model: 'gpt-4.1-mini',
+    systemPrompt: 'compress to keywords',
+  });
+
+  assert.equal(result, 'compressed recall');
+  assert.equal(capturedParams.model, 'gpt-4.1-mini');
+  assert.equal(capturedParams.input[0].role, 'system');
+  assert.equal(capturedParams.input[1].role, 'user');
+});

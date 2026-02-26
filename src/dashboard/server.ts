@@ -59,6 +59,37 @@ export class DashboardServer {
       res.json(agent.getHistory());
     });
 
+    // API: read any artifact under session workspace (safe, read-only)
+    this.app.get('/api/sessions/:id/artifacts/*', (req, res) => {
+      const agent = this.sessions.getAgent(req.params.id);
+      if (!agent) return res.status(404).json({ error: 'Session not found' });
+
+      const wildcardPath = req.params[0];
+      if (!wildcardPath) return res.status(400).json({ error: 'Path required' });
+
+      const decodedPath = String(wildcardPath)
+        .split('/')
+        .map((segment) => {
+          try {
+            return decodeURIComponent(segment);
+          } catch {
+            return segment;
+          }
+        })
+        .join('/');
+
+      const workspaceRoot = path.resolve(agent.getSessionDir());
+      const targetPath = path.resolve(workspaceRoot, decodedPath);
+      const inWorkspace = targetPath === workspaceRoot || targetPath.startsWith(`${workspaceRoot}${path.sep}`);
+
+      if (!inWorkspace) return res.status(400).json({ error: 'Invalid path' });
+      if (!fs.existsSync(targetPath) || fs.statSync(targetPath).isDirectory()) {
+        return res.status(404).json({ error: 'Not found' });
+      }
+
+      res.sendFile(targetPath);
+    });
+
     // API: send message to session
     this.app.post('/api/sessions/:id/message', async (req, res) => {
       const agent = this.sessions.getAgent(req.params.id);

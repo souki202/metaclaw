@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import type { ChatMessage, SessionConfig, Config, ProviderConfig, ContentPart, ContentPartText, ToolDefinition, ScheduleUpsertInput, SessionSchedule } from '../types.js';
 import { OpenAIProvider } from '../providers/openai.js';
 import { VectorMemory, type RecalledEntry } from '../memory/vector.js';
@@ -16,6 +17,14 @@ import type { SessionCommsManager } from '../a2a/session-comms.js';
 
 const MAX_ITERATIONS = 100;
 const RESTART_CODE = 75;
+const DEFAULT_CONTEXT_WINDOW = 128000;
+const DEFAULT_COMPRESSION_THRESHOLD = 0.8;
+const DEFAULT_KEEP_RECENT_MESSAGES = 20;
+const MIN_KEEP_RECENT_MESSAGES = 4;
+const MAX_RECALL_COMPRESSED_CHARS = 1000;
+const MAX_RECALL_RAW_CHARS = 100000;
+const TURN_RECALL_LIMIT = 30;
+const AUTONOMOUS_RECALL_LIMIT = 20;
 
 // Remove image_url content parts from messages for models that don't support vision.
 // If a message becomes empty after stripping, keep it with an empty string.
@@ -344,15 +353,107 @@ export class Agent {
     return cues;
   }
 
-  private formatRecalledMemories(results: RecalledEntry[]): string {
-    const lines = results.map(r => {
-      const ts = r.entry.metadata.timestamp.slice(0, 10);
-      const role = r.entry.metadata.role ?? 'unknown';
-      const text = r.entry.text.length > 400 ? r.entry.text.slice(0, 397) + '...' : r.entry.text;
-      return `[${ts} | ${role}]: ${text}`;
-    });
+  private getRecallRawCharLimit(): number {
+    return Math.max(
+      MAX_RECALL_COMPRESSED_CHARS,
+      Math.min(MAX_RECALL_RAW_CHARS, this.getEffectiveContextLimit()),
+    );
+  }
 
-    return lines.join('\n\n');
+  private getMemoryCompressionModel(): string {
+    const configured = this.config.context?.memoryCompressionModel?.trim();
+    return configured && configured.length > 0 ? configured : this.providerConfig.model;
+  }
+
+  private buildRawRecalledMemories(results: RecalledEntry[], maxChars: number): string {
+    const sorted = [...results].sort((a, b) => b.combinedScore - a.combinedScore);
+    const critical = sorted.slice(0, 6);
+    const related = sorted.slice(6);
+
+    let output = '';
+    const append = (line: string) => {
+      if (output.length >= maxChars) return;
+      const safeLine = line.trim();
+      if (!safeLine) return;
+      const withNewline = output.length === 0 ? safeLine : `\n${safeLine}`;
+      const remaining = maxChars - output.length;
+      if (withNewline.length <= remaining) {
+        output += withNewline;
+        return;
+      }
+      output += withNewline.slice(0, Math.max(0, remaining));
+    };
+
+    append('# CRITICAL_MEMORIES');
+    for (const item of critical) {
+      const ts = item.entry.metadata.timestamp.slice(0, 10);
+      const role = item.entry.metadata.role ?? 'unknown';
+      const text = item.entry.text.replace(/\s+/g, ' ').trim().slice(0, 2200);
+      append(`[CRITICAL][${ts}|${role}|sim:${item.similarity.toFixed(3)}|score:${item.combinedScore.toFixed(3)}] ${text}`);
+    }
+
+    append('# RELATED_MEMORIES');
+    for (const item of related) {
+      const ts = item.entry.metadata.timestamp.slice(0, 10);
+      const role = item.entry.metadata.role ?? 'unknown';
+      const text = item.entry.text.replace(/\s+/g, ' ').trim().slice(0, 700);
+      append(`[RELATED][${ts}|${role}|sim:${item.similarity.toFixed(3)}|score:${item.combinedScore.toFixed(3)}] ${text}`);
+    }
+
+    return output;
+  }
+
+  private fallbackCompressRecalledMemories(raw: string): string {
+    const lines = raw
+      .split('\n')
+      .map(line => line.trim())
+      .filter(Boolean)
+      .filter(line => line.startsWith('[CRITICAL]') || line.startsWith('[RELATED]'));
+
+    const compact = lines
+      .slice(0, 16)
+      .map(line => line.replace(/\[(CRITICAL|RELATED)\]/g, '').replace(/\s+/g, ' ').trim())
+      .join(' / ')
+      .trim();
+
+    return compact.slice(0, MAX_RECALL_COMPRESSED_CHARS);
+  }
+
+  private async formatRecalledMemories(
+    results: RecalledEntry[],
+    cue: string,
+    mode: 'turn' | 'autonomous',
+  ): Promise<string> {
+    const raw = this.buildRawRecalledMemories(results, this.getRecallRawCharLimit());
+    if (!raw) return '';
+
+    if (raw.length <= MAX_RECALL_COMPRESSED_CHARS) {
+      return raw;
+    }
+
+    try {
+      const compressed = await this.provider.summarizeText(
+        `Current cue:\n${cue.slice(0, 1200)}\n\nRecalled memory corpus:\n${raw}`,
+        {
+          model: this.getMemoryCompressionModel(),
+          systemPrompt: `
+You compress recalled memories for an AI agent.
+Mode: ${mode}.
+Output must be <= ${MAX_RECALL_COMPRESSED_CHARS} characters.
+Prefer keyword-dense telegraphic style. Conjunctions/particles can be omitted.
+Preserve critical facts exactly when possible: numbers, dates, file paths, IDs, errors, decisions, constraints.
+Keep broad related context in rough, compressed form.
+Plain text only. No markdown bullets required.
+`.trim(),
+        },
+      );
+
+      const normalized = compressed.replace(/\s+/g, ' ').trim();
+      return normalized.slice(0, MAX_RECALL_COMPRESSED_CHARS);
+    } catch (e) {
+      this.log.warn('Memory compression failed; using fallback compression:', e);
+      return this.fallbackCompressRecalledMemories(raw);
+    }
   }
 
   /** Recall relevant past memories for the current turn using user cue + recent autonomous activity cues. */
@@ -364,9 +465,10 @@ export class Agent {
     try {
       const cues = this.buildRecallCues(userMessage);
       const results = await this.vectorMemory.humanLikeRecall(cues, {
-        limit: 6,
-        minSimilarity: 0.52,
+        limit: TURN_RECALL_LIMIT,
+        minSimilarity: 0.34,
         salienceWeight: 0.35,
+        dedupeThreshold: 0.95,
       });
       if (results.length === 0) return { text: null, ids: [] };
 
@@ -381,7 +483,7 @@ export class Agent {
       });
 
       return {
-        text: this.formatRecalledMemories(results),
+        text: await this.formatRecalledMemories(results, userMessage, 'turn'),
         ids: results.map(item => item.entry.id),
       };
     } catch (e) {
@@ -416,16 +518,18 @@ export class Agent {
 
       const cues = this.buildRecallCues(latestContext, 10);
       const recalled = await this.vectorMemory.humanLikeRecall(cues, {
-        limit: 4,
-        minSimilarity: 0.5,
+        limit: AUTONOMOUS_RECALL_LIMIT,
+        minSimilarity: 0.34,
         salienceWeight: 0.4,
+        dedupeThreshold: 0.95,
       });
 
       const fresh = recalled.filter(item => !recalledIds.has(item.entry.id));
       if (fresh.length === 0) return null;
 
       fresh.forEach(item => recalledIds.add(item.entry.id));
-      const text = this.formatRecalledMemories(fresh);
+      const text = await this.formatRecalledMemories(fresh, latestContext, 'autonomous');
+      if (!text) return null;
 
       this.emit('memory_update', {
         kind: 'recall',
@@ -534,31 +638,106 @@ export class Agent {
   }
 
   private async compressContext() {
-    const threshold = this.config.context?.compressionThreshold ?? 0.8;
-    const contextWindow = this.providerConfig.contextWindow ?? 128000;
-    const keepRecent = this.config.context?.keepRecentMessages ?? 20;
+    const threshold = this.getCompressionThreshold();
+    const contextLimit = this.getEffectiveContextLimit();
+    const keepRecent = this.getKeepRecentMessages(contextLimit);
 
     const estimated = estimateTokens(this.history);
-    if (estimated < contextWindow * threshold) return;
+    if (estimated >= contextLimit * threshold) {
+      this.log.info(`Compressing context (estimated ${estimated} tokens, threshold ${Math.floor(contextLimit * threshold)})`);
 
-    this.log.info(`Compressing context (estimated ${estimated} tokens, threshold ${Math.floor(contextWindow * threshold)})`);
+      const toCompress = this.history.slice(0, -keepRecent);
+      const toKeep = this.history.slice(-keepRecent);
 
-    const toCompress = this.history.slice(0, -keepRecent);
-    const toKeep = this.history.slice(-keepRecent);
-
-    if (toCompress.length < 5) return;
-
-    try {
-      const summary = await this.provider.summarize(toCompress);
-      this.history = [
-        { role: 'assistant', content: `[Earlier conversation summary: ${summary}]` },
-        ...toKeep,
-      ];
-      this.emit('system', { message: 'Context compressed', kept: toKeep.length, compressed: toCompress.length });
-      this.log.info(`Context compressed. History reduced from ${toCompress.length + toKeep.length} to ${this.history.length} messages.`);
-    } catch (e) {
-      this.log.warn('Context compression failed:', e);
+      if (toCompress.length >= 5) {
+        try {
+          const summary = await this.provider.summarize(toCompress);
+          this.history = [
+            { role: 'assistant', content: `[Earlier conversation summary: ${summary}]` },
+            ...toKeep,
+          ];
+          this.emit('system', { message: 'Context compressed', kept: toKeep.length, compressed: toCompress.length, contextLimit });
+          this.log.info(`Context compressed. History reduced from ${toCompress.length + toKeep.length} to ${this.history.length} messages.`);
+        } catch (e) {
+          this.log.warn('Context compression failed:', e);
+        }
+      }
     }
+
+    const pruned = this.pruneHistoryToContextLimit(contextLimit, keepRecent, threshold);
+    if (pruned > 0) {
+      this.emit('system', { message: 'Old context pruned', removed: pruned, contextLimit });
+      this.log.info(`Pruned ${pruned} old messages to fit context limit ${contextLimit}.`);
+    }
+
+    if (pruned > 0 || estimated >= contextLimit * threshold) {
+      this.rewriteHistory();
+    }
+  }
+
+  private getEffectiveContextLimit(): number {
+    const providerWindow = this.providerConfig.contextWindow ?? DEFAULT_CONTEXT_WINDOW;
+    const configuredLimit = this.config.context?.maxTokens;
+
+    if (typeof configuredLimit !== 'number' || !Number.isFinite(configuredLimit) || configuredLimit <= 0) {
+      return providerWindow;
+    }
+
+    const normalized = Math.floor(configuredLimit);
+    return Math.max(1024, Math.min(providerWindow, normalized));
+  }
+
+  private getCompressionThreshold(): number {
+    const configured = this.config.context?.compressionThreshold;
+    if (typeof configured !== 'number' || !Number.isFinite(configured)) {
+      return DEFAULT_COMPRESSION_THRESHOLD;
+    }
+    return Math.min(0.98, Math.max(0.5, configured));
+  }
+
+  private getKeepRecentMessages(contextLimit: number): number {
+    const configured = this.config.context?.keepRecentMessages;
+    if (typeof configured === 'number' && Number.isFinite(configured) && configured > 0) {
+      return Math.max(MIN_KEEP_RECENT_MESSAGES, Math.floor(configured));
+    }
+
+    if (typeof this.config.context?.maxTokens === 'number' && Number.isFinite(this.config.context.maxTokens)) {
+      const adaptive = Math.round(contextLimit / 6000);
+      return Math.max(8, Math.min(80, adaptive));
+    }
+
+    return DEFAULT_KEEP_RECENT_MESSAGES;
+  }
+
+  private isSummaryMessage(message: ChatMessage | undefined): boolean {
+    if (!message || message.role !== 'assistant') return false;
+    if (typeof message.content !== 'string') return false;
+    return message.content.startsWith('[Earlier conversation summary:');
+  }
+
+  private pruneHistoryToContextLimit(contextLimit: number, keepRecent: number, threshold: number): number {
+    let estimated = estimateTokens(this.history);
+    if (estimated <= contextLimit) return 0;
+
+    const pruneTarget = Math.floor(contextLimit * Math.min(0.95, Math.max(threshold, 0.72)));
+    const pinnedPrefix = this.isSummaryMessage(this.history[0]) ? 1 : 0;
+    const minNonPinnedToKeep = Math.max(MIN_KEEP_RECENT_MESSAGES, Math.min(keepRecent, Math.max(0, this.history.length - pinnedPrefix)));
+
+    const beforeCount = this.history.length;
+
+    while (estimated > pruneTarget && (this.history.length - pinnedPrefix) > minNonPinnedToKeep) {
+      this.history.splice(pinnedPrefix, 1);
+      estimated = estimateTokens(this.history);
+    }
+
+    return beforeCount - this.history.length;
+  }
+
+  private rewriteHistory() {
+    const historyPath = path.join(this.sessionDir, 'history.jsonl');
+    fs.mkdirSync(path.dirname(historyPath), { recursive: true });
+    const lines = this.history.map(message => JSON.stringify({ ...message, timestamp: new Date().toISOString() }));
+    fs.writeFileSync(historyPath, lines.length > 0 ? `${lines.join('\n')}\n` : '', 'utf-8');
   }
 
   private saveHistory(message: ChatMessage) {
@@ -601,35 +780,76 @@ export class Agent {
   private toPublicImageUrl(rawUrl: string): string | null {
     if (!rawUrl) return null;
     if (rawUrl.startsWith('/api/sessions/')) return rawUrl;
-    if (rawUrl.startsWith('http://') || rawUrl.startsWith('https://') || rawUrl.startsWith('data:')) return rawUrl;
+    if (rawUrl.startsWith('http://') || rawUrl.startsWith('https://') || rawUrl.startsWith('data:') || rawUrl.startsWith('mailto:')) return rawUrl;
 
-    const normalized = rawUrl.trim().replace(/\\/g, '/').replace(/^\.\//, '').replace(/^\//, '');
+    const decode = (value: string): string => {
+      try {
+        return decodeURIComponent(value);
+      } catch {
+        return value;
+      }
+    };
 
-    const screenshotsRel = normalized.match(/^screenshots\/(.+)$/);
-    if (screenshotsRel) {
-      const filename = path.basename(screenshotsRel[1]);
-      return `/api/sessions/${this.sessionId}/images/${filename}`;
+    const toSessionRelative = (candidate: string): string | null => {
+      const normalizedCandidate = path.normalize(candidate);
+      const normalizedSessionDir = path.normalize(this.sessionDir);
+
+      const rel = path.relative(normalizedSessionDir, normalizedCandidate);
+      if (rel && !rel.startsWith('..') && !path.isAbsolute(rel)) {
+        return rel.replace(/\\/g, '/');
+      }
+      if (!rel) return '';
+      return null;
+    };
+
+    const toArtifactUrl = (relPath: string): string | null => {
+      const cleaned = relPath.replace(/^\/+/, '').replace(/\\/g, '/');
+      if (!cleaned || cleaned.startsWith('..')) return null;
+      const encoded = cleaned
+        .split('/')
+        .filter(Boolean)
+        .map(encodeURIComponent)
+        .join('/');
+      if (!encoded) return null;
+      return `/api/sessions/${this.sessionId}/artifacts/${encoded}`;
+    };
+
+    const trimmed = rawUrl.trim();
+    let localPathCandidate: string | null = null;
+
+    if (trimmed.startsWith('file://')) {
+      try {
+        localPathCandidate = fileURLToPath(trimmed);
+      } catch {
+        localPathCandidate = decode(trimmed.replace(/^file:\/\//i, '').replace(/^\/+([A-Za-z]:)/, '$1'));
+      }
+    } else if (path.isAbsolute(trimmed)) {
+      localPathCandidate = trimmed;
     }
 
-    const uploadsRel = normalized.match(/^uploads\/(.+)$/);
-    if (uploadsRel) {
-      const filename = path.basename(uploadsRel[1]);
-      return `/api/sessions/${this.sessionId}/uploads/${filename}`;
+    if (localPathCandidate) {
+      const sessionRelative = toSessionRelative(localPathCandidate);
+      if (sessionRelative !== null) {
+        return toArtifactUrl(sessionRelative);
+      }
+
+      const slashPath = decode(localPathCandidate).replace(/\\/g, '/');
+      const marker = `/sessions/${this.sessionId}/`;
+      const markerIndex = slashPath.lastIndexOf(marker);
+      if (markerIndex >= 0) {
+        const rel = slashPath.slice(markerIndex + marker.length);
+        return toArtifactUrl(rel);
+      }
     }
 
-    const screenshotsAbs = normalized.match(/[\/]screenshots[\/](.+)$/);
-    if (screenshotsAbs) {
-      const filename = path.basename(screenshotsAbs[1]);
-      return `/api/sessions/${this.sessionId}/images/${filename}`;
+    const normalized = decode(trimmed).replace(/\\/g, '/').replace(/^\.\//, '').replace(/^\//, '');
+    if (!normalized || normalized.startsWith('..')) return null;
+
+    if (normalized.startsWith(`sessions/${this.sessionId}/`)) {
+      return toArtifactUrl(normalized.slice(`sessions/${this.sessionId}/`.length));
     }
 
-    const uploadsAbs = normalized.match(/[\/]uploads[\/](.+)$/);
-    if (uploadsAbs) {
-      const filename = path.basename(uploadsAbs[1]);
-      return `/api/sessions/${this.sessionId}/uploads/${filename}`;
-    }
-
-    return null;
+    return toArtifactUrl(normalized);
   }
 
   private rewriteImageUrlsForUser(text: string): string {

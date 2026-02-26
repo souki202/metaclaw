@@ -129,8 +129,10 @@ export interface SessionConfig {
   discord?: SessionDiscordConfig;
   slack?: SessionSlackConfig;
   context?: {
+    maxTokens?: number;
     compressionThreshold?: number;
     keepRecentMessages?: number;
+    memoryCompressionModel?: string;
   };
   consultAi?: {
     endpointUrl: string;

@@ -410,38 +410,68 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
 
   const toPublicAssetUrl = (rawUrl: string): string => {
     if (!rawUrl) return rawUrl;
+    const decode = (value: string): string => {
+      try {
+        return decodeURIComponent(value);
+      } catch {
+        return value;
+      }
+    };
+
+    const toArtifactUrl = (relativePath: string): string => {
+      const cleaned = relativePath
+        .replace(/^\/+/, "")
+        .replace(/\\/g, "/")
+        .replace(/^\.\//, "");
+      if (!cleaned || cleaned.startsWith("..") || !currentSession) return rawUrl;
+      const encoded = cleaned
+        .split("/")
+        .filter(Boolean)
+        .map(encodeURIComponent)
+        .join("/");
+      if (!encoded) return rawUrl;
+      return `/api/sessions/${currentSession}/artifacts/${encoded}`;
+    };
+
     if (
       rawUrl.startsWith("data:") ||
       rawUrl.startsWith("http://") ||
       rawUrl.startsWith("https://") ||
-      rawUrl.startsWith("/api/sessions/")
+      rawUrl.startsWith("/api/sessions/") ||
+      rawUrl.startsWith("mailto:")
     ) {
       return rawUrl;
     }
 
-    const normalized = rawUrl
+    const trimmed = rawUrl.trim();
+    const fileUrlMatch = trimmed.match(/^file:\/\/(.*)$/i);
+    if (fileUrlMatch) {
+      const filePart = decode(fileUrlMatch[1]).replace(/^\/+([A-Za-z]:)/, "$1");
+      const slashPath = filePart.replace(/\\/g, "/");
+      if (currentSession) {
+        const marker = `/sessions/${currentSession}/`;
+        const markerIndex = slashPath.lastIndexOf(marker);
+        if (markerIndex >= 0) {
+          return toArtifactUrl(slashPath.slice(markerIndex + marker.length));
+        }
+      }
+      return rawUrl;
+    }
+
+    const normalized = decode(trimmed)
       .trim()
       .replace(/\\/g, "/")
       .replace(/^\.\//, "")
       .replace(/^\//, "");
 
-    const screenshotsMatch = normalized.match(/^screenshots\/(.+)$/);
-    if (screenshotsMatch && currentSession) {
-      const filename = screenshotsMatch[1].split("/").pop();
-      if (filename) {
-        return `/api/sessions/${currentSession}/images/${filename}`;
+    if (currentSession) {
+      const sessionPrefix = `sessions/${currentSession}/`;
+      if (normalized.startsWith(sessionPrefix)) {
+        return toArtifactUrl(normalized.slice(sessionPrefix.length));
       }
     }
 
-    const uploadsMatch = normalized.match(/^uploads\/(.+)$/);
-    if (uploadsMatch && currentSession) {
-      const filename = uploadsMatch[1].split("/").pop();
-      if (filename) {
-        return `/api/sessions/${currentSession}/uploads/${filename}`;
-      }
-    }
-
-    return rawUrl;
+    return toArtifactUrl(normalized);
   };
 
   const renderMarkdown = (text: string) => {
@@ -456,7 +486,11 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
           remarkPlugins={[remarkGfm, remarkBreaks]}
           components={{
             a: ({ href, children }) => (
-              <a href={href} target="_blank" rel="noopener noreferrer">
+              <a
+                href={typeof href === "string" ? toPublicAssetUrl(href) : href}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
                 {children}
               </a>
             ),
