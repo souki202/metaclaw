@@ -4,7 +4,8 @@ import { randomUUID } from 'crypto';
 import type { MemoryEntry, ChatMessage, ContentPartText } from '../types.js';
 import type { EmbeddingProvider } from './embedding.js';
 
-const MAX_AUTO_TEXT = 8000;
+const AUTO_CHUNK_TARGET = 1200;
+const AUTO_CHUNK_MAX = 1600;
 
 const IMPORTANT_HINTS = [
   'important',
@@ -63,7 +64,7 @@ function calculateSalience(msg: ChatMessage, text: string): number {
   return clamp01(salience);
 }
 
-/** Extract plain text from a ChatMessage, stripping images. Truncate to MAX_AUTO_TEXT. */
+/** Extract plain text from a ChatMessage, stripping images. */
 function extractTextForMemory(msg: ChatMessage): string {
   const parts: string[] = [];
 
@@ -89,7 +90,92 @@ function extractTextForMemory(msg: ChatMessage): string {
     parts.push(toolInfo);
   }
 
-  return parts.join(' | ').slice(0, MAX_AUTO_TEXT);
+  return parts.join(' | ');
+}
+
+function splitByWordBoundary(text: string, maxLength: number): string[] {
+  const words = text.trim().split(/\s+/u).filter(Boolean);
+  if (words.length === 0) return [];
+
+  const chunks: string[] = [];
+  let current = '';
+
+  for (const word of words) {
+    if (!current) {
+      current = word;
+      continue;
+    }
+
+    if ((current.length + 1 + word.length) <= maxLength) {
+      current += ` ${word}`;
+      continue;
+    }
+
+    chunks.push(current);
+    current = word;
+  }
+
+  if (current) {
+    chunks.push(current);
+  }
+
+  return chunks;
+}
+
+function splitTextForAutoMemory(text: string): string[] {
+  const normalized = text.trim();
+  if (!normalized) return [];
+
+  if (normalized.length <= AUTO_CHUNK_TARGET) {
+    return [normalized];
+  }
+
+  const sentenceLikeUnits = normalized
+    .split(/(?<=[。．.!?！？]|\n)\s*/u)
+    .map(unit => unit.trim())
+    .filter(Boolean);
+
+  const units: string[] = [];
+  for (const unit of sentenceLikeUnits) {
+    if (unit.length <= AUTO_CHUNK_MAX) {
+      units.push(unit);
+      continue;
+    }
+    units.push(...splitByWordBoundary(unit, AUTO_CHUNK_MAX));
+  }
+
+  if (units.length === 0) {
+    return splitByWordBoundary(normalized, AUTO_CHUNK_MAX);
+  }
+
+  const chunks: string[] = [];
+  let current = '';
+
+  for (const unit of units) {
+    if (!current) {
+      current = unit;
+      continue;
+    }
+
+    if (current.length >= AUTO_CHUNK_TARGET) {
+      chunks.push(current);
+      current = unit;
+      continue;
+    }
+
+    if ((current.length + 1 + unit.length) <= AUTO_CHUNK_MAX) {
+      current += ` ${unit}`;
+    } else {
+      chunks.push(current);
+      current = unit;
+    }
+  }
+
+  if (current) {
+    chunks.push(current);
+  }
+
+  return chunks;
 }
 
 export interface SmartRecallOptions {
@@ -188,20 +274,26 @@ export class VectorMemory {
     const text = extractTextForMemory(msg);
     if (text.trim().length < 10) return;
 
-    const embedding = await this.embedder.embed(text);
-    const entry: MemoryEntry = {
-      id: randomUUID(),
-      text,
-      embedding,
-      metadata: {
-        timestamp: new Date().toISOString(),
-        sessionId: this.sessionId,
-        role: msg.role as 'user' | 'assistant' | 'tool',
-        type: 'auto',
-        salience: calculateSalience(msg, text),
-      },
-    };
-    this.entries.push(entry);
+    const chunks = splitTextForAutoMemory(text);
+    if (chunks.length === 0) return;
+
+    const timestamp = new Date().toISOString();
+    for (const chunk of chunks) {
+      const embedding = await this.embedder.embed(chunk);
+      const entry: MemoryEntry = {
+        id: randomUUID(),
+        text: chunk,
+        embedding,
+        metadata: {
+          timestamp,
+          sessionId: this.sessionId,
+          role: msg.role as 'user' | 'assistant' | 'tool',
+          type: 'auto',
+          salience: calculateSalience(msg, chunk),
+        },
+      };
+      this.entries.push(entry);
+    }
     this.save();
   }
 

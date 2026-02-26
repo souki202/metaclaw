@@ -65,14 +65,35 @@ test('humanLikeRecall updates recall metadata by default', async () => {
   assert.equal(unchanged!.metadata.recallCount, 1);
 });
 
-test('autoAdd keeps each memory entry within 8000 characters', async () => {
+test('autoAdd splits very long text into multiple entries without oversize chunks', async () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'metaclaw-vector-'));
   const memory = new VectorMemory(workspace, 'session-c', new MockEmbedder());
 
-  await memory.autoAdd({ role: 'user', content: 'x'.repeat(9000) });
+  const sentence = 'This is a sentence used for automatic vector memory chunking.';
+  const longText = Array.from({ length: 80 }, () => sentence).join(' ');
+  await memory.autoAdd({ role: 'user', content: longText });
 
-  const latest = memory.list(1)[0];
-  assert.ok(latest);
-  assert.equal(latest.metadata.role, 'user');
-  assert.ok(latest.text.length <= 8000);
+  const entries = memory.list(100);
+  assert.ok(entries.length > 1);
+  assert.ok(entries.every(entry => entry.metadata.role === 'user'));
+  assert.ok(entries.every(entry => entry.text.length <= 1600));
+});
+
+test('autoAdd chunking preserves words and sentence endings', async () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'metaclaw-vector-'));
+  const memory = new VectorMemory(workspace, 'session-d', new MockEmbedder());
+
+  const sentence = 'Alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi.';
+  const longText = Array.from({ length: 70 }, () => sentence).join(' ');
+  await memory.autoAdd({ role: 'assistant', content: longText });
+
+  const entries = memory.list(200);
+  assert.ok(entries.length > 1);
+  assert.ok(entries.every(entry => /[.!?。！？]$/.test(entry.text)));
+
+  const merged = entries
+    .sort((a, b) => a.metadata.timestamp.localeCompare(b.metadata.timestamp))
+    .map(entry => entry.text)
+    .join(' ');
+  assert.ok(!/\s{2,}/.test(merged));
 });
