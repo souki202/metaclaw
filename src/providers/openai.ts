@@ -1,6 +1,17 @@
 import OpenAI from 'openai';
 import type { ChatMessage, ToolDefinition, ProviderConfig, ContentPart, ContentPartText, ContentPartImageUrl } from '../types.js';
 
+function isInvalidPromptError(error: unknown): boolean {
+  const e = error as { status?: number; code?: string; message?: string };
+  if (e?.status === 400 && e?.code === 'invalid_prompt') return true;
+  const msg = String(e?.message ?? '').toLowerCase();
+  return e?.status === 400 && msg.includes('invalid') && msg.includes('prompt');
+}
+
+function invalidPromptFallbackMessage(): string {
+  return 'I could not process that request due to provider safety/prompt restrictions. Please rephrase and avoid sensitive or policy-restricted content, then try again.';
+}
+
 // Helper: extract text from potentially multi-part content
 function extractText(content: string | ContentPart[] | null): string {
   if (!content) return '';
@@ -171,7 +182,17 @@ export class OpenAIProvider {
     const requestOpts = signal ? { signal } : undefined;
 
     if (onStream) {
-      const stream = this.client.responses.stream(params, requestOpts);
+      let stream: ReturnType<typeof this.client.responses.stream>;
+      try {
+        stream = this.client.responses.stream(params, requestOpts);
+      } catch (e) {
+        if (isInvalidPromptError(e)) {
+          const fallback = invalidPromptFallbackMessage();
+          onStream(fallback, 'content');
+          return { role: 'assistant', content: fallback };
+        }
+        throw e;
+      }
 
       let fullContent = '';
       let fullReasoning = '';
@@ -216,6 +237,14 @@ export class OpenAIProvider {
           ...(toolCalls && { tool_calls: toolCalls }),
         };
       } catch (e: any) {
+        if (isInvalidPromptError(e)) {
+          const fallback = invalidPromptFallbackMessage();
+          onStream(fallback, 'content');
+          return {
+            role: 'assistant',
+            content: fallback,
+          };
+        }
         // If aborted, return partial content gracefully
         if (signal?.aborted || e?.name === 'AbortError') {
           return {
@@ -227,7 +256,18 @@ export class OpenAIProvider {
         throw e;
       }
     } else {
-      const response = await this.client.responses.create(params, requestOpts);
+      let response: Awaited<ReturnType<typeof this.client.responses.create>>;
+      try {
+        response = await this.client.responses.create(params, requestOpts);
+      } catch (e) {
+        if (isInvalidPromptError(e)) {
+          return {
+            role: 'assistant',
+            content: invalidPromptFallbackMessage(),
+          };
+        }
+        throw e;
+      }
       const text = extractResponseText(response);
       const toolCalls = extractResponseToolCalls(response);
       
@@ -246,7 +286,7 @@ export class OpenAIProvider {
     }
   }
 
-  async summarizeText(
+  async summarizeMemory(
     text: string,
     options: {
       model?: string;
@@ -255,6 +295,9 @@ export class OpenAIProvider {
   ): Promise<string> {
     const response = await this.client.responses.create({
       model: options.model || this.config.model,
+      reasoning:  {
+        effort: 'none',
+      },
       input: [
         {
           role: 'system',
@@ -291,7 +334,7 @@ export class OpenAIProvider {
       .map((m) => `${m.role}: ${extractText(m.content)}`)
       .join('\n');
 
-    return this.summarizeText(text, {
+    return this.summarizeMemory(text, {
       model: options.model,
       systemPrompt: options.systemPrompt || 'Summarize the following conversation history concisely, preserving key facts, decisions, and context that would be needed to continue the conversation.',
     });

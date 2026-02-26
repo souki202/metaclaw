@@ -353,6 +353,74 @@ export class Agent {
     return cues;
   }
 
+  private buildRecentFlowContext(limit = 6): string {
+    type FlowEntry = { role: ChatMessage['role']; prefix: string; text: string };
+    const maxChars = 2000;
+
+    const toEntry = (msg: ChatMessage): FlowEntry | null => {
+      const text = extractText(msg.content).replace(/\s+/g, ' ').trim();
+      if (!text) return null;
+      return {
+        role: msg.role,
+        prefix: msg.role === 'tool' && msg.name ? `tool:${msg.name}` : msg.role,
+        text: text.slice(0, 240),
+      };
+    };
+
+    const toLine = (entry: FlowEntry): string => `[${entry.prefix}] ${entry.text}`;
+    const joinedLength = (entries: FlowEntry[]): number => entries.map(toLine).join('\n').length;
+
+    const selected = this.history
+      .slice(-Math.max(limit * 2, limit))
+      .map(toEntry)
+      .filter((entry): entry is FlowEntry => entry !== null)
+      .slice(-limit);
+
+    if (!selected.some(entry => entry.role === 'user')) {
+      const latestUser = [...this.history]
+        .reverse()
+        .find(msg => msg.role === 'user' && extractText(msg.content).trim().length > 0);
+
+      if (latestUser) {
+        const userEntry = toEntry(latestUser);
+        if (userEntry) {
+          if (selected.length > 0) {
+            const toolIndex = selected.findIndex(entry => entry.role === 'tool');
+            if (toolIndex >= 0) {
+              selected.splice(toolIndex, 1);
+            } else {
+              selected.shift();
+            }
+          }
+          selected.push(userEntry);
+        }
+      }
+    }
+
+    while (joinedLength(selected) > maxChars && selected.some(entry => entry.role === 'tool')) {
+      const idx = selected.findIndex(entry => entry.role === 'tool');
+      if (idx < 0) break;
+      selected.splice(idx, 1);
+    }
+
+    while (joinedLength(selected) > maxChars) {
+      const idx = selected.findIndex(entry => entry.role !== 'user');
+      if (idx < 0) break;
+      selected.splice(idx, 1);
+    }
+
+    if (joinedLength(selected) > maxChars) {
+      const firstUser = selected.find(entry => entry.role === 'user');
+      if (firstUser) {
+        const prefix = `[${firstUser.prefix}] `;
+        const available = Math.max(0, maxChars - prefix.length);
+        return `${prefix}${firstUser.text.slice(0, available)}`;
+      }
+    }
+
+    return selected.map(toLine).join('\n').slice(0, maxChars);
+  }
+
   private getRecallRawCharLimit(): number {
     return Math.max(
       MAX_RECALL_COMPRESSED_CHARS,
@@ -423,6 +491,7 @@ export class Agent {
     results: RecalledEntry[],
     cue: string,
     mode: 'turn' | 'autonomous',
+    recentFlowContext?: string,
   ): Promise<string> {
     const raw = this.buildRawRecalledMemories(results, this.getRecallRawCharLimit());
     if (!raw) return '';
@@ -432,8 +501,8 @@ export class Agent {
     }
 
     try {
-      const compressed = await this.provider.summarizeText(
-        `Current cue:\n${cue.slice(0, 1200)}\n\nRecalled memory corpus:\n${raw}`,
+      const compressed = await this.provider.summarizeMemory(
+        `Current cue:\n${cue.slice(0, 1200)}\n\nRecent conversation flow:\n${(recentFlowContext || '').slice(0, 2000)}\n\nRecalled memory corpus:\n${raw}`,
         {
           model: this.getMemoryCompressionModel(),
           systemPrompt: `
@@ -483,7 +552,7 @@ Plain text only. No markdown bullets required.
       });
 
       return {
-        text: await this.formatRecalledMemories(results, userMessage, 'turn'),
+        text: await this.formatRecalledMemories(results, userMessage, 'turn', this.buildRecentFlowContext(8)),
         ids: results.map(item => item.entry.id),
       };
     } catch (e) {
@@ -528,7 +597,7 @@ Plain text only. No markdown bullets required.
       if (fresh.length === 0) return null;
 
       fresh.forEach(item => recalledIds.add(item.entry.id));
-      const text = await this.formatRecalledMemories(fresh, latestContext, 'autonomous');
+      const text = await this.formatRecalledMemories(fresh, latestContext, 'autonomous', this.buildRecentFlowContext(10));
       if (!text) return null;
 
       this.emit('memory_update', {
