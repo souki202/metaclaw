@@ -6,7 +6,7 @@ import fs from 'fs';
 import type { SessionManager } from '../core/sessions.js';
 import type { DashboardEvent, Config, SessionConfig, SearchConfig } from '../types.js';
 import { createLogger } from '../logger.js';
-import { loadConfig, saveConfig, setSession, deleteSession, setSearchConfig, ensureBuiltinMcpServer } from '../config.js';
+import { loadConfig, saveConfig, setSession, deleteSession, setSearchConfig, setEmbeddingConfig, ensureBuiltinMcpServer } from '../config.js';
 import { loadSkills, type Skill } from '../core/skills.js';
 
 const log = createLogger('dashboard');
@@ -228,7 +228,6 @@ export class DashboardServer {
             endpoint: 'https://api.openai.com/v1',
             apiKey: '',
             model: 'gpt-4o',
-            embeddingModel: 'text-embedding-3-small',
             contextWindow: 128000
           },
           workspace: req.body.workspace || `./data/sessions/${sessionId}`,
@@ -469,6 +468,35 @@ export class DashboardServer {
         };
         
         setSearchConfig(config, searchConfig);
+        saveConfig(config);
+        res.json({ ok: true });
+      } catch (e: unknown) {
+        res.status(500).json({ error: (e as Error).message });
+      }
+    });
+
+    // API: embedding設定取得
+    this.app.get('/api/embedding', (_req, res) => {
+      const config = this.loadCurrentConfig();
+      const embedding = config.embedding || { endpoint: '', apiKey: '', model: '' };
+      res.json({
+        endpoint: embedding.endpoint,
+        apiKey: embedding.apiKey ? `${embedding.apiKey.slice(0, 8)}***` : '',
+        model: embedding.model,
+      });
+    });
+
+    // API: embedding設定更新
+    this.app.put('/api/embedding', (req, res) => {
+      try {
+        const config = this.loadCurrentConfig();
+        const existing = config.embedding || { endpoint: '', apiKey: '', model: '' };
+        const embeddingConfig = {
+          endpoint: req.body.endpoint ?? existing.endpoint,
+          apiKey: req.body.apiKey !== undefined && !String(req.body.apiKey).includes('***') ? req.body.apiKey : existing.apiKey,
+          model: req.body.model ?? existing.model,
+        };
+        setEmbeddingConfig(config, embeddingConfig);
         saveConfig(config);
         res.json({ ok: true });
       } catch (e: unknown) {

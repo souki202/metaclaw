@@ -2,7 +2,9 @@ import React, { useState, useEffect } from "react";
 
 // -------- Global Settings Modal --------
 export const GlobalSettingsModal = ({ onClose, onSave }: any) => {
-  const [tab, setTab] = useState<"search" | "embedding" | "skills" | "providers">("search");
+  const [tab, setTab] = useState<
+    "search" | "embedding" | "skills" | "providers"
+  >("search");
   const [provider, setProvider] = useState("brave");
   const [braveKey, setBraveKey] = useState("");
   const [serperKey, setSerperKey] = useState("");
@@ -23,7 +25,6 @@ export const GlobalSettingsModal = ({ onClose, onSave }: any) => {
     availableModels: [] as string[],
     defaultModel: "",
     description: "",
-    embeddingModel: "text-embedding-3-small",
     contextWindow: "",
   });
   const [embeddingEndpoint, setEmbeddingEndpoint] = useState("");
@@ -135,7 +136,6 @@ export const GlobalSettingsModal = ({ onClose, onSave }: any) => {
       availableModels: [],
       defaultModel: "",
       description: "",
-      embeddingModel: "",
       contextWindow: "",
     });
   };
@@ -150,7 +150,6 @@ export const GlobalSettingsModal = ({ onClose, onSave }: any) => {
       availableModels: template.availableModels || [],
       defaultModel: template.defaultModel || "",
       description: template.description || "",
-      embeddingModel: template.embeddingModel || "",
       contextWindow: template.contextWindow?.toString() || "",
     });
   };
@@ -171,9 +170,6 @@ export const GlobalSettingsModal = ({ onClose, onSave }: any) => {
       description: providerForm.description,
     };
 
-    if (providerForm.embeddingModel) {
-      newTemplate.embeddingModel = providerForm.embeddingModel;
-    }
     if (providerForm.contextWindow) {
       newTemplate.contextWindow = parseInt(providerForm.contextWindow, 10);
     }
@@ -335,9 +331,15 @@ export const GlobalSettingsModal = ({ onClose, onSave }: any) => {
 
               {tab === "embedding" && (
                 <div className="settings-section" style={{ marginTop: 20 }}>
-                  <p style={{ fontSize: 13, color: "var(--text-dim)", marginBottom: 16 }}>
-                    Global embedding settings used by all sessions for long-term memory.
-                    If left empty, each session falls back to its own provider&apos;s embedding.
+                  <p
+                    style={{
+                      fontSize: 13,
+                      color: "var(--text-dim)",
+                      marginBottom: 16,
+                    }}
+                  >
+                    Global embedding settings used by all sessions for long-term
+                    memory.
                   </p>
                   <div className="form-group">
                     <label className="form-label">Embedding API Endpoint</label>
@@ -519,22 +521,6 @@ export const GlobalSettingsModal = ({ onClose, onSave }: any) => {
                                 })
                               }
                               placeholder="e.g., Use this for general tasks, it has good balance of speed and intelligence."
-                            />
-                          </div>
-                          <div className="form-group">
-                            <label className="form-label">
-                              Embedding Model (optional)
-                            </label>
-                            <input
-                              className="form-input mono"
-                              value={providerForm.embeddingModel}
-                              onChange={(e) =>
-                                setProviderForm({
-                                  ...providerForm,
-                                  embeddingModel: e.target.value,
-                                })
-                              }
-                              placeholder="text-embedding-3-small"
                             />
                           </div>
                           <div className="form-group">

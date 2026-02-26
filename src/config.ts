@@ -9,7 +9,6 @@ const DEFAULT_PROVIDER: ProviderConfig = {
   endpoint: 'https://api.openai.com/v1',
   apiKey: '',
   model: 'gpt-4o',
-  embeddingModel: 'text-embedding-3-small',
   contextWindow: 128000,
 };
 
@@ -63,7 +62,6 @@ export function loadConfig(): Config {
            endpoint: oldEnv.endpoint,
            apiKey: oldEnv.apiKey,
            model: oldEnv.model,
-           embeddingModel: oldEnv.embeddingModel,
            contextWindow: oldEnv.contextWindow,
          };
        } else {

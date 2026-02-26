@@ -26,7 +26,48 @@ interface ExtendedChatMessage extends ChatMessage {
   }[];
   imageUrls?: string[];
   reasoning?: string;
+  memoryRecall?: {
+    mode: "turn" | "autonomous" | string;
+    count: number;
+    memories: { role: string; text: string }[];
+  };
 }
+
+const MemoryRecallBlock: React.FC<{
+  recall: {
+    mode: "turn" | "autonomous" | string;
+    count: number;
+    memories: { role: string; text: string }[];
+  };
+}> = ({ recall }) => {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const label = recall.mode === "autonomous" ? "Autonomous recall" : "Recall";
+
+  return (
+    <div className={`memory-recall ${isExpanded ? "expanded" : ""}`}>
+      <button
+        className="memory-recall-header"
+        onClick={() => setIsExpanded((prev) => !prev)}
+        type="button"
+      >
+        <span className="memory-recall-title">🧠 {label}</span>
+        <span className="memory-recall-meta">{recall.count} memories</span>
+        <span className="memory-recall-toggle">▶</span>
+      </button>
+
+      {isExpanded && (
+        <div className="memory-recall-content">
+          {recall.memories.map((entry, index) => (
+            <div className="memory-recall-item" key={`${entry.role}-${index}`}>
+              <span className="memory-recall-role">{entry.role}</span>
+              <span className="memory-recall-text">{entry.text}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
 
 const ReasoningBlock: React.FC<{
   reasoning: string;
@@ -531,6 +572,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
 
         {messages.map((m, idx) => (
           <React.Fragment key={idx}>
+            {m.memoryRecall && <MemoryRecallBlock recall={m.memoryRecall} />}
             {m.toolEvents &&
               m.toolEvents.map((evt, eidx) => (
                 <ToolEventBlock key={`evt-${idx}-${eidx}`} event={evt} />

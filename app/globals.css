@@ -559,6 +559,71 @@ header .status {
   color: var(--red);
 }
 
+.memory-recall {
+  align-self: center;
+  width: min(560px, 92%);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.memory-recall-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  background: transparent;
+  color: var(--text2);
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.memory-recall-title {
+  font-weight: 500;
+}
+
+.memory-recall-meta {
+  margin-left: auto;
+  opacity: 0.85;
+}
+
+.memory-recall-toggle {
+  font-size: 10px;
+  transition: transform 0.2s;
+}
+
+.memory-recall.expanded .memory-recall-toggle {
+  transform: rotate(90deg);
+}
+
+.memory-recall-content {
+  border-top: 1px solid var(--border);
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.memory-recall-item {
+  display: flex;
+  gap: 8px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text2);
+}
+
+.memory-recall-role {
+  flex-shrink: 0;
+  color: var(--purple);
+  font-family: var(--mono);
+}
+
+.memory-recall-text {
+  opacity: 0.9;
+}
+
 .input-area {
   padding: 12px 16px;
   border-top: 1px solid var(--border);

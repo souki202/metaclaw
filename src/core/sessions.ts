@@ -243,6 +243,14 @@ export class SessionManager {
     this.config = config;
     // Reload schedules to pick up any sessions added or removed in the new config
     this.loadAllSessionSchedules();
+
+    for (const [sessionId, agent] of this.agents.entries()) {
+      const sessionConfig = this.config.sessions[sessionId];
+      if (sessionConfig) {
+        agent.updateConfig(sessionConfig);
+      }
+      agent.updateGlobalConfig(this.config);
+    }
   }
 
   // セッションのプロバイダー設定を解決

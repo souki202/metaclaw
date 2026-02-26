@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import type { ChatMessage, SessionConfig, Config, ProviderConfig, ContentPart, ContentPartText, ToolDefinition, ScheduleUpsertInput, SessionSchedule } from '../types.js';
 import { OpenAIProvider } from '../providers/openai.js';
-import { VectorMemory } from '../memory/vector.js';
+import { VectorMemory, type RecalledEntry } from '../memory/vector.js';
 import { EmbeddingClient, type EmbeddingProvider } from '../memory/embedding.js';
 import { QuickMemory, WorkspaceFiles } from '../memory/quick.js';
 import { buildTools, executeTool, type ToolContext } from '../tools/index.js';
@@ -89,11 +89,10 @@ export class Agent {
   private workspace: string;
   private provider: OpenAIProvider;
   private providerConfig: ProviderConfig;
-  private embeddingProvider: EmbeddingProvider;
-  private usingGlobalEmbedding: boolean;
+  private embeddingProvider: EmbeddingProvider | null;
   private quickMemory: QuickMemory;
   private tmpMemory: QuickMemory;
-  private vectorMemory: VectorMemory;
+  private vectorMemory: VectorMemory | null;
   private mcpManager: McpClientManager;
   private files: WorkspaceFiles;
   private history: ChatMessage[] = [];
@@ -130,18 +129,17 @@ export class Agent {
     this.providerConfig = this.resolveProviderConfig();
     this.provider = new OpenAIProvider(this.providerConfig);
 
-    // Embedding provider: use global config if set, otherwise fall back to session provider
+    // Embedding provider: only use global embedding config (no per-session fallback)
     if (globalConfig?.embedding?.endpoint && globalConfig.embedding.apiKey && globalConfig.embedding.model) {
       this.embeddingProvider = new EmbeddingClient(globalConfig.embedding);
-      this.usingGlobalEmbedding = true;
+      this.vectorMemory = new VectorMemory(sessionDir, sessionId, this.embeddingProvider);
     } else {
-      this.embeddingProvider = this.provider;
-      this.usingGlobalEmbedding = false;
+      this.embeddingProvider = null;
+      this.vectorMemory = null;
     }
 
     this.quickMemory = new QuickMemory(sessionDir);
     this.tmpMemory = new QuickMemory(sessionDir, 'TMP_MEMORY.md');
-    this.vectorMemory = new VectorMemory(sessionDir, sessionId, this.embeddingProvider);
     this.mcpManager = new McpClientManager(globalConfig?.search, workspace);
     this.files = new WorkspaceFiles(sessionDir);
     this.log = createLogger(`agent:${sessionId}`);
@@ -283,9 +281,29 @@ export class Agent {
     this.config = newConfig;
     this.providerConfig = this.resolveProviderConfig();
     this.provider = new OpenAIProvider(this.providerConfig);
-    // Only update VectorMemory embedder if we're using the session provider as fallback
-    if (!this.usingGlobalEmbedding) {
-      this.vectorMemory.updateEmbedder(this.provider);
+    // VectorMemory uses global embedding config only — no update needed here
+  }
+
+  updateGlobalConfig(newGlobalConfig: Config) {
+    this.globalConfig = newGlobalConfig;
+    const embedding = newGlobalConfig.embedding;
+    const hasEmbeddingConfig = Boolean(
+      embedding?.endpoint && embedding.apiKey && embedding.model,
+    );
+
+    if (!hasEmbeddingConfig) {
+      this.embeddingProvider = null;
+      this.vectorMemory = null;
+      return;
+    }
+
+    const embedder = new EmbeddingClient(embedding!);
+    this.embeddingProvider = embedder;
+
+    if (this.vectorMemory) {
+      this.vectorMemory.updateEmbedder(embedder);
+    } else {
+      this.vectorMemory = new VectorMemory(this.sessionDir, this.sessionId, embedder);
     }
   }
 
@@ -301,26 +319,130 @@ export class Agent {
     this.onEvent?.({ type, sessionId: this.sessionId, data });
   }
 
-  /** Recall relevant past memories for the current user message, formatted for injection into system prompt. */
-  private async recallForCurrentTurn(userMessage: string): Promise<string | null> {
+  private buildRecallCues(primaryCue: string, recentLimit = 8): string[] {
+    const cues: string[] = [primaryCue];
+
+    const recentHistory = this.history
+      .slice(-recentLimit)
+      .map(msg => {
+        const text = extractText(msg.content);
+        if (!text) return '';
+        if (msg.role === 'tool' && msg.name) {
+          return `[tool:${msg.name}] ${text.slice(0, 300)}`;
+        }
+        return text.slice(0, 300);
+      })
+      .filter(text => text.trim().length > 0);
+
+    cues.push(...recentHistory.slice(-4));
+
+    const stitched = recentHistory.slice(-3).join('\n');
+    if (stitched.trim().length > 0) {
+      cues.push(stitched.slice(0, 800));
+    }
+
+    return cues;
+  }
+
+  private formatRecalledMemories(results: RecalledEntry[]): string {
+    const lines = results.map(r => {
+      const ts = r.entry.metadata.timestamp.slice(0, 10);
+      const role = r.entry.metadata.role ?? 'unknown';
+      const text = r.entry.text.length > 400 ? r.entry.text.slice(0, 397) + '...' : r.entry.text;
+      return `[${ts} | ${role}]: ${text}`;
+    });
+
+    return lines.join('\n\n');
+  }
+
+  /** Recall relevant past memories for the current turn using user cue + recent autonomous activity cues. */
+  private async recallForCurrentTurn(userMessage: string): Promise<{ text: string | null; ids: string[] }> {
+    if (!this.config.tools.memory) return { text: null, ids: [] };
+    if (!this.vectorMemory) return { text: null, ids: [] };
+    if (this.vectorMemory.count() === 0) return { text: null, ids: [] };
+
+    try {
+      const cues = this.buildRecallCues(userMessage);
+      const results = await this.vectorMemory.humanLikeRecall(cues, {
+        limit: 6,
+        minSimilarity: 0.52,
+        salienceWeight: 0.35,
+      });
+      if (results.length === 0) return { text: null, ids: [] };
+
+      this.emit('memory_update', {
+        kind: 'recall',
+        mode: 'turn',
+        count: results.length,
+        memories: results.slice(0, 4).map(item => ({
+          role: item.entry.metadata.role ?? 'unknown',
+          text: item.entry.text.slice(0, 160),
+        })),
+      });
+
+      return {
+        text: this.formatRecalledMemories(results),
+        ids: results.map(item => item.entry.id),
+      };
+    } catch (e) {
+      this.log.warn('Memory recall failed:', e);
+      return { text: null, ids: [] };
+    }
+  }
+
+  /**
+   * During long autonomous tool loops, trigger additional cue-based recall from the latest reasoning/tool outputs.
+   */
+  private async recallDuringAutonomousLoop(messages: ChatMessage[], recalledIds: Set<string>): Promise<ChatMessage | null> {
     if (!this.config.tools.memory) return null;
+    if (!this.vectorMemory) return null;
     if (this.vectorMemory.count() === 0) return null;
 
     try {
-      const results = await this.vectorMemory.smartRecall(userMessage, { limit: 6, minSimilarity: 0.55 });
-      if (results.length === 0) return null;
+      const latestContext = messages
+        .slice(-6)
+        .map(msg => {
+          const text = extractText(msg.content);
+          if (!text) return '';
+          if (msg.role === 'tool' && msg.name) {
+            return `[tool:${msg.name}] ${text.slice(0, 280)}`;
+          }
+          return text.slice(0, 280);
+        })
+        .filter(Boolean)
+        .join('\n');
 
-      const lines = results.map(r => {
-        const ts = r.entry.metadata.timestamp.slice(0, 10);
-        const role = r.entry.metadata.role ?? 'unknown';
-        // Truncate each snippet to 400 chars for readability
-        const text = r.entry.text.length > 400 ? r.entry.text.slice(0, 397) + '...' : r.entry.text;
-        return `[${ts} | ${role}]: ${text}`;
+      if (!latestContext.trim()) return null;
+
+      const cues = this.buildRecallCues(latestContext, 10);
+      const recalled = await this.vectorMemory.humanLikeRecall(cues, {
+        limit: 4,
+        minSimilarity: 0.5,
+        salienceWeight: 0.4,
       });
 
-      return lines.join('\n\n');
+      const fresh = recalled.filter(item => !recalledIds.has(item.entry.id));
+      if (fresh.length === 0) return null;
+
+      fresh.forEach(item => recalledIds.add(item.entry.id));
+      const text = this.formatRecalledMemories(fresh);
+
+      this.emit('memory_update', {
+        kind: 'recall',
+        mode: 'autonomous',
+        count: fresh.length,
+        memories: fresh.slice(0, 4).map(item => ({
+          role: item.entry.metadata.role ?? 'unknown',
+          text: item.entry.text.slice(0, 160),
+        })),
+      });
+
+      return {
+        role: 'system',
+        content: `## Additional Recalled Memories\nThe following memories were autonomously recalled from recent tool-driven context:\n\n${text}`,
+      };
     } catch (e) {
-      this.log.warn('Memory recall failed:', e);
+      this.log.warn('Autonomous memory recall failed:', e);
       return null;
     }
   }
@@ -596,7 +718,7 @@ export class Agent {
     this.emit('message', { role: 'user', content: userMessage, channelId, imageUrls });
 
     // Auto-save user message to vector memory (fire-and-forget, don't block)
-    if (this.config.tools.memory) {
+    if (this.config.tools.memory && this.vectorMemory) {
       this.vectorMemory.autoAdd({ role: 'user', content: userMessage }).catch(e => {
         this.log.warn('Auto-save user message to vector failed:', e);
       });
@@ -604,13 +726,14 @@ export class Agent {
 
     // Recall relevant past memories BEFORE building system prompt
     const recalledMemories = await this.recallForCurrentTurn(userMessage);
-    const systemPrompt = this.buildSystemPrompt(recalledMemories);
+    const systemPrompt = this.buildSystemPrompt(recalledMemories.text);
+    const recalledMemoryIds = new Set<string>(recalledMemories.ids);
     const toolCtx: ToolContext = {
       sessionId: this.sessionId,
       config: this.config,
       workspace: this.workspace,
       sessionDir: this.sessionDir,
-      vectorMemory: this.vectorMemory,
+      vectorMemory: this.vectorMemory ?? undefined,
       quickMemory: this.quickMemory,
       tmpMemory: this.tmpMemory,
       searchConfig: this.globalConfig?.search,
@@ -707,7 +830,7 @@ export class Agent {
         this.history.push(response);
         this.saveHistory(response);
         // Auto-save assistant response to vector memory
-        if (this.config.tools.memory) {
+        if (this.config.tools.memory && this.vectorMemory) {
           this.vectorMemory.autoAdd(response).catch(e => {
             this.log.warn('Auto-save assistant message to vector failed:', e);
           });
@@ -780,7 +903,7 @@ export class Agent {
             this.history.push(toolMsg);
             this.saveHistory(toolMsg);
             // Auto-save tool result to vector memory
-            if (this.config.tools.memory) {
+            if (this.config.tools.memory && this.vectorMemory) {
               this.vectorMemory.autoAdd(toolMsg).catch(e => {
                 this.log.warn('Auto-save tool message to vector failed:', e);
               });
@@ -794,6 +917,11 @@ export class Agent {
             this.history.push(cancelledMsg);
             this.saveHistory(cancelledMsg);
             break;
+          }
+
+          const autonomousRecall = await this.recallDuringAutonomousLoop(messages, recalledMemoryIds);
+          if (autonomousRecall) {
+            messages.push(autonomousRecall);
           }
         } else {
           finalResponse = extractText(response.content);
@@ -872,7 +1000,7 @@ export class Agent {
       config: this.config,
       workspace: this.workspace,
       sessionDir: this.sessionDir,
-      vectorMemory: this.vectorMemory,
+      vectorMemory: this.vectorMemory ?? undefined,
       quickMemory: this.quickMemory,
       tmpMemory: this.tmpMemory,
       searchConfig: this.globalConfig?.search,

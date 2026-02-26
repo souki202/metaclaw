@@ -6,6 +6,25 @@ import type { EmbeddingProvider } from './embedding.js';
 
 const MAX_AUTO_TEXT = 8000;
 
+const IMPORTANT_HINTS = [
+  'important',
+  'remember',
+  'todo',
+  'deadline',
+  'urgent',
+  'must',
+  'required',
+  'error',
+  'failed',
+  'exception',
+];
+
+function clamp01(value: number): number {
+  if (value < 0) return 0;
+  if (value > 1) return 1;
+  return value;
+}
+
 function cosineSimilarity(a: number[], b: number[]): number {
   let dot = 0, magA = 0, magB = 0;
   for (let i = 0; i < a.length; i++) {
@@ -15,6 +34,33 @@ function cosineSimilarity(a: number[], b: number[]): number {
   }
   if (magA === 0 || magB === 0) return 0;
   return dot / (Math.sqrt(magA) * Math.sqrt(magB));
+}
+
+function calculateSalience(msg: ChatMessage, text: string): number {
+  let salience = 0.1;
+
+  if (msg.role === 'tool') salience += 0.25;
+  if (msg.role === 'user') salience += 0.2;
+  if (msg.role === 'assistant') salience += 0.15;
+
+  const normalized = text.toLowerCase();
+  if (IMPORTANT_HINTS.some(keyword => normalized.includes(keyword))) {
+    salience += 0.25;
+  }
+
+  if (/error|fail|exception|timeout/.test(normalized)) {
+    salience += 0.2;
+  }
+
+  if (/([a-zA-Z]:\\|\/|\.ts|\.tsx|\.js|\.json|https?:\/\/)/.test(text)) {
+    salience += 0.1;
+  }
+
+  if (text.length >= 200 && text.length <= 2000) {
+    salience += 0.1;
+  }
+
+  return clamp01(salience);
 }
 
 /** Extract plain text from a ChatMessage, stripping images. Truncate to MAX_AUTO_TEXT. */
@@ -51,6 +97,9 @@ export interface SmartRecallOptions {
   minSimilarity?: number;   // minimum raw cosine similarity (default 0.55)
   decayRate?: number;       // per-day recency decay factor (default 0.05)
   dedupeThreshold?: number; // skip result if similarity to an already-selected result exceeds this (default 0.90)
+  salienceWeight?: number;  // weight for salience boost (default 0.25)
+  recallWeight?: number;    // weight for recall-strength boost (default 0.08)
+  markAsRecalled?: boolean; // update recallCount/lastRecalledAt (default true)
 }
 
 export interface RecalledEntry {
@@ -91,6 +140,31 @@ export class VectorMemory {
     fs.writeFileSync(this.filePath, JSON.stringify(this.entries, null, 2), 'utf-8');
   }
 
+  private touchRecalled(entries: MemoryEntry[]) {
+    if (entries.length === 0) return;
+
+    const now = new Date().toISOString();
+    const touched = new Set(entries.map(entry => entry.id));
+    let updated = false;
+
+    this.entries = this.entries.map(entry => {
+      if (!touched.has(entry.id)) return entry;
+      updated = true;
+      return {
+        ...entry,
+        metadata: {
+          ...entry.metadata,
+          recallCount: (entry.metadata.recallCount || 0) + 1,
+          lastRecalledAt: now,
+        },
+      };
+    });
+
+    if (updated) {
+      this.save();
+    }
+  }
+
   async add(text: string, metadata?: Partial<MemoryEntry['metadata']>): Promise<string> {
     const embedding = await this.embedder.embed(text);
     const entry: MemoryEntry = {
@@ -124,6 +198,7 @@ export class VectorMemory {
         sessionId: this.sessionId,
         role: msg.role as 'user' | 'assistant' | 'tool',
         type: 'auto',
+        salience: calculateSalience(msg, text),
       },
     };
     this.entries.push(entry);
@@ -141,38 +216,60 @@ export class VectorMemory {
   }
 
   /**
-   * Human-memory-inspired smart recall:
+   * Human-like recall with multiple cues:
    *
-   * 1. Compute raw cosine similarity with all entries.
-   * 2. Apply recency decay: combinedScore = similarity * exp(-decayRate * days_ago).
-   *    Recent memories score higher even at equal semantic similarity.
-   * 3. Filter entries below minSimilarity (prevents recency bias from surfacing unrelated old entries).
-   * 4. Deduplicate: skip a candidate if its embedding is too close to an already-selected entry.
-   *    This prevents adjacent conversation turns from all being returned.
-   * 5. Return top `limit` results sorted by combinedScore.
+   * - Cue-driven retrieval: use multiple cues (current user goal + recent autonomous actions).
+   * - Accessibility boost: memories recalled often become easier to retrieve.
+   * - Salience boost: errors/todos/important events are easier to recall.
+   * - Recency decay and deduplication keep results relevant and diverse.
    */
-  async smartRecall(query: string, options: SmartRecallOptions = {}): Promise<RecalledEntry[]> {
+  async humanLikeRecall(cues: string[], options: SmartRecallOptions = {}): Promise<RecalledEntry[]> {
     if (this.entries.length === 0) return [];
+
+    const normalizedCues = cues
+      .map(cue => cue.trim())
+      .filter(cue => cue.length > 0)
+      .slice(0, 6);
+    if (normalizedCues.length === 0) return [];
 
     const {
       limit = 6,
       minSimilarity = 0.55,
       decayRate = 0.05,
       dedupeThreshold = 0.90,
+      salienceWeight = 0.25,
+      recallWeight = 0.08,
+      markAsRecalled = true,
     } = options;
 
-    const queryEmbedding = await this.embedder.embed(query);
+    const cueEmbeddings = await Promise.all(normalizedCues.map(cue => this.embedder.embed(cue)));
     const now = Date.now();
 
     // Score all entries
     const scored = this.entries.map(entry => {
-      const similarity = cosineSimilarity(queryEmbedding, entry.embedding);
+      const similarities = cueEmbeddings.map(embedding => cosineSimilarity(embedding, entry.embedding));
+      const maxSimilarity = Math.max(...similarities);
+      const avgSimilarity = similarities.reduce((sum, value) => sum + value, 0) / similarities.length;
+      const similarity = maxSimilarity * 0.7 + avgSimilarity * 0.3;
+
       const daysAgo = (now - new Date(entry.metadata.timestamp).getTime()) / (1000 * 60 * 60 * 24);
       const recencyWeight = Math.exp(-decayRate * daysAgo);
+      const salienceBoost = 1 + salienceWeight * (entry.metadata.salience || 0);
+      const recallStrength = Math.log2((entry.metadata.recallCount || 0) + 1);
+      const recallBoost = 1 + recallWeight * recallStrength;
+
+      let recentRecallPenalty = 1;
+      if (entry.metadata.lastRecalledAt) {
+        const secondsSinceRecall = (now - new Date(entry.metadata.lastRecalledAt).getTime()) / 1000;
+        if (secondsSinceRecall < 30) {
+          recentRecallPenalty = 0.85;
+        }
+      }
+
       return {
         entry,
         similarity,
-        combinedScore: similarity * recencyWeight,
+        combinedScore: similarity * recencyWeight * salienceBoost * recallBoost * recentRecallPenalty,
       };
     });
 
@@ -198,7 +295,15 @@ export class VectorMemory {
       selectedEmbeddings.push(candidate.entry.embedding);
     }
 
+    if (markAsRecalled) {
+      this.touchRecalled(selected.map(item => item.entry));
+    }
+
     return selected;
+  }
+
+  async smartRecall(query: string, options: SmartRecallOptions = {}): Promise<RecalledEntry[]> {
+    return this.humanLikeRecall([query], options);
   }
 
   async delete(id: string): Promise<boolean> {

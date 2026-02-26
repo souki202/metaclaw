@@ -223,6 +223,17 @@ export default function DashboardClient() {
           imageUrls: event.data.imageUrls,
         });
       }
+    } else if (
+      event.type === "memory_update" &&
+      event.data?.kind === "recall"
+    ) {
+      newMsgs.push({
+        memoryRecall: {
+          mode: event.data.mode || "turn",
+          count: event.data.count || 0,
+          memories: Array.isArray(event.data.memories) ? event.data.memories : [],
+        },
+      });
     } else if (event.type === "cancelled") {
       setIsThinking(false);
     }

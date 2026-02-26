@@ -75,7 +75,6 @@ export async function createSession(
         endpoint: template.endpoint,
         apiKey: template.apiKey,
         model,
-        embeddingModel: template.embeddingModel,
         contextWindow: template.contextWindow,
       },
       workspace,
@@ -551,9 +550,6 @@ export async function listProviderTemplates(ctx: EnhancedA2AToolContext): Promis
       lines.push(`Endpoint: ${template.endpoint}`);
       lines.push(`Default Model: ${template.defaultModel}`);
       lines.push(`Available Models: ${template.availableModels.join(', ')}`);
-      if (template.embeddingModel) {
-        lines.push(`Embedding Model: ${template.embeddingModel}`);
-      }
       lines.push('');
     }
 

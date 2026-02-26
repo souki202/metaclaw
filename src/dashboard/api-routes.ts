@@ -344,7 +344,6 @@ export async function setupApiRoutes(
           endpoint: 'https://api.openai.com/v1',
           apiKey: '',
           model: 'gpt-4o',
-          embeddingModel: 'text-embedding-3-small',
           contextWindow: 128000,
         },
         workspace: body.workspace || `./data/sessions/${sessionId}`,

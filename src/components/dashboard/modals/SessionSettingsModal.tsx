@@ -662,19 +662,6 @@ export const SessionSettingsModal = ({
                       apiKey={config.provider?.apiKey || ""}
                     />
                   </div>
-                  <div className="form-group">
-                    <label className="form-label">Embedding Model</label>
-                    <ModelSelector
-                      value={config.provider?.embeddingModel || ""}
-                      onChange={(v) =>
-                        setNested(["provider", "embeddingModel"], v)
-                      }
-                      endpoint={config.provider?.endpoint || ""}
-                      apiKey={config.provider?.apiKey || ""}
-                      placeholder="embedding model name"
-                    />
-                  </div>
-
                   <div className="settings-title">Other</div>
                   <div className="form-group">
                     <label className="form-label">Workspace Path</label>

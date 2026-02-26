@@ -55,6 +55,9 @@ export interface MemoryEntry {
     sessionId?: string;
     role?: 'user' | 'assistant' | 'tool';
     type?: 'auto' | 'manual'; // 'auto' = from conversation history, 'manual' = explicitly saved
+    salience?: number; // 0..1 heuristic importance score
+    recallCount?: number;
+    lastRecalledAt?: string;
   };
 }
 
@@ -68,7 +71,6 @@ export interface ProviderConfig {
   endpoint: string;
   apiKey: string;
   model: string;
-  embeddingModel?: string;
   contextWindow?: number;
 }
 
@@ -160,7 +162,6 @@ export interface ProviderTemplate {
   apiKey: string;
   availableModels: string[];
   defaultModel: string;
-  embeddingModel?: string;
   contextWindow?: number;
 }
 

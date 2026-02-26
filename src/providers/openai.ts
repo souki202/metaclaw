@@ -246,15 +246,6 @@ export class OpenAIProvider {
     }
   }
 
-  async embed(text: string): Promise<number[]> {
-    const model = this.config.embeddingModel ?? 'text-embedding-3-small';
-    const response = await this.client.embeddings.create({
-      model,
-      input: text,
-    });
-    return response.data[0].embedding;
-  }
-
   async summarize(messages: ChatMessage[]): Promise<string> {
     const text = messages
       .filter((m) => m.role !== 'system' && m.content)
