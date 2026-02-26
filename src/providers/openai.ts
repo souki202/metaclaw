@@ -296,7 +296,7 @@ export class OpenAIProvider {
     const response = await this.client.responses.create({
       model: options.model || this.config.model,
       reasoning:  {
-        effort: 'none',
+        effort: 'minimal',
       },
       input: [
         {

@@ -9,14 +9,14 @@ A multi-session AI personal agent system featuring Discord / Slack integration, 
 - **Multi-session Architecture** — Run multiple isolated AI agents concurrently, each maintaining its own identity, memory tier, workspace, and capabilities.
 - **Agent-to-Agent (A2A) Communication** — Enable inter-agent collaboration through a JSON-RPC style messaging protocol. Agents can discover capabilities, delegate tasks, and coordinate work autonomously.
 - **Autonomous Curiosity Architecture (ACA)** — Agents autonomously detect knowledge gaps and capability frontiers, generating self-directed learning objectives. See `CURIOSITY.md` in workspace for state tracking.
-- **Web Dashboard** — Modern Next.js UI (default `http://localhost:8080`) for real-time streaming chat, workspace file editing, memory viewing, and system configuration. Features dark/light mode and chat cancellation.
+- **Web Dashboard** — Modern Next.js UI (default `http://localhost:8080`) for real-time streaming chat, workspace file editing, memory viewing, and system configuration. Features dark/light mode, chat cancellation, and a **Model Selection UI** with search capability.
 - **Discord Integration** — Bidirectional chat synchronization. Route specific Discord channels or guilds to dedicated agent sessions, complete with image and attachment support.
 - **Slack Integration** — Bidirectional chat synchronization via Slack bot tokens. Route specific channels or teams to dedicated agent sessions.
 - **Browser Automation** — Advanced web interaction using Playwright. The AI can navigate, click, type, and take visual screenshots. Users can track the AI's browser activity in real-time and manually intervene if needed.
 - **Vision & Image Support** — Full multi-part message support. AI can process real-time screenshots and images uploaded via dashboard drag-and-drop or Discord.
 - **Model Context Protocol (MCP)** — Dynamically connect to local or remote standard MCP servers to expand the AI's toolset. Manage connection statuses directly via the dashboard.
 - **Skills System** — Extend functionality through external, installable skills configured on a per-session basis in the UI.
-- **Advanced Memory Ecosystem** — Semantic vector database for long-term fact retrieval, `MEMORY.md` for core persistent identity facts, and `TMP_MEMORY.md` for ephemeral, task-specific context.
+- **Advanced Memory Ecosystem** — Semantic vector database for long-term fact retrieval, `MEMORY.md` for core persistent identity facts, `SOUL.md` for deeper behavioral traits, and `TMP_MEMORY.md` for ephemeral, task-specific context.
 - **Workspace Sandboxing & Terminal** — AI operates within a secure workspace boundary, allowing for isolated file system read/writes and terminal command execution (`exec`).
 - **Self-Modification & Hot Reloading** — (Opt-in) AI can read/modify its own source code and execute Git actions. The system supports intelligent backend restarts that apply modifications without dropping the Next.js frontend server.
 - **Tool Controls** — Specifically toggle individual tools on or off per-session saving context tokens and restricting system capabilities.
@@ -78,6 +78,7 @@ Each session maintains an isolated workspace directory containing:
 | File | Purpose |
 |---|---|
 | `IDENTITY.md` | Who the AI is — name, personality, operating principles |
+| `SOUL.md` | Deeper behavioral traits, core values, and immutable rules |
 | `USER.md` | Information about you — preferences, timezone, projects |
 | `MEMORY.md` | Core quick-reference memory loaded into every conversation |
 | `TMP_MEMORY.md` | Ephemeral, short-term context that persists across quick restarts |
@@ -139,6 +140,7 @@ Enable inter-agent collaboration by setting `a2a.enabled: true` in your session 
 - `delegate_task_async` - Delegate tasks asynchronously without blocking
 - `check_async_tasks` - Monitor delegated task status and results
 - `complete_async_task` - Mark delegated tasks as complete with results
+- `get_session_outputs` - Retrieve recent text outputs from any active session
 
 ### Autonomous Curiosity Architecture (ACA)
 
@@ -166,7 +168,14 @@ Enable autonomous learning by setting `aca.enabled: true`. The system will:
 }
 ```
 
-See [ADVANCED_FEATURES.md](ADVANCED_FEATURES.md) for detailed documentation on A2A, ACA, and ELL (Experience-driven Lifelong Learning).
+### Experience-driven Lifelong Learning (ELL)
+
+(WIP) The ELL system allows agents to internalize patterns and skills based on past experiences:
+- **Experience Extraction**: Automatically cluster and analyze successful task outcomes.
+- **Skill Internalization**: Generate reusable `SKILL.md` files from detected patterns.
+- **Continuous Improvement**: Track effectiveness and duration of internalized skills.
+
+See [ADVANCED_FEATURES.md](ADVANCED_FEATURES.md) for detailed documentation on A2A, ACA, and ELL.
 
 ## Memory System Architecture
 
