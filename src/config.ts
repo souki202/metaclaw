@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import type { Config, SessionConfig, ProviderConfig, SearchConfig } from './types.js';
+import type { Config, SessionConfig, ProviderConfig, SearchConfig, EmbeddingConfig } from './types.js';
 
 const CONFIG_PATH = path.resolve(process.cwd(), 'config.json');
 const EXAMPLE_PATH = path.resolve(process.cwd(), 'config.example.json');
@@ -189,5 +189,11 @@ export function deleteSession(config: Config, sessionId: string): boolean {
 // 検索設定を更新
 export function setSearchConfig(config: Config, search: SearchConfig): Config {
   config.search = search;
+  return config;
+}
+
+// Embedding設定を更新
+export function setEmbeddingConfig(config: Config, embedding: EmbeddingConfig): Config {
+  config.embedding = embedding;
   return config;
 }

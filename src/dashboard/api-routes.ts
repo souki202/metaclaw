@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import type { SessionManager } from '../core/sessions.js';
 import type { Config, SessionConfig, SearchConfig } from '../types.js';
-import { loadConfig, saveConfig, setSession, deleteSession, setSearchConfig } from '../config.js';
+import { loadConfig, saveConfig, setSession, deleteSession, setSearchConfig, setEmbeddingConfig } from '../config.js';
 import { loadSkills, type Skill } from '../core/skills.js';
 import { createLogger } from '../logger.js';
 
@@ -620,6 +620,38 @@ export async function setupApiRoutes(
       };
 
       setSearchConfig(config, searchConfig);
+      saveConfig(config);
+      sendJson(res, { ok: true });
+    } catch (e: unknown) {
+      sendJson(res, { error: (e as Error).message }, 500);
+    }
+    return true;
+  }
+
+  // GET /api/embedding
+  if (method === 'GET' && pathname === '/api/embedding') {
+    const config = loadConfig();
+    const embedding = config.embedding || { endpoint: '', apiKey: '', model: '' };
+    sendJson(res, {
+      endpoint: embedding.endpoint,
+      apiKey: embedding.apiKey ? `${embedding.apiKey.slice(0, 8)}***` : '',
+      model: embedding.model,
+    });
+    return true;
+  }
+
+  // PUT /api/embedding
+  if (method === 'PUT' && pathname === '/api/embedding') {
+    try {
+      const config = loadConfig();
+      const existing = config.embedding || { endpoint: '', apiKey: '', model: '' };
+      const body = await parseBody(req);
+      const embeddingConfig = {
+        endpoint: body.endpoint ?? existing.endpoint,
+        apiKey: body.apiKey !== undefined && !String(body.apiKey).includes('***') ? body.apiKey : existing.apiKey,
+        model: body.model ?? existing.model,
+      };
+      setEmbeddingConfig(config, embeddingConfig);
       saveConfig(config);
       sendJson(res, { ok: true });
     } catch (e: unknown) {

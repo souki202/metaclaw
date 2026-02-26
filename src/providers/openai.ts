@@ -11,19 +11,21 @@ function extractText(content: string | ContentPart[] | null): string {
     .join('\n');
 }
 
-function toInputContentParts(content: string | ContentPart[] | null): Array<Record<string, unknown>> {
+function toInputContentParts(content: string | ContentPart[] | null, role: 'user' | 'assistant' | 'system' = 'user'): Array<Record<string, unknown>> {
+  const textType = role === 'assistant' ? 'output_text' : 'input_text';
+
   if (!content) {
-    return [{ type: 'input_text', text: '' }];
+    return [{ type: textType, text: '' }];
   }
 
   if (typeof content === 'string') {
-    return [{ type: 'input_text', text: content }];
+    return [{ type: textType, text: content }];
   }
 
   const parts: Array<Record<string, unknown>> = [];
   for (const part of content) {
     if (part.type === 'text') {
-      parts.push({ type: 'input_text', text: part.text });
+      parts.push({ type: textType, text: part.text });
     } else if (part.type === 'image_url') {
       const imagePart = part as ContentPartImageUrl;
       parts.push({
@@ -34,7 +36,7 @@ function toInputContentParts(content: string | ContentPart[] | null): Array<Reco
     }
   }
 
-  return parts.length > 0 ? parts : [{ type: 'input_text', text: '' }];
+  return parts.length > 0 ? parts : [{ type: textType, text: '' }];
 }
 
 function toFunctionCallOutput(content: string | ContentPart[] | null): string {
@@ -78,7 +80,7 @@ function toResponsesInput(messages: ChatMessage[]): Array<any> {
 
     input.push({
       role: message.role,
-      content: toInputContentParts(message.content),
+      content: toInputContentParts(message.content, message.role as 'user' | 'assistant' | 'system'),
     });
 
     if (message.role === 'assistant' && message.tool_calls && message.tool_calls.length > 0) {

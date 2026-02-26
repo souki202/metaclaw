@@ -14,8 +14,13 @@ export class QuickMemory {
   }
 
   write(content: string) {
-    fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
-    fs.writeFileSync(this.filePath, content, 'utf-8');
+    try {
+      fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
+      fs.writeFileSync(this.filePath, content, 'utf-8');
+    } catch (error) {
+      console.error(error);
+      throw error;
+    }
   }
 
   append(text: string) {

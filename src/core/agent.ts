@@ -3,6 +3,7 @@ import path from 'path';
 import type { ChatMessage, SessionConfig, Config, ProviderConfig, ContentPart, ContentPartText, ToolDefinition, ScheduleUpsertInput, SessionSchedule } from '../types.js';
 import { OpenAIProvider } from '../providers/openai.js';
 import { VectorMemory } from '../memory/vector.js';
+import { EmbeddingClient, type EmbeddingProvider } from '../memory/embedding.js';
 import { QuickMemory, WorkspaceFiles } from '../memory/quick.js';
 import { buildTools, executeTool, type ToolContext } from '../tools/index.js';
 import { McpClientManager } from '../tools/mcp-client.js';
@@ -88,6 +89,8 @@ export class Agent {
   private workspace: string;
   private provider: OpenAIProvider;
   private providerConfig: ProviderConfig;
+  private embeddingProvider: EmbeddingProvider;
+  private usingGlobalEmbedding: boolean;
   private quickMemory: QuickMemory;
   private tmpMemory: QuickMemory;
   private vectorMemory: VectorMemory;
@@ -126,9 +129,19 @@ export class Agent {
     // プロバイダー設定を解決
     this.providerConfig = this.resolveProviderConfig();
     this.provider = new OpenAIProvider(this.providerConfig);
+
+    // Embedding provider: use global config if set, otherwise fall back to session provider
+    if (globalConfig?.embedding?.endpoint && globalConfig.embedding.apiKey && globalConfig.embedding.model) {
+      this.embeddingProvider = new EmbeddingClient(globalConfig.embedding);
+      this.usingGlobalEmbedding = true;
+    } else {
+      this.embeddingProvider = this.provider;
+      this.usingGlobalEmbedding = false;
+    }
+
     this.quickMemory = new QuickMemory(sessionDir);
     this.tmpMemory = new QuickMemory(sessionDir, 'TMP_MEMORY.md');
-    this.vectorMemory = new VectorMemory(sessionDir, sessionId, this.provider);
+    this.vectorMemory = new VectorMemory(sessionDir, sessionId, this.embeddingProvider);
     this.mcpManager = new McpClientManager(globalConfig?.search, workspace);
     this.files = new WorkspaceFiles(sessionDir);
     this.log = createLogger(`agent:${sessionId}`);
@@ -270,7 +283,10 @@ export class Agent {
     this.config = newConfig;
     this.providerConfig = this.resolveProviderConfig();
     this.provider = new OpenAIProvider(this.providerConfig);
-    this.vectorMemory.updateProvider(this.provider);
+    // Only update VectorMemory embedder if we're using the session provider as fallback
+    if (!this.usingGlobalEmbedding) {
+      this.vectorMemory.updateEmbedder(this.provider);
+    }
   }
 
   private resolveProviderConfig(): ProviderConfig {
@@ -285,7 +301,31 @@ export class Agent {
     this.onEvent?.({ type, sessionId: this.sessionId, data });
   }
 
-  private buildSystemPrompt(): string {
+  /** Recall relevant past memories for the current user message, formatted for injection into system prompt. */
+  private async recallForCurrentTurn(userMessage: string): Promise<string | null> {
+    if (!this.config.tools.memory) return null;
+    if (this.vectorMemory.count() === 0) return null;
+
+    try {
+      const results = await this.vectorMemory.smartRecall(userMessage, { limit: 6, minSimilarity: 0.55 });
+      if (results.length === 0) return null;
+
+      const lines = results.map(r => {
+        const ts = r.entry.metadata.timestamp.slice(0, 10);
+        const role = r.entry.metadata.role ?? 'unknown';
+        // Truncate each snippet to 400 chars for readability
+        const text = r.entry.text.length > 400 ? r.entry.text.slice(0, 397) + '...' : r.entry.text;
+        return `[${ts} | ${role}]: ${text}`;
+      });
+
+      return lines.join('\n\n');
+    } catch (e) {
+      this.log.warn('Memory recall failed:', e);
+      return null;
+    }
+  }
+
+  private buildSystemPrompt(recalledMemories?: string | null): string {
     const identity = this.files.read('IDENTITY.md');
     const soul = this.files.read('SOUL.md');
     const user = this.files.read('USER.md');
@@ -311,6 +351,9 @@ export class Agent {
     }
     if (tmpMemory) {
       parts.push(`## Temporary Memory (TMP_MEMORY.md)\n${tmpMemory}`);
+    }
+    if (recalledMemories) {
+      parts.push(`## Recalled Conversation History\nThe following past conversation snippets were recalled as semantically relevant to the current message. They are from earlier sessions or earlier in this session and may not be in the active context window:\n\n${recalledMemories}`);
     }
 
     const skillsPrompt = buildSkillsPromptText([process.cwd(), this.workspace]);
@@ -533,7 +576,7 @@ export class Agent {
     const imageUrlReferenceText = imageUrls && imageUrls.length > 0
       ? `\n\nAttached image URLs (these are visible to the user):\n${imageUrls.map((url) => `- ${url}`).join('\n')}`
       : '';
-    
+
     const userMsgContent = resolvedImageUrls && resolvedImageUrls.length > 0
       ? [
           { type: 'text' as const, text: `${timestampMarker}${userMessage}${imageUrlReferenceText}` },
@@ -552,7 +595,16 @@ export class Agent {
     this.saveHistory(userMsg);
     this.emit('message', { role: 'user', content: userMessage, channelId, imageUrls });
 
-    const systemPrompt = this.buildSystemPrompt();
+    // Auto-save user message to vector memory (fire-and-forget, don't block)
+    if (this.config.tools.memory) {
+      this.vectorMemory.autoAdd({ role: 'user', content: userMessage }).catch(e => {
+        this.log.warn('Auto-save user message to vector failed:', e);
+      });
+    }
+
+    // Recall relevant past memories BEFORE building system prompt
+    const recalledMemories = await this.recallForCurrentTurn(userMessage);
+    const systemPrompt = this.buildSystemPrompt(recalledMemories);
     const toolCtx: ToolContext = {
       sessionId: this.sessionId,
       config: this.config,
@@ -654,6 +706,12 @@ export class Agent {
         messages.push(response);
         this.history.push(response);
         this.saveHistory(response);
+        // Auto-save assistant response to vector memory
+        if (this.config.tools.memory) {
+          this.vectorMemory.autoAdd(response).catch(e => {
+            this.log.warn('Auto-save assistant message to vector failed:', e);
+          });
+        }
 
         let shouldRestart = false;
 
@@ -721,6 +779,12 @@ export class Agent {
             messages.push(toolMsg);
             this.history.push(toolMsg);
             this.saveHistory(toolMsg);
+            // Auto-save tool result to vector memory
+            if (this.config.tools.memory) {
+              this.vectorMemory.autoAdd(toolMsg).catch(e => {
+                this.log.warn('Auto-save tool message to vector failed:', e);
+              });
+            }
           }
 
           // If cancelled during tool execution, save and break

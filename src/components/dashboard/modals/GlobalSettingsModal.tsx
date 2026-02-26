@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 
 // -------- Global Settings Modal --------
 export const GlobalSettingsModal = ({ onClose, onSave }: any) => {
-  const [tab, setTab] = useState<"search" | "skills" | "providers">("search");
+  const [tab, setTab] = useState<"search" | "embedding" | "skills" | "providers">("search");
   const [provider, setProvider] = useState("brave");
   const [braveKey, setBraveKey] = useState("");
   const [serperKey, setSerperKey] = useState("");
@@ -26,6 +26,9 @@ export const GlobalSettingsModal = ({ onClose, onSave }: any) => {
     embeddingModel: "text-embedding-3-small",
     contextWindow: "",
   });
+  const [embeddingEndpoint, setEmbeddingEndpoint] = useState("");
+  const [embeddingApiKey, setEmbeddingApiKey] = useState("");
+  const [embeddingModel, setEmbeddingModel] = useState("");
   const [configLoading, setConfigLoading] = useState(true);
 
   useEffect(() => {
@@ -43,6 +46,17 @@ export const GlobalSettingsModal = ({ onClose, onSave }: any) => {
         }
       })
       .finally(() => setConfigLoading(false));
+
+    fetch("/api/embedding")
+      .then((r) => r.ok && r.json())
+      .then((data) => {
+        if (data) {
+          setEmbeddingEndpoint(data.endpoint || "");
+          setEmbeddingApiKey(data.apiKey || "");
+          setEmbeddingModel(data.model || "");
+        }
+      })
+      .catch(() => {});
   }, []);
 
   const handleSave = async () => {
@@ -58,6 +72,19 @@ export const GlobalSettingsModal = ({ onClose, onSave }: any) => {
         vertexDataStoreId: vertexDatastore,
       }),
     });
+
+    // Save embedding settings if on that tab
+    if (tab === "embedding") {
+      await fetch("/api/embedding", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          endpoint: embeddingEndpoint,
+          apiKey: embeddingApiKey,
+          model: embeddingModel,
+        }),
+      });
+    }
 
     // Save provider templates if on that tab
     if (tab === "providers") {
@@ -214,6 +241,12 @@ export const GlobalSettingsModal = ({ onClose, onSave }: any) => {
                   Search Engine
                 </div>
                 <div
+                  className={`modal-tab ${tab === "embedding" ? "active" : ""}`}
+                  onClick={() => setTab("embedding")}
+                >
+                  Embedding
+                </div>
+                <div
                   className={`modal-tab ${tab === "providers" ? "active" : ""}`}
                   onClick={() => {
                     setTab("providers");
@@ -297,6 +330,43 @@ export const GlobalSettingsModal = ({ onClose, onSave }: any) => {
                       </div>
                     </>
                   )}
+                </div>
+              )}
+
+              {tab === "embedding" && (
+                <div className="settings-section" style={{ marginTop: 20 }}>
+                  <p style={{ fontSize: 13, color: "var(--text-dim)", marginBottom: 16 }}>
+                    Global embedding settings used by all sessions for long-term memory.
+                    If left empty, each session falls back to its own provider&apos;s embedding.
+                  </p>
+                  <div className="form-group">
+                    <label className="form-label">Embedding API Endpoint</label>
+                    <input
+                      className="form-input mono"
+                      value={embeddingEndpoint}
+                      onChange={(e) => setEmbeddingEndpoint(e.target.value)}
+                      placeholder="https://api.openai.com/v1"
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">API Key</label>
+                    <input
+                      type="password"
+                      className="form-input mono"
+                      value={embeddingApiKey}
+                      onChange={(e) => setEmbeddingApiKey(e.target.value)}
+                      placeholder="sk-..."
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Embedding Model</label>
+                    <input
+                      className="form-input mono"
+                      value={embeddingModel}
+                      onChange={(e) => setEmbeddingModel(e.target.value)}
+                      placeholder="text-embedding-3-small"
+                    />
+                  </div>
                 </div>
               )}
 

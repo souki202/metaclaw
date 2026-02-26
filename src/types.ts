@@ -53,7 +53,15 @@ export interface MemoryEntry {
     category?: string;
     source?: string;
     sessionId?: string;
+    role?: 'user' | 'assistant' | 'tool';
+    type?: 'auto' | 'manual'; // 'auto' = from conversation history, 'manual' = explicitly saved
   };
+}
+
+export interface EmbeddingConfig {
+  endpoint: string;
+  apiKey: string;
+  model: string;
 }
 
 export interface ProviderConfig {
@@ -162,6 +170,7 @@ export interface Config {
     port: number;
   };
   search?: SearchConfig;
+  embedding?: EmbeddingConfig;
   providerTemplates?: Record<string, ProviderTemplate>;
   sessions: Record<string, SessionConfig>;
 }
