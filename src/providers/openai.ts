@@ -10,7 +10,7 @@ function isInvalidPromptError(error: unknown): boolean {
 }
 
 function invalidPromptFallbackMessage(): string {
-  return 'I could not process that request due to provider safety/prompt restrictions. Please rephrase and avoid sensitive or policy-restricted content, then try again.';
+  return 'The provider rejected this request as an invalid prompt payload. This is usually caused by request formatting or tool-call context, not user safety policy. Please retry once; if it persists, check tool-call IDs and message formatting.';
 }
 
 // Helper: extract text from potentially multi-part content
@@ -24,7 +24,7 @@ function extractText(content: string | ContentPart[] | null): string {
 }
 
 function toInputContentParts(content: string | ContentPart[] | null, role: 'user' | 'assistant' | 'system' = 'user'): Array<Record<string, unknown>> {
-  const textType = role === 'assistant' ? 'output_text' : 'input_text';
+  const textType = 'input_text';
 
   if (!content) {
     return [{ type: textType, text: '' }];
@@ -82,18 +82,33 @@ function toResponsesInput(messages: ChatMessage[]): Array<any> {
 
   for (const message of messages) {
     if (message.role === 'tool') {
+      if (!message.tool_call_id) {
+        input.push({
+          role: 'assistant',
+          content: [{ type: 'input_text', text: extractText(message.content) }],
+        });
+        continue;
+      }
+
       input.push({
         type: 'function_call_output',
-        call_id: message.tool_call_id ?? message.name ?? `tool_${Date.now()}`,
+        call_id: message.tool_call_id,
         output: toFunctionCallOutput(message.content),
       });
       continue;
     }
 
-    input.push({
-      role: message.role,
-      content: toInputContentParts(message.content, message.role as 'user' | 'assistant' | 'system'),
-    });
+    const hasToolCalls = message.role === 'assistant' && Array.isArray(message.tool_calls) && message.tool_calls.length > 0;
+    const hasContent = Array.isArray(message.content)
+      ? message.content.length > 0
+      : message.content !== null;
+
+    if (!hasToolCalls || hasContent) {
+      input.push({
+        role: message.role,
+        content: toInputContentParts(message.content, message.role as 'user' | 'assistant' | 'system'),
+      });
+    }
 
     if (message.role === 'assistant' && message.tool_calls && message.tool_calls.length > 0) {
       for (const toolCall of message.tool_calls) {

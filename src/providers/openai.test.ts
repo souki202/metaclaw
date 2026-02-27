@@ -96,6 +96,90 @@ test('chat uses responses.create and maps tools and multimodal messages', async 
   assert.ok(capturedParams.input.some((i: any) => i.role === 'user'));
   assert.ok(Array.isArray(capturedParams.tools));
   assert.equal(capturedParams.tools[0].name, 'read_file');
+  const assistantInput = capturedParams.input.find((i: any) => i.role === 'assistant');
+  assert.equal(assistantInput, undefined);
+});
+
+test('chat omits empty assistant content when tool_calls exist and preserves function_call/function_call_output ordering', async () => {
+  const provider = makeProvider() as any;
+  let capturedParams: any;
+
+  provider.client = {
+    responses: {
+      create: async (params: any) => {
+        capturedParams = params;
+        return { output_text: 'ok' };
+      },
+    },
+    embeddings: {
+      create: async () => ({ data: [{ embedding: [0.1, 0.2, 0.3] }] }),
+    },
+  };
+
+  const messages: ChatMessage[] = [
+    { role: 'user', content: 'search please' },
+    {
+      role: 'assistant',
+      content: null,
+      tool_calls: [
+        {
+          id: 'call_web_1',
+          type: 'function',
+          function: {
+            name: 'web_search',
+            arguments: '{"query":"Qwen3.5 35b a3b vs 27b"}',
+          },
+        },
+      ],
+    },
+    {
+      role: 'tool',
+      tool_call_id: 'call_web_1',
+      name: 'web_search',
+      content: 'result snippet',
+    },
+  ];
+
+  const result = await provider.chat(messages, []);
+  assert.equal(result.role, 'assistant');
+
+  const assistantItems = capturedParams.input.filter((i: any) => i.role === 'assistant');
+  assert.equal(assistantItems.length, 0);
+
+  const functionCallItem = capturedParams.input.find((i: any) => i.type === 'function_call');
+  const functionCallOutputItem = capturedParams.input.find((i: any) => i.type === 'function_call_output');
+
+  assert.equal(functionCallItem.call_id, 'call_web_1');
+  assert.equal(functionCallOutputItem.call_id, 'call_web_1');
+});
+
+test('chat falls back to assistant text for tool message missing tool_call_id', async () => {
+  const provider = makeProvider() as any;
+  let capturedParams: any;
+
+  provider.client = {
+    responses: {
+      create: async (params: any) => {
+        capturedParams = params;
+        return { output_text: 'ok' };
+      },
+    },
+    embeddings: {
+      create: async () => ({ data: [{ embedding: [0.1, 0.2, 0.3] }] }),
+    },
+  };
+
+  await provider.chat([
+    { role: 'user', content: 'hello' },
+    { role: 'tool', name: 'web_search', content: 'legacy tool output without call id' },
+  ], []);
+
+  const functionCallOutputItems = capturedParams.input.filter((i: any) => i.type === 'function_call_output');
+  assert.equal(functionCallOutputItems.length, 0);
+
+  const assistantItems = capturedParams.input.filter((i: any) => i.role === 'assistant');
+  assert.equal(assistantItems.length, 1);
+  assert.equal(assistantItems[0].content[0].type, 'input_text');
 });
 
 test('chat streams output_text deltas via responses.stream', async () => {
