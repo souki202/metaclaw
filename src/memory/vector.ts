@@ -417,4 +417,15 @@ export class VectorMemory {
   count(): number {
     return this.entries.length;
   }
+
+  clear(): void {
+    this.entries = [];
+    if (fs.existsSync(this.filePath)) {
+      try {
+        fs.unlinkSync(this.filePath);
+      } catch {
+        // ignore
+      }
+    }
+  }
 }

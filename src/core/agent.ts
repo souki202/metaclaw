@@ -964,7 +964,12 @@ Plain text only. No markdown bullets required.
     });
   }
 
-  async processMessage(userMessage: string, channelId?: string, imageUrls?: string[]): Promise<string> {
+  async processMessage(
+    userMessage: string,
+    channelId?: string,
+    imageUrls?: string[],
+    options?: { noMemory?: boolean; noRecall?: boolean; systemPrompt?: string },
+  ): Promise<string> {
     this.beginProcessing();
     try {
     this.log.info(`Processing message from ${channelId ?? 'unknown'}: ${userMessage.slice(0, 80)}...`);
@@ -1007,15 +1012,17 @@ Plain text only. No markdown bullets required.
     this.emit('message', { role: 'user', content: userMessage, channelId, imageUrls });
 
     // Auto-save user message to vector memory (fire-and-forget, don't block)
-    if (this.config.tools.memory && this.vectorMemory) {
+    if (this.config.tools.memory && this.vectorMemory && !options?.noMemory) {
       this.vectorMemory.autoAdd({ role: 'user', content: userMessage }).catch(e => {
         this.log.warn('Auto-save user message to vector failed:', e);
       });
     }
 
     // Recall relevant past memories BEFORE building system prompt
-    const recalledMemories = await this.recallForCurrentTurn(userMessage);
-    const systemPrompt = this.buildSystemPrompt(recalledMemories.text);
+    const recalledMemories = options?.noRecall
+      ? { text: null, ids: [] }
+      : await this.recallForCurrentTurn(userMessage);
+    const systemPrompt = options?.systemPrompt ?? this.buildSystemPrompt(recalledMemories.text);
     const recalledMemoryIds = new Set<string>(recalledMemories.ids);
     const toolCtx: ToolContext = {
       sessionId: this.sessionId,
@@ -1119,7 +1126,7 @@ Plain text only. No markdown bullets required.
         this.history.push(response);
         this.saveHistory(response);
         // Auto-save assistant response to vector memory
-        if (this.config.tools.memory && this.vectorMemory) {
+        if (this.config.tools.memory && this.vectorMemory && !options?.noMemory) {
           this.vectorMemory.autoAdd(response).catch(e => {
             this.log.warn('Auto-save assistant message to vector failed:', e);
           });
@@ -1192,7 +1199,7 @@ Plain text only. No markdown bullets required.
             this.history.push(toolMsg);
             this.saveHistory(toolMsg);
             // Auto-save tool result to vector memory
-            if (this.config.tools.memory && this.vectorMemory) {
+            if (this.config.tools.memory && this.vectorMemory && !options?.noMemory) {
               this.vectorMemory.autoAdd(toolMsg).catch(e => {
                 this.log.warn('Auto-save tool message to vector failed:', e);
               });
@@ -1256,6 +1263,11 @@ Plain text only. No markdown bullets required.
 
   getHistory(): ChatMessage[] {
     return [...this.history];
+  }
+
+  clearVectorMemory(): void {
+    this.vectorMemory?.clear();
+    this.log.info('Vector memory cleared');
   }
 
   clearHistory() {

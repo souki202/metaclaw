@@ -99,8 +99,14 @@ export class DashboardServer {
       if (!message) return res.status(400).json({ error: 'message required' });
 
       try {
-        const response = await agent.processMessage(message, 'dashboard', req.body.imageUrls);
-        res.json({ response });
+        const opts = {
+          noMemory: req.body.noMemory === true,
+          noRecall: req.body.noRecall === true,
+          systemPrompt: req.body.systemPrompt as string | undefined,
+        };
+        const start = Date.now();
+        const response = await agent.processMessage(message, 'dashboard', req.body.imageUrls, opts);
+        res.json({ response, duration: Date.now() - start });
       } catch (e: unknown) {
         res.status(500).json({ error: (e as Error).message });
       }
@@ -112,6 +118,29 @@ export class DashboardServer {
       if (!agent) return res.status(404).json({ error: 'Session not found' });
       agent.clearHistory();
       res.json({ ok: true });
+    });
+
+    // API: clear vector memory
+    this.app.delete('/api/sessions/:id/memory', (req, res) => {
+      const agent = this.sessions.getAgent(req.params.id);
+      if (!agent) return res.status(404).json({ error: 'Session not found' });
+      agent.clearVectorMemory();
+      res.json({ ok: true });
+    });
+
+    // API: reset session state (history and/or memory)
+    // Body: { history?: boolean, memory?: boolean }  (default: both true)
+    this.app.post('/api/sessions/:id/reset', (req, res) => {
+      const agent = this.sessions.getAgent(req.params.id);
+      if (!agent) return res.status(404).json({ error: 'Session not found' });
+
+      const clearHistory = req.body.history !== false;
+      const clearMemory = req.body.memory !== false;
+
+      if (clearHistory) agent.clearHistory();
+      if (clearMemory) agent.clearVectorMemory();
+
+      res.json({ ok: true, cleared: { history: clearHistory, memory: clearMemory } });
     });
 
     // API: read workspace file

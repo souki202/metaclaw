@@ -189,6 +189,7 @@ export class OpenAIProvider {
         if (isInvalidPromptError(e)) {
           const fallback = invalidPromptFallbackMessage();
           onStream(fallback, 'content');
+          console.log(e);
           return { role: 'assistant', content: fallback };
         }
         throw e;
@@ -239,6 +240,7 @@ export class OpenAIProvider {
       } catch (e: any) {
         if (isInvalidPromptError(e)) {
           const fallback = invalidPromptFallbackMessage();
+          console.log(e);
           onStream(fallback, 'content');
           return {
             role: 'assistant',
@@ -261,6 +263,7 @@ export class OpenAIProvider {
         response = await this.client.responses.create(params, requestOpts);
       } catch (e) {
         if (isInvalidPromptError(e)) {
+          console.log(e);
           return {
             role: 'assistant',
             content: invalidPromptFallbackMessage(),
