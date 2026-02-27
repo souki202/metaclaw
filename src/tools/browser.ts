@@ -649,7 +649,7 @@ export function buildBrowserTools(_ctx: ToolContext): ToolDefinition[] {
       type: 'function',
       function: {
         name: 'browser_click',
-        description: 'Click an element using its reference number [N] from the snapshot. Re-injects refs automatically so this works even after SPA re-renders. Returns an updated snapshot.',
+        description: 'Click an element using its reference number [N] from the snapshot. Re-injects refs automatically so this works even after SPA re-renders, then waits briefly so async UI updates (e.g., button-triggered renders) can settle before follow-up actions. Returns an updated snapshot.',
         parameters: {
           type: 'object',
           properties: {
