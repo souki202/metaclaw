@@ -23,58 +23,50 @@ function extractText(content: string | ContentPart[] | null): string {
     .join('\n');
 }
 
-function toInputContentParts(content: string | ContentPart[] | null, role: 'user' | 'assistant' | 'system' = 'user'): Array<Record<string, unknown>> {
-  const textType = 'input_text';
-
-  if (!content) {
-    return [{ type: textType, text: '' }];
-  }
-
-  if (typeof content === 'string') {
-    return [{ type: textType, text: content }];
-  }
-
-  const parts: Array<Record<string, unknown>> = [];
-  for (const part of content) {
-    if (part.type === 'text') {
-      parts.push({ type: textType, text: part.text });
-    } else if (part.type === 'image_url') {
-      const imagePart = part as ContentPartImageUrl;
-      parts.push({
-        type: 'input_image',
-        image_url: imagePart.image_url.url,
-        ...(imagePart.image_url.detail && { detail: imagePart.image_url.detail }),
-      });
-    }
-  }
-
-  return parts.length > 0 ? parts : [{ type: textType, text: '' }];
-}
-
-function toFunctionCallOutput(content: string | ContentPart[] | null): string {
+// Convert message content for the responses API.
+// Uses a plain string when there are no images (maximum compatibility with all endpoints
+// including LM Studio), and falls back to an array of parts only when images are present
+// (the only way to pass image data to vision-capable models).
+function toMessageContent(content: string | ContentPart[] | null): string | Array<Record<string, unknown>> {
   if (!content) return '';
   if (typeof content === 'string') return content;
 
-  const text = content
+  const hasImages = content.some(p => p.type === 'image_url');
+  if (!hasImages) {
+    // No images → flatten to plain string for maximum endpoint compatibility
+    return content
+      .filter((p): p is ContentPartText => p.type === 'text')
+      .map(p => p.text)
+      .join('\n');
+  }
+
+  // Has images → must use content-parts array
+  const parts: Array<Record<string, unknown>> = [];
+  for (const part of content) {
+    if (part.type === 'text') {
+      parts.push({ type: 'input_text', text: part.text });
+    } else if (part.type === 'image_url') {
+      const imgPart = part as ContentPartImageUrl;
+      parts.push({
+        type: 'input_image',
+        image_url: imgPart.image_url.url,
+        ...(imgPart.image_url.detail && { detail: imgPart.image_url.detail }),
+      });
+    }
+  }
+  return parts.length > 0 ? parts : '';
+}
+
+// function_call_output.output must be a plain string (responses API spec).
+// Images embedded in tool results are NOT passed through the output field —
+// the tool text already contains the image URL for the model to reference.
+function extractToolText(content: string | ContentPart[] | null): string {
+  if (!content) return '';
+  if (typeof content === 'string') return content;
+  return content
     .filter((part): part is ContentPartText => part.type === 'text')
     .map((part) => part.text)
     .join('\n');
-
-  const images = content
-    .filter((part): part is ContentPartImageUrl => part.type === 'image_url')
-    .map((part) => ({
-      image_url: part.image_url.url,
-      ...(part.image_url.detail && { detail: part.image_url.detail }),
-    }));
-
-  if (images.length === 0) {
-    return text;
-  }
-
-  return JSON.stringify({
-    text,
-    images,
-  });
 }
 
 function toResponsesInput(messages: ChatMessage[]): Array<any> {
@@ -83,31 +75,28 @@ function toResponsesInput(messages: ChatMessage[]): Array<any> {
   for (const message of messages) {
     if (message.role === 'tool') {
       if (!message.tool_call_id) {
-        input.push({
-          role: 'assistant',
-          content: [{ type: 'input_text', text: extractText(message.content) }],
-        });
+        // No call_id — surface as plain assistant text
+        const text = extractText(message.content);
+        if (text) input.push({ role: 'assistant', content: text });
         continue;
       }
 
+      // function_call_output.output must be a plain string per spec.
+      // Images in tool results are described via text (imageUrl reference); strip raw bytes.
       input.push({
         type: 'function_call_output',
         call_id: message.tool_call_id,
-        output: toFunctionCallOutput(message.content),
+        output: extractToolText(message.content),
       });
       continue;
     }
 
     const hasToolCalls = message.role === 'assistant' && Array.isArray(message.tool_calls) && message.tool_calls.length > 0;
-    const hasContent = Array.isArray(message.content)
-      ? message.content.length > 0
-      : message.content !== null;
+    const content = toMessageContent(message.content);
+    const hasContent = content !== '' && !(Array.isArray(content) && content.length === 0);
 
     if (!hasToolCalls || hasContent) {
-      input.push({
-        role: message.role,
-        content: toInputContentParts(message.content, message.role as 'user' | 'assistant' | 'system'),
-      });
+      input.push({ role: message.role, content: content || '' });
     }
 
     if (message.role === 'assistant' && message.tool_calls && message.tool_calls.length > 0) {
@@ -317,27 +306,17 @@ export class OpenAIProvider {
   ): Promise<string> {
     const response = await this.client.responses.create({
       model: options.model || this.config.model,
-      reasoning:  {
+      reasoning: {
         effort: 'minimal',
       },
       input: [
         {
           role: 'system',
-          content: [
-            {
-              type: 'input_text',
-              text: options.systemPrompt || 'Summarize the following content concisely, preserving key facts, decisions, and context.',
-            },
-          ],
+          content: options.systemPrompt || 'Summarize the following content concisely, preserving key facts, decisions, and context.',
         },
         {
           role: 'user',
-          content: [
-            {
-              type: 'input_text',
-              text,
-            },
-          ],
+          content: text,
         },
       ],
     });
