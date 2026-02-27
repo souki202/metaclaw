@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import type { ChatMessage, ToolDefinition, ProviderConfig, ContentPart, ContentPartText, ContentPartImageUrl } from '../types.js';
+import { ResponseStreamParams } from 'openai/lib/responses/ResponseStream.js';
 
 function isInvalidPromptError(error: unknown): boolean {
   const e = error as { status?: number; code?: string; message?: string };
@@ -173,9 +174,12 @@ export class OpenAIProvider {
     onStream?: (chunk: string, type?: 'content' | 'reasoning') => void,
     signal?: AbortSignal
   ): Promise<ChatMessage> {
-    const params = {
+    const params: ResponseStreamParams = {
       model: this.config.model,
       input: toResponsesInput(messages),
+      reasoning: {
+        effort: 'high',
+      },
       ...(toResponsesTools(tools) && { tools: toResponsesTools(tools), tool_choice: 'auto' as const }),
     };
 
