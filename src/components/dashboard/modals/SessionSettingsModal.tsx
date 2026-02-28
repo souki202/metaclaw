@@ -516,6 +516,14 @@ export const SessionSettingsModal = ({
     }
   };
 
+  const useSameCompressionModel =
+    config.context?.memoryCompressionUseSameModel ??
+    !(
+      config.context?.memoryCompressionModel ||
+      config.context?.memoryCompressionEndpoint ||
+      config.context?.memoryCompressionApiKey
+    );
+
   return (
     <div
       className="modal-overlay active"
@@ -698,21 +706,73 @@ export const SessionSettingsModal = ({
                   </div>
 
                   <div className="form-group">
-                    <label className="form-label">
-                      Memory Compression Model (optional)
+                    <label className="form-checkbox" style={{ marginBottom: 10 }}>
+                      <input
+                        type="checkbox"
+                        checked={useSameCompressionModel}
+                        onChange={(e) =>
+                          setNested(
+                            ["context", "memoryCompressionUseSameModel"],
+                            e.target.checked,
+                          )
+                        }
+                      />
+                      Use same model as conversation (Memory Compression)
                     </label>
-                    <ModelSelector
-                      value={config.context?.memoryCompressionModel || ""}
-                      onChange={(v) =>
-                        setNested([
-                          "context",
-                          "memoryCompressionModel",
-                        ], v.trim() || undefined)
-                      }
-                      endpoint={config.provider?.endpoint || ""}
-                      apiKey={config.provider?.apiKey || ""}
-                      placeholder="empty = provider model"
-                    />
+
+                    {!useSameCompressionModel && (
+                      <>
+                        <label className="form-label">Memory Compression API Endpoint (optional)</label>
+                        <input
+                          className="form-input mono"
+                          placeholder="empty = conversation endpoint"
+                          value={config.context?.memoryCompressionEndpoint || ""}
+                          onChange={(e) =>
+                            setNested(
+                              ["context", "memoryCompressionEndpoint"],
+                              e.target.value.trim() || undefined,
+                            )
+                          }
+                        />
+
+                        <label className="form-label" style={{ marginTop: 10 }}>Memory Compression API Key (optional)</label>
+                        <input
+                          type="password"
+                          className="form-input mono"
+                          placeholder="•••••••• (empty = conversation API key)"
+                          value={config.context?.memoryCompressionApiKey || ""}
+                          onChange={(e) =>
+                            setNested(
+                              ["context", "memoryCompressionApiKey"],
+                              e.target.value,
+                            )
+                          }
+                        />
+
+                        <label className="form-label" style={{ marginTop: 10 }}>Memory Compression Model (optional)</label>
+                        <ModelSelector
+                          value={config.context?.memoryCompressionModel || ""}
+                          onChange={(v) =>
+                            setNested(
+                              ["context", "memoryCompressionModel"],
+                              v.trim() || undefined,
+                            )
+                          }
+                          endpoint={
+                            config.context?.memoryCompressionEndpoint ||
+                            config.provider?.endpoint ||
+                            ""
+                          }
+                          apiKey={
+                            config.context?.memoryCompressionApiKey ||
+                            config.provider?.apiKey ||
+                            ""
+                          }
+                          placeholder="empty = conversation model"
+                        />
+                      </>
+                    )}
+
                     <div
                       style={{
                         marginTop: 6,
@@ -720,7 +780,7 @@ export const SessionSettingsModal = ({
                         fontSize: 12,
                       }}
                     >
-                      未設定時は会話モデルを使用
+                      スイッチ ON: 会話モデルを使用 / OFF: 専用 endpoint・API key・model を設定可能
                     </div>
                   </div>
 

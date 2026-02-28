@@ -18,10 +18,22 @@ export class EmbeddingClient implements EmbeddingProvider {
   }
 
   async embed(text: string): Promise<number[]> {
-    const response = await this.client.embeddings.create({
-      model: this.model,
-      input: text,
-    });
-    return response.data[0].embedding;
+    try {
+      const response = await this.client.embeddings.create({
+        model: this.model,
+        input: text,
+      });
+
+      if (!response.data || response.data.length === 0 || !response.data[0].embedding) {
+        throw new Error(`Invalid embedding response: ${JSON.stringify(response)}`);
+      }
+
+      return response.data[0].embedding;
+    } catch (e) {
+      console.error('Embedding failed:', e);
+      // Return a zero vector of appropriate size or throw?
+      // For now, re-throw with context so callers (like autoAdd) can handle it.
+      throw e;
+    }
   }
 }

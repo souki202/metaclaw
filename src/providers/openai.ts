@@ -144,6 +144,17 @@ function extractResponseText(response: any): string {
   return texts.join('');
 }
 
+/** Extract base64 image data from image_generation_call output items in the Responses API response. */
+function extractResponseImages(response: any): string[] {
+  const images: string[] = [];
+  for (const item of response?.output ?? []) {
+    if (item?.type === 'image_generation_call' && typeof item.result === 'string' && item.result.length > 0) {
+      images.push(item.result);
+    }
+  }
+  return images;
+}
+
 function extractResponseToolCalls(response: any): ChatMessage['tool_calls'] {
   const toolCalls = (response?.output ?? [])
     .filter((item: any) => item?.type === 'function_call')
@@ -209,7 +220,7 @@ export class OpenAIProvider {
       try {
         for await (const event of stream) {
           if (signal?.aborted) break;
-          
+
           if ((event as any).type === 'response.output_text.delta' && typeof (event as any).delta === 'string') {
             fullContent += (event as any).delta;
             onStream((event as any).delta, 'content');
@@ -229,7 +240,8 @@ export class OpenAIProvider {
         const finalResponse = await stream.finalResponse();
         const toolCalls = extractResponseToolCalls(finalResponse);
         const content = fullContent || extractResponseText(finalResponse);
-        
+        const generatedImages = extractResponseImages(finalResponse);
+
         // Extract reasoning from final response if available
         let reasoning = fullReasoning;
         if (!reasoning && (finalResponse as any).output?.[0]?.content) {
@@ -244,6 +256,7 @@ export class OpenAIProvider {
           content: content || null,
           ...(reasoning && { reasoning }),
           ...(toolCalls && { tool_calls: toolCalls }),
+          ...(generatedImages.length > 0 && { generatedImages }),
         };
       } catch (e: any) {
         if (isInvalidPromptError(e)) {
@@ -281,7 +294,8 @@ export class OpenAIProvider {
       }
       const text = extractResponseText(response);
       const toolCalls = extractResponseToolCalls(response);
-      
+      const generatedImages = extractResponseImages(response);
+
       let reasoning: string | undefined;
       const reasoningPart = (response as any).output?.[0]?.content?.find((p: any) => p.type === 'reasoning_text');
       if (reasoningPart) {
@@ -293,6 +307,7 @@ export class OpenAIProvider {
         content: text || null,
         ...(reasoning && { reasoning }),
         ...(toolCalls && { tool_calls: toolCalls }),
+        ...(generatedImages.length > 0 && { generatedImages }),
       };
     }
   }

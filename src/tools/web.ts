@@ -3,40 +3,100 @@ import type { ToolDefinition, ToolResult, SearchConfig } from '../types.js';
 import type { ToolContext } from './context.js';
 import { htmlToText } from './html-utils.js';
 
-export async function webFetch(url: string, selector?: string): Promise<ToolResult> {
-  try {
-    new URL(url);
-  } catch {
-    return { success: false, output: 'Invalid URL.' };
-  }
+function normalizeFreshnessToBrave(freshness?: string): string | undefined {
+  if (!freshness) return undefined;
 
-  try {
-    const response = await fetch(url, {
-      headers: { 'User-Agent': 'meta-claw/1.0 (personal AI agent)' },
-      signal: AbortSignal.timeout(15000),
-    });
+  const trimmed = freshness.trim();
+  const lower = trimmed.toLowerCase();
+  const aliasMap: Record<string, string> = {
+    day: 'pd',
+    week: 'pw',
+    month: 'pm',
+    year: 'py',
+    pd: 'pd',
+    pw: 'pw',
+    pm: 'pm',
+    py: 'py',
+  };
 
-    if (!response.ok) {
-      return { success: false, output: `HTTP ${response.status}: ${response.statusText}` };
-    }
-
-    const contentType = response.headers.get('content-type') ?? '';
-    if (contentType.includes('application/json')) {
-      const json = await response.json();
-      return { success: true, output: JSON.stringify(json, null, 2).slice(0, 8000) };
-    }
-
-    const text = await response.text();
-    const clean = htmlToText(text).slice(0, 8000);
-
-    return { success: true, output: clean };
-  } catch (e: unknown) {
-    return { success: false, output: `Fetch error: ${(e as Error).message}` };
-  }
+  if (aliasMap[lower]) return aliasMap[lower];
+  if (/^\d{4}-\d{2}-\d{2}to\d{4}-\d{2}-\d{2}$/i.test(trimmed)) return trimmed;
+  return undefined;
 }
 
-export async function webSearch(query: string, config?: SearchConfig): Promise<ToolResult> {
+function normalizeFreshnessToSerperTbs(freshness?: string): string | undefined {
+  const braveFreshness = normalizeFreshnessToBrave(freshness);
+  if (!braveFreshness) return undefined;
+
+  const map: Record<string, string> = {
+    pd: 'qdr:d',
+    pw: 'qdr:w',
+    pm: 'qdr:m',
+    py: 'qdr:y',
+  };
+
+  return map[braveFreshness];
+}
+
+export async function webFetch(url: string | string[], selector?: string): Promise<ToolResult> {
+  const urls = Array.isArray(url) ? url : [url];
+  const results: string[] = [];
+
+  for (const targetUrl of urls) {
+    try {
+      new URL(targetUrl);
+    } catch {
+      results.push(`--- Content from: ${targetUrl} ---\nInvalid URL.`);
+      continue;
+    }
+
+    try {
+      const response = await fetch(targetUrl, {
+        headers: { 'User-Agent': 'meta-claw/1.0 (personal AI agent)' },
+        signal: AbortSignal.timeout(15000),
+      });
+
+      if (!response.ok) {
+        results.push(`--- Content from: ${targetUrl} ---\nHTTP ${response.status}: ${response.statusText}`);
+        continue;
+      }
+
+      const contentType = response.headers.get('content-type') ?? '';
+      let output = '';
+      if (contentType.includes('application/json')) {
+        const json = await response.json();
+        output = JSON.stringify(json, null, 2);
+      } else {
+        const text = await response.text();
+        output = htmlToText(text);
+      }
+
+      // Limit per-page content to ~4000 chars to allow multiple pages in context
+      results.push(`--- Content from: ${targetUrl} ---\n${output.slice(0, 4000)}`);
+    } catch (e: unknown) {
+      results.push(`--- Content from: ${targetUrl} ---\nFetch error: ${(e as Error).message}`);
+    }
+  }
+
+  const finalOutput = results.join('\n\n');
+  return {
+    success: results.some(r => !r.includes('Invalid URL.') && !r.includes('HTTP ') && !r.includes('Fetch error:')),
+    output: finalOutput.slice(0, 12000)
+  };
+}
+
+export async function webSearch(query: string, config?: SearchConfig, freshness?: string): Promise<ToolResult> {
   const provider = config?.provider || 'brave';
+  const braveFreshness = normalizeFreshnessToBrave(freshness);
+  const serperTbs = normalizeFreshnessToSerperTbs(freshness);
+  const hasFreshnessInput = typeof freshness === 'string' && freshness.trim().length > 0;
+
+  if (hasFreshnessInput && !braveFreshness) {
+    return {
+      success: false,
+      output: 'Invalid freshness value. Use day/week/month/year, pd/pw/pm/py, or YYYY-MM-DDtoYYYY-MM-DD.'
+    };
+  }
 
   try {
     if (provider === 'vertex') {
@@ -55,10 +115,11 @@ export async function webSearch(query: string, config?: SearchConfig): Promise<T
       const token = await client.getAccessToken();
 
       const url = `https://discoveryengine.googleapis.com/v1alpha/projects/${projectId}/locations/${location}/collections/default_collection/dataStores/${datastoreId}/servingConfigs/default_search:search`;
-      
+
       const payload = {
         query: query,
         pageSize: 10,
+        ...(hasFreshnessInput ? { orderBy: 'updateTime desc' } : {}),
         queryExpansionSpec: { condition: 'AUTO' },
         spellCorrectionSpec: { mode: 'AUTO' }
       };
@@ -89,9 +150,13 @@ export async function webSearch(query: string, config?: SearchConfig): Promise<T
         return `${i + 1}. **${title}**\n   ${link}\n   ${snip.replace(/<b>/g, '').replace(/<\/b>/g, '')}`;
       }).join('\n\n');
 
-      return { success: true, output: formatted || 'No results found.' };
-    } 
-    
+      const note = hasFreshnessInput
+        ? 'Note: Vertex provider does not expose a native freshness filter in this endpoint. Applied orderBy=updateTime desc as best effort.\n\n'
+        : '';
+
+      return { success: true, output: `${note}${formatted || 'No results found.'}` };
+    }
+
     if (provider === 'serper') {
       const apiKey = config?.serperApiKey;
       if (!apiKey) return { success: false, output: 'Serper requires an API Key' };
@@ -103,7 +168,10 @@ export async function webSearch(query: string, config?: SearchConfig): Promise<T
           'X-API-KEY': apiKey,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ q: query }),
+        body: JSON.stringify({
+          q: query,
+          ...(serperTbs ? { tbs: serperTbs } : {}),
+        }),
         signal: AbortSignal.timeout(10000),
       });
 
@@ -113,14 +181,23 @@ export async function webSearch(query: string, config?: SearchConfig): Promise<T
         const formatted = results
           .map((r: any, i: number) => `${i + 1}. **${r.title}**\n   ${r.link}\n   ${r.snippet || ''}`)
           .join('\n\n');
-        return { success: true, output: formatted || 'No results found.' };
+        const note = hasFreshnessInput && !serperTbs
+          ? 'Note: Serper supports day/week/month/year recency only; custom date ranges were not applied.\n\n'
+          : '';
+        return { success: true, output: `${note}${formatted || 'No results found.'}` };
       } else {
         return { success: false, output: `Serper Error: ${response.statusText}` };
       }
     }
 
     if (provider === 'brave' && config?.braveApiKey) {
-      const url = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=10`;
+      const params = new URLSearchParams({
+        q: query,
+        count: '10',
+        safesearch: 'off',
+        ...(braveFreshness ? { freshness: braveFreshness } : {}),
+      });
+      const url = `https://api.search.brave.com/res/v1/web/search?${params.toString()}`;
       const response = await fetch(url, {
         headers: { 'X-Subscription-Token': config.braveApiKey, 'Accept': 'application/json' },
         signal: AbortSignal.timeout(10000),
@@ -146,7 +223,7 @@ export async function webSearch(query: string, config?: SearchConfig): Promise<T
     const data = await response.json() as {
       AbstractText?: string;
       AbstractURL?: string;
-      RelatedTopics?: Array<{ Text?: string; FirstURL?: string }>;
+      RelatedTopics?: Array<{ Text?: string; FirstURL?: string; }>;
     };
     const lines: string[] = [];
     if (data.AbstractText) lines.push(`**Summary:** ${data.AbstractText}\n${data.AbstractURL ?? ''}`);
@@ -155,7 +232,10 @@ export async function webSearch(query: string, config?: SearchConfig): Promise<T
         if (t.Text) lines.push(`${i + 1}. ${t.Text}\n   ${t.FirstURL ?? ''}`);
       });
     }
-    return { success: true, output: lines.join('\n\n') || 'No results found.' };
+    const note = hasFreshnessInput
+      ? 'Note: DuckDuckGo fallback endpoint does not support freshness filtering in this tool path.\n\n'
+      : '';
+    return { success: true, output: `${note}${lines.join('\n\n') || 'No results found.'}` };
   } catch (e: unknown) {
     return { success: false, output: `Search error: ${(e as Error).message}` };
   }
@@ -163,6 +243,19 @@ export async function webSearch(query: string, config?: SearchConfig): Promise<T
 
 export function buildWebTools(ctx: ToolContext): ToolDefinition[] {
   if (!ctx.config.tools.web) return [];
+
+  const provider = ctx.searchConfig?.provider || 'brave';
+  const providerLabel = provider === 'vertex'
+    ? 'Vertex AI Search'
+    : provider === 'serper'
+      ? 'Serper (Google)'
+      : 'Brave Search';
+  const freshnessHint = provider === 'brave'
+    ? 'Freshness: day/week/month/year, pd/pw/pm/py, YYYY-MM-DDtoYYYY-MM-DD.'
+    : provider === 'serper'
+      ? 'Freshness: day/week/month/year or pd/pw/pm/py.'
+      : 'Freshness: best effort (sorted by latest update time).';
+
   return [
     {
       type: 'function',
@@ -172,7 +265,12 @@ export function buildWebTools(ctx: ToolContext): ToolDefinition[] {
         parameters: {
           type: 'object',
           properties: {
-            url: { type: 'string', description: 'URL to fetch.' },
+            url: {
+              oneOf: [
+                { type: 'string', description: 'URL to fetch.' },
+                { type: 'array', items: { type: 'string' }, description: 'List of URLs to fetch.' }
+              ]
+            },
           },
           required: ['url'],
         },
@@ -182,11 +280,15 @@ export function buildWebTools(ctx: ToolContext): ToolDefinition[] {
       type: 'function',
       function: {
         name: 'web_search',
-        description: 'Search the web for information.',
+        description: `Search the web using ${providerLabel}. ${freshnessHint}`,
         parameters: {
           type: 'object',
           properties: {
             query: { type: 'string', description: 'Search query.' },
+            freshness: {
+              type: 'string',
+              description: 'Recency filter. Supports day/week/month/year, pd/pw/pm/py, or custom range YYYY-MM-DDtoYYYY-MM-DD (Brave only).'
+            },
           },
           required: ['query'],
         },
@@ -202,9 +304,9 @@ export async function executeWebTool(
 ): Promise<ToolResult | null> {
   switch (name) {
     case 'web_fetch':
-      return webFetch(args.url as string);
+      return webFetch(args.url as string | string[]);
     case 'web_search':
-      return webSearch(args.query as string, ctx.searchConfig);
+      return webSearch(args.query as string, ctx.searchConfig, args.freshness as string | undefined);
     default:
       return null;
   }

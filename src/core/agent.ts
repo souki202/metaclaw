@@ -39,8 +39,8 @@ function stripImageUrls(messages: ChatMessage[]): ChatMessage[] {
       ...m,
       content:
         textParts.length === 0 ? '' :
-        textParts.length === 1 ? textParts[0].text :
-        textParts,
+          textParts.length === 1 ? textParts[0].text :
+            textParts,
     };
   });
 }
@@ -97,6 +97,8 @@ export class Agent {
   private sessionDir: string;
   private workspace: string;
   private provider: OpenAIProvider;
+  private memoryCompressionProvider: OpenAIProvider | null = null;
+  private memoryCompressionProviderKey: string | null = null;
   private providerConfig: ProviderConfig;
   private embeddingProvider: EmbeddingProvider | null;
   private quickMemory: QuickMemory;
@@ -320,7 +322,7 @@ export class Agent {
     if (this.config.provider) {
       return this.config.provider;
     }
-    
+
     throw new Error(`No provider configuration found for session ${this.sessionId}`);
   }
 
@@ -354,7 +356,7 @@ export class Agent {
   }
 
   private buildRecentFlowContext(limit = 6): string {
-    type FlowEntry = { role: ChatMessage['role']; prefix: string; text: string };
+    type FlowEntry = { role: ChatMessage['role']; prefix: string; text: string; };
     const maxChars = 2000;
 
     const toEntry = (msg: ChatMessage): FlowEntry | null => {
@@ -428,9 +430,48 @@ export class Agent {
     );
   }
 
+  private usesSameMemoryCompressionModel(): boolean {
+    const configured = this.config.context?.memoryCompressionUseSameModel;
+    if (typeof configured === 'boolean') return configured;
+
+    const hasLegacyDedicatedConfig = Boolean(
+      this.config.context?.memoryCompressionModel?.trim()
+      || this.config.context?.memoryCompressionEndpoint?.trim()
+      || this.config.context?.memoryCompressionApiKey?.trim(),
+    );
+    return !hasLegacyDedicatedConfig;
+  }
+
   private getMemoryCompressionModel(): string {
+    if (this.usesSameMemoryCompressionModel()) {
+      return this.providerConfig.model;
+    }
+
     const configured = this.config.context?.memoryCompressionModel?.trim();
     return configured && configured.length > 0 ? configured : this.providerConfig.model;
+  }
+
+  private getMemoryCompressionProvider(): OpenAIProvider {
+    if (this.usesSameMemoryCompressionModel()) {
+      return this.provider;
+    }
+
+    const endpoint = this.config.context?.memoryCompressionEndpoint?.trim() || this.providerConfig.endpoint;
+    const apiKey = this.config.context?.memoryCompressionApiKey?.trim() || this.providerConfig.apiKey;
+    const cacheKey = `${endpoint}::${apiKey}`;
+
+    if (this.memoryCompressionProvider && this.memoryCompressionProviderKey === cacheKey) {
+      return this.memoryCompressionProvider;
+    }
+
+    this.memoryCompressionProvider = new OpenAIProvider({
+      endpoint,
+      apiKey,
+      model: this.providerConfig.model,
+      contextWindow: this.providerConfig.contextWindow,
+    });
+    this.memoryCompressionProviderKey = cacheKey;
+    return this.memoryCompressionProvider;
   }
 
   private buildRawRecalledMemories(results: RecalledEntry[], maxChars: number): string {
@@ -501,7 +542,7 @@ export class Agent {
     }
 
     try {
-      const compressed = await this.provider.summarizeMemory(
+      const compressed = await this.getMemoryCompressionProvider().summarizeMemory(
         `Current cue:\n${cue.slice(0, 1200)}\n\nRecent conversation flow:\n${(recentFlowContext || '').slice(0, 2000)}\n\nRecalled memory corpus:\n${raw}`,
         {
           model: this.getMemoryCompressionModel(),
@@ -509,10 +550,11 @@ export class Agent {
 You compress recalled memories for an AI agent.
 Mode: ${mode}.
 Output must be <= ${MAX_RECALL_COMPRESSED_CHARS} characters.
-Prefer keyword-dense telegraphic style. Conjunctions/particles can be omitted.
-Preserve critical facts exactly when possible: numbers, dates, file paths, IDs, errors, decisions, constraints.
-Keep broad related context in rough, compressed form.
-Plain text only. No markdown bullets required.
+Use a highly dense telegraphic style, but you preserve chronological order and causal relationships.
+Use symbols (e.g., "->", ">", "+", "@") to denote time sequence, causality, or relationships compactly instead of words (e.g., "Action A -> Result B").
+Focus on core events and outcomes (Subject-Action-Result) rather than isolated nouns. Strip out adjectives, fluff, and non-essential modifiers.
+Preserve critical facts exactly: numbers, dates, file paths, IDs, errors, decisions, constraints.
+Plain text only. No markdown formatting.
 `.trim(),
         },
       );
@@ -526,7 +568,7 @@ Plain text only. No markdown bullets required.
   }
 
   /** Recall relevant past memories for the current turn using user cue + recent autonomous activity cues. */
-  private async recallForCurrentTurn(userMessage: string): Promise<{ text: string | null; ids: string[] }> {
+  private async recallForCurrentTurn(userMessage: string): Promise<{ text: string | null; ids: string[]; }> {
     if (!this.config.tools.memory) return { text: null, ids: [] };
     if (!this.vectorMemory) return { text: null, ids: [] };
     if (this.vectorMemory.count() === 0) return { text: null, ids: [] };
@@ -612,7 +654,11 @@ Plain text only. No markdown bullets required.
 
       return {
         role: 'system',
-        content: `## Additional Recalled Memories\nThe following memories were autonomously recalled from recent tool-driven context:\n\n${text}`,
+        content: `<recalled_context>
+Additional Recalled Memories
+The following memories were autonomously recalled from recent tool-driven context:
+${text}
+</recalled_context>`.trim(),
       };
     } catch (e) {
       this.log.warn('Autonomous memory recall failed:', e);
@@ -667,15 +713,15 @@ Plain text only. No markdown bullets required.
     // Add MCP tools info
     const mcpStates = this.mcpManager.getServerStates();
     const connectedServers = mcpStates.filter(s => s.status === 'connected');
-    
+
     // Determine which tools are actually active to avoid hallucination
     const disabledTools = new Set(this.config.disabledTools || []);
-    
+
     // We only want to list servers that actually have at least 1 enabled tool
     const activeServersInfo = [];
     for (const server of connectedServers) {
       if (!server.toolCount || server.toolCount === 0) continue;
-      
+
       // We don't have the exact tool list here without fetching, but we know the prefix is mcp_{id}_
       // In a real scenario we'd count exactly, but as a heuristic, if we have disabledTools, we just
       // warn the model that SOME tools might be disabled. Let's actually fetch the exact list to be perfectly safe.
@@ -812,7 +858,9 @@ Plain text only. No markdown bullets required.
   private saveHistory(message: ChatMessage) {
     const historyPath = path.join(this.sessionDir, 'history.jsonl');
     fs.mkdirSync(path.dirname(historyPath), { recursive: true });
-    const line = JSON.stringify({ ...message, timestamp: new Date().toISOString() });
+    // Strip transient fields (e.g. generatedImages base64) before persisting
+    const { generatedImages: _drop, ...persistable } = message as ChatMessage & { generatedImages?: string[] };
+    const line = JSON.stringify({ ...persistable, timestamp: new Date().toISOString() });
     fs.appendFileSync(historyPath, line + '\n', 'utf-8');
   }
 
@@ -968,294 +1016,320 @@ Plain text only. No markdown bullets required.
     userMessage: string,
     channelId?: string,
     imageUrls?: string[],
-    options?: { noMemory?: boolean; noRecall?: boolean; systemPrompt?: string },
+    options?: { noMemory?: boolean; noRecall?: boolean; systemPrompt?: string; },
   ): Promise<string> {
     this.beginProcessing();
     try {
-    this.log.info(`Processing message from ${channelId ?? 'unknown'}: ${userMessage.slice(0, 80)}...`);
+      this.log.info(`Processing message from ${channelId ?? 'unknown'}: ${userMessage.slice(0, 80)}...`);
 
-    // Set up abort controller for this processing run
-    this.abortController = new AbortController();
-    const signal = this.abortController.signal;
+      // Set up abort controller for this processing run
+      this.abortController = new AbortController();
+      const signal = this.abortController.signal;
 
-    // Compress context if needed
-    await this.compressContext();
+      // Compress context if needed
+      await this.compressContext();
 
-    // Build timestamp marker
-    const now = new Date();
-    const localTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'local';
-    const timestampMarker = `[[timestamp:${now.toLocaleString()} (${localTimeZone})]] `;
+      // Build timestamp marker
+      const now = new Date();
+      const localTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'local';
+      const timestampMarker = `[[timestamp:${now.toLocaleString()} (${localTimeZone})]] `;
 
-    // Build user message with optional images
-    // Resolve relative URLs to base64 data URLs for LLM
-    const resolvedImageUrls = imageUrls?.map(url => this.resolveImageUrl(url));
-    const imageUrlReferenceText = imageUrls && imageUrls.length > 0
-      ? `\n\nAttached image URLs (these are visible to the user):\n${imageUrls.map((url) => `- ${url}`).join('\n')}`
-      : '';
+      // Build user message with optional images
+      // Resolve relative URLs to base64 data URLs for LLM
+      const resolvedImageUrls = imageUrls?.map(url => this.resolveImageUrl(url));
+      const imageUrlReferenceText = imageUrls && imageUrls.length > 0
+        ? `\n\nAttached image URLs (these are visible to the user):\n${imageUrls.map((url) => `- ${url}`).join('\n')}`
+        : '';
 
-    const userMsgContent = resolvedImageUrls && resolvedImageUrls.length > 0
-      ? [
+      const userMsgContent = resolvedImageUrls && resolvedImageUrls.length > 0
+        ? [
           { type: 'text' as const, text: `${timestampMarker}${userMessage}${imageUrlReferenceText}` },
           ...resolvedImageUrls.map(url => ({
             type: 'image_url' as const,
             image_url: { url, detail: 'high' as const },
           })),
         ]
-      : `${timestampMarker}${userMessage}`;
+        : `${timestampMarker}${userMessage}`;
 
-    const userMsg: ChatMessage = {
-      role: 'user',
-      content: userMsgContent,
-    };
-    this.history.push(userMsg);
-    this.saveHistory(userMsg);
-    this.emit('message', { role: 'user', content: userMessage, channelId, imageUrls });
+      const userMsg: ChatMessage = {
+        role: 'user',
+        content: userMsgContent,
+      };
+      this.history.push(userMsg);
+      this.saveHistory(userMsg);
+      this.emit('message', { role: 'user', content: userMessage, channelId, imageUrls });
 
-    // Auto-save user message to vector memory (fire-and-forget, don't block)
-    if (this.config.tools.memory && this.vectorMemory && !options?.noMemory) {
-      this.vectorMemory.autoAdd({ role: 'user', content: userMessage }).catch(e => {
-        this.log.warn('Auto-save user message to vector failed:', e);
-      });
-    }
-
-    // Recall relevant past memories BEFORE building system prompt
-    const recalledMemories = options?.noRecall
-      ? { text: null, ids: [] }
-      : await this.recallForCurrentTurn(userMessage);
-    const systemPrompt = options?.systemPrompt ?? this.buildSystemPrompt(recalledMemories.text);
-    const recalledMemoryIds = new Set<string>(recalledMemories.ids);
-    const toolCtx: ToolContext = {
-      sessionId: this.sessionId,
-      config: this.config,
-      workspace: this.workspace,
-      sessionDir: this.sessionDir,
-      vectorMemory: this.vectorMemory ?? undefined,
-      quickMemory: this.quickMemory,
-      tmpMemory: this.tmpMemory,
-      searchConfig: this.globalConfig?.search,
-      mcpManager: this.mcpManager,
-      a2aRegistry: this.a2aRegistry,
-      acaManager: this.acaManager,
-      commsManager: this.commsManager,
-      sessionManager: this.getSessionManager ? this.getSessionManager() : undefined,
-      scheduleList: this.scheduleAccess ? () => this.scheduleAccess!.list() : undefined,
-      scheduleCreate: this.scheduleAccess ? (input) => this.scheduleAccess!.create(input) : undefined,
-      scheduleUpdate: this.scheduleAccess ? (scheduleId, patch) => this.scheduleAccess!.update(scheduleId, patch) : undefined,
-      scheduleDelete: this.scheduleAccess ? (scheduleId) => this.scheduleAccess!.remove(scheduleId) : undefined,
-      clearHistory: () => this.clearHistory(),
-    };
-    let tools = await buildTools(toolCtx);
-
-    // Filter out disabled tools
-    if (this.config.disabledTools && this.config.disabledTools.length > 0) {
-      tools = tools.filter(t => !this.config.disabledTools!.includes(t.function.name));
-    }
-
-    const messages: ChatMessage[] = [
-      { role: 'system', content: systemPrompt },
-      ...this.history,
-    ];
-
-    let iterations = 0;
-    let finalResponse = '';
-    let lastStreamBuffer = '';
-
-    while (iterations < MAX_ITERATIONS) {
-      // Check if cancelled before each iteration
-      if (signal.aborted) {
-        this.log.info('Processing cancelled by user');
-        finalResponse = lastStreamBuffer
-          ? lastStreamBuffer + '\n\n[cancelled]'
-          : '[cancelled]';
-        break;
+      // Auto-save user message to vector memory (fire-and-forget, don't block)
+      if (this.config.tools.memory && this.vectorMemory && !options?.noMemory) {
+        this.vectorMemory.autoAdd({ role: 'user', content: userMessage }).catch(e => {
+          this.log.warn('Auto-save user message to vector failed:', e);
+        });
       }
 
-      iterations++;
+      // Recall relevant past memories BEFORE building system prompt
+      const recalledMemories = options?.noRecall
+        ? { text: null, ids: [] }
+        : await this.recallForCurrentTurn(userMessage);
+      const systemPrompt = options?.systemPrompt ?? this.buildSystemPrompt(recalledMemories.text);
+      const recalledMemoryIds = new Set<string>(recalledMemories.ids);
+      const toolCtx: ToolContext = {
+        sessionId: this.sessionId,
+        config: this.config,
+        workspace: this.workspace,
+        sessionDir: this.sessionDir,
+        vectorMemory: this.vectorMemory ?? undefined,
+        quickMemory: this.quickMemory,
+        tmpMemory: this.tmpMemory,
+        searchConfig: this.globalConfig?.search,
+        mcpManager: this.mcpManager,
+        a2aRegistry: this.a2aRegistry,
+        acaManager: this.acaManager,
+        commsManager: this.commsManager,
+        sessionManager: this.getSessionManager ? this.getSessionManager() : undefined,
+        scheduleList: this.scheduleAccess ? () => this.scheduleAccess!.list() : undefined,
+        scheduleCreate: this.scheduleAccess ? (input) => this.scheduleAccess!.create(input) : undefined,
+        scheduleUpdate: this.scheduleAccess ? (scheduleId, patch) => this.scheduleAccess!.update(scheduleId, patch) : undefined,
+        scheduleDelete: this.scheduleAccess ? (scheduleId) => this.scheduleAccess!.remove(scheduleId) : undefined,
+        clearHistory: () => this.clearHistory(),
+      };
+      let tools = await buildTools(toolCtx);
 
-      let streamBuffer = '';
-      try {
-        let response = await this.provider.chat(messages, tools, (chunk, type) => {
-          if (type === 'reasoning') {
-            this.emit('stream', { chunk, type: 'reasoning' });
-          } else {
-            streamBuffer += chunk;
-            this.emit('stream', { chunk, type: 'content' });
-          }
-        }, signal).catch(async (err: unknown) => {
-          // Retry without images if the model reports it doesn't support vision.
-          // Error example: "404 No endpoints found that support image input"
-          const msg = String((err as Error)?.message ?? '').toLowerCase();
-          const isVisionError =
-            ((err as { status?: number })?.status === 404 || msg.includes('404')) &&
-            (msg.includes('image') || msg.includes('vision') || msg.includes('endpoint'));
-          if (isVisionError) {
-            this.log.warn('Model does not support image input – retrying without images');
-            return this.provider.chat(stripImageUrls(messages), tools, (chunk, type) => {
-              if (type === 'reasoning') {
-                this.emit('stream', { chunk, type: 'reasoning' });
-              } else {
-                streamBuffer += chunk;
-                this.emit('stream', { chunk, type: 'content' });
-              }
-            }, signal);
-          }
-          throw err;
-        });
+      // Filter out disabled tools
+      if (this.config.disabledTools && this.config.disabledTools.length > 0) {
+        tools = tools.filter(t => !this.config.disabledTools!.includes(t.function.name));
+      }
 
-        if (!response.tool_calls || response.tool_calls.length === 0) {
-          response = {
-            ...response,
-            content: this.normalizeAssistantContent(response.content),
-          };
-        }
+      const messages: ChatMessage[] = [
+        { role: 'system', content: systemPrompt },
+        ...this.history,
+      ];
 
-        // Check again after chat completes
+      let iterations = 0;
+      let finalResponse = '';
+      let lastStreamBuffer = '';
+
+      while (iterations < MAX_ITERATIONS) {
+        // Check if cancelled before each iteration
         if (signal.aborted) {
-          finalResponse = streamBuffer
-            ? streamBuffer + '\n\n[cancelled]'
+          this.log.info('Processing cancelled by user');
+          finalResponse = lastStreamBuffer
+            ? lastStreamBuffer + '\n\n[cancelled]'
             : '[cancelled]';
-          // Save partial response
-          const partialMsg: ChatMessage = { role: 'assistant', content: finalResponse };
-          this.history.push(partialMsg);
-          this.saveHistory(partialMsg);
           break;
         }
 
-        lastStreamBuffer = streamBuffer;
-        messages.push(response);
-        this.history.push(response);
-        this.saveHistory(response);
-        // Auto-save assistant response to vector memory
-        if (this.config.tools.memory && this.vectorMemory && !options?.noMemory) {
-          this.vectorMemory.autoAdd(response).catch(e => {
-            this.log.warn('Auto-save assistant message to vector failed:', e);
+        iterations++;
+
+        let streamBuffer = '';
+        try {
+          let response = await this.provider.chat(messages, tools, (chunk, type) => {
+            if (type === 'reasoning') {
+              this.emit('stream', { chunk, type: 'reasoning' });
+            } else {
+              streamBuffer += chunk;
+              this.emit('stream', { chunk, type: 'content' });
+            }
+          }, signal).catch(async (err: unknown) => {
+            // Retry without images if the model reports it doesn't support vision.
+            // Error example: "404 No endpoints found that support image input"
+            const msg = String((err as Error)?.message ?? '').toLowerCase();
+            const isVisionError =
+              ((err as { status?: number; })?.status === 404 || msg.includes('404')) &&
+              (msg.includes('image') || msg.includes('vision') || msg.includes('endpoint'));
+            if (isVisionError) {
+              this.log.warn('Model does not support image input – retrying without images');
+              return this.provider.chat(stripImageUrls(messages), tools, (chunk, type) => {
+                if (type === 'reasoning') {
+                  this.emit('stream', { chunk, type: 'reasoning' });
+                } else {
+                  streamBuffer += chunk;
+                  this.emit('stream', { chunk, type: 'content' });
+                }
+              }, signal);
+            }
+            throw err;
           });
-        }
 
-        let shouldRestart = false;
+          if (!response.tool_calls || response.tool_calls.length === 0) {
+            response = {
+              ...response,
+              content: this.normalizeAssistantContent(response.content),
+            };
+          }
 
-        if (response.tool_calls && response.tool_calls.length > 0) {
-          this.log.info(`Tool calls: ${response.tool_calls.map((t) => t.function.name).join(', ')}`);
-          this.emit('tool_call', { tools: response.tool_calls.map((t) => ({ name: t.function.name, args: t.function.arguments })) });
+          // Persist any AI-generated images (image_generation_call output) to disk
+          if (response.generatedImages && response.generatedImages.length > 0) {
+            const imageUrls: string[] = [];
+            const genImgDir = path.join(this.sessionDir, 'generated-images');
+            fs.mkdirSync(genImgDir, { recursive: true });
 
-          for (const tc of response.tool_calls) {
-            // Check cancellation between tool executions
-            if (signal.aborted) break;
-
-            let args: Record<string, unknown> = {};
-            try {
-              args = JSON.parse(tc.function.arguments);
-            } catch {
-              args = {};
+            for (let i = 0; i < response.generatedImages.length; i++) {
+              const b64 = response.generatedImages[i];
+              const filename = `${Date.now()}_${i}.png`;
+              const filePath = path.join(genImgDir, filename);
+              fs.writeFileSync(filePath, Buffer.from(b64, 'base64'));
+              imageUrls.push(`/api/sessions/${this.sessionId}/artifacts/generated-images/${encodeURIComponent(filename)}`);
             }
 
-            const result = await executeTool(tc.function.name, args, toolCtx);
-            this.log.debug(`Tool ${tc.function.name}: ${result.success ? 'ok' : 'error'} - ${result.output.slice(0, 100)}`);
-            this.emit('tool_result', {
-              tool: tc.function.name,
-              success: result.success,
-              output: result.output.slice(0, 1000),
-              ...(result.imageUrl && { imageUrl: result.imageUrl }),
-            });
+            // Append Markdown image tags to response content
+            const imageMarkdown = imageUrls.map(url => `![Generated Image](${url})`).join('\n\n');
+            const existingText = typeof response.content === 'string' ? response.content : '';
+            response = {
+              ...response,
+              content: existingText ? `${existingText}\n\n${imageMarkdown}` : imageMarkdown,
+              generatedImages: undefined,
+            };
 
-            if (result.output === "__META_CLAW_RESTART__") {
+            this.log.info(`Saved ${imageUrls.length} generated image(s) to ${genImgDir}`);
+          }
+
+          // Check again after chat completes
+          if (signal.aborted) {
+            finalResponse = streamBuffer
+              ? streamBuffer + '\n\n[cancelled]'
+              : '[cancelled]';
+            // Save partial response
+            const partialMsg: ChatMessage = { role: 'assistant', content: finalResponse };
+            this.history.push(partialMsg);
+            this.saveHistory(partialMsg);
+            break;
+          }
+
+          lastStreamBuffer = streamBuffer;
+          messages.push(response);
+          this.history.push(response);
+          this.saveHistory(response);
+          // Auto-save assistant response to vector memory
+          if (this.config.tools.memory && this.vectorMemory && !options?.noMemory) {
+            this.vectorMemory.autoAdd(response).catch(e => {
+              this.log.warn('Auto-save assistant message to vector failed:', e);
+            });
+          }
+
+          let shouldRestart = false;
+
+          if (response.tool_calls && response.tool_calls.length > 0) {
+            this.log.info(`Tool calls: ${response.tool_calls.map((t) => t.function.name).join(', ')}`);
+            this.emit('tool_call', { tools: response.tool_calls.map((t) => ({ name: t.function.name, args: t.function.arguments })) });
+
+            for (const tc of response.tool_calls) {
+              // Check cancellation between tool executions
+              if (signal.aborted) break;
+
+              let args: Record<string, unknown> = {};
+              try {
+                args = JSON.parse(tc.function.arguments);
+              } catch {
+                args = {};
+              }
+
+              const result = await executeTool(tc.function.name, args, toolCtx);
+              this.log.debug(`Tool ${tc.function.name}: ${result.success ? 'ok' : 'error'} - ${result.output.slice(0, 100)}`);
+              this.emit('tool_result', {
+                tool: tc.function.name,
+                success: result.success,
+                output: result.output.slice(0, 1000),
+                ...(result.imageUrl && { imageUrl: result.imageUrl }),
+              });
+
+              if (result.output === "__META_CLAW_RESTART__") {
+                const toolMsg: ChatMessage = {
+                  role: 'tool',
+                  tool_call_id: tc.id,
+                  name: tc.function.name,
+                  content: "Server restarting... The system will reboot and you will resume this task.",
+                };
+                messages.push(toolMsg);
+                this.history.push(toolMsg);
+                this.saveHistory(toolMsg);
+
+                // Drop resume marker
+                const resumePath = path.join(this.sessionDir, '.resume');
+                fs.writeFileSync(resumePath, 'resume', 'utf-8');
+
+                // Set final response and break
+                finalResponse = "Rebooting system... Please wait.";
+                shouldRestart = true;
+                process.emit('meta-claw-restart' as any);
+                break;
+              }
+
+              const toolText = this.rewriteImageUrlsForUser(result.success ? result.output : `Error: ${result.output}`);
+              const toolTextWithImageUrl = result.imageUrl
+                ? `${toolText}\n\nImage URL: ${result.imageUrl}\nIf you show this to the user, use Markdown: ![image](${result.imageUrl})`
+                : toolText;
               const toolMsg: ChatMessage = {
                 role: 'tool',
                 tool_call_id: tc.id,
                 name: tc.function.name,
-                content: "Server restarting... The system will reboot and you will resume this task.",
+                content: result.image
+                  ? [
+                    { type: 'text' as const, text: toolTextWithImageUrl },
+                    { type: 'image_url' as const, image_url: { url: result.image, detail: 'high' as const } },
+                  ]
+                  : toolTextWithImageUrl,
               };
               messages.push(toolMsg);
               this.history.push(toolMsg);
               this.saveHistory(toolMsg);
+              // Auto-save tool result to vector memory
+              if (this.config.tools.memory && this.vectorMemory && !options?.noMemory) {
+                this.vectorMemory.autoAdd(toolMsg).catch(e => {
+                  this.log.warn('Auto-save tool message to vector failed:', e);
+                });
+              }
+            }
 
-              // Drop resume marker
-              const resumePath = path.join(this.sessionDir, '.resume');
-              fs.writeFileSync(resumePath, 'resume', 'utf-8');
-
-              // Set final response and break
-              finalResponse = "Rebooting system... Please wait.";
-              shouldRestart = true;
-              process.emit('meta-claw-restart' as any);
+            // If cancelled during tool execution, save and break
+            if (signal.aborted) {
+              finalResponse = '[cancelled]';
+              const cancelledMsg: ChatMessage = { role: 'assistant', content: finalResponse };
+              this.history.push(cancelledMsg);
+              this.saveHistory(cancelledMsg);
               break;
             }
 
-            const toolText = this.rewriteImageUrlsForUser(result.success ? result.output : `Error: ${result.output}`);
-            const toolTextWithImageUrl = result.imageUrl
-              ? `${toolText}\n\nImage URL: ${result.imageUrl}\nIf you show this to the user, use Markdown: ![image](${result.imageUrl})`
-              : toolText;
-            const toolMsg: ChatMessage = {
-              role: 'tool',
-              tool_call_id: tc.id,
-              name: tc.function.name,
-              content: result.image
-                ? [
-                    { type: 'text' as const, text: toolTextWithImageUrl },
-                    { type: 'image_url' as const, image_url: { url: result.image, detail: 'high' as const } },
-                  ]
-                : toolTextWithImageUrl,
-            };
-            messages.push(toolMsg);
-            this.history.push(toolMsg);
-            this.saveHistory(toolMsg);
-            // Auto-save tool result to vector memory
-            if (this.config.tools.memory && this.vectorMemory && !options?.noMemory) {
-              this.vectorMemory.autoAdd(toolMsg).catch(e => {
-                this.log.warn('Auto-save tool message to vector failed:', e);
-              });
+            const autonomousRecall = await this.recallDuringAutonomousLoop(messages, recalledMemoryIds);
+            if (autonomousRecall) {
+              messages.splice(messages.length - 1, 0, autonomousRecall);
             }
-          }
-
-          // If cancelled during tool execution, save and break
-          if (signal.aborted) {
-            finalResponse = '[cancelled]';
-            const cancelledMsg: ChatMessage = { role: 'assistant', content: finalResponse };
-            this.history.push(cancelledMsg);
-            this.saveHistory(cancelledMsg);
+          } else {
+            finalResponse = extractText(response.content);
             break;
           }
 
-          const autonomousRecall = await this.recallDuringAutonomousLoop(messages, recalledMemoryIds);
-          if (autonomousRecall) {
-            messages.push(autonomousRecall);
+          if (shouldRestart) {
+            break;
           }
-        } else {
-          finalResponse = extractText(response.content);
-          break;
+        } catch (e: any) {
+          if (signal.aborted || e?.name === 'AbortError') {
+            finalResponse = streamBuffer
+              ? streamBuffer + '\n\n[cancelled]'
+              : '[cancelled]';
+            const partialMsg: ChatMessage = { role: 'assistant', content: finalResponse };
+            this.history.push(partialMsg);
+            this.saveHistory(partialMsg);
+            break;
+          }
+          throw e;
         }
-
-        if (shouldRestart) {
-          break;
-        }
-      } catch (e: any) {
-        if (signal.aborted || e?.name === 'AbortError') {
-          finalResponse = streamBuffer
-            ? streamBuffer + '\n\n[cancelled]'
-            : '[cancelled]';
-          const partialMsg: ChatMessage = { role: 'assistant', content: finalResponse };
-          this.history.push(partialMsg);
-          this.saveHistory(partialMsg);
-          break;
-        }
-        throw e;
       }
-    }
 
-    if (!finalResponse) {
-      finalResponse = 'I reached the maximum number of tool iterations. Please try again.';
-      const assistantMsg: ChatMessage = { role: 'assistant', content: finalResponse };
-      this.history.push(assistantMsg);
-      this.saveHistory(assistantMsg);
-    }
+      if (!finalResponse) {
+        finalResponse = 'I reached the maximum number of tool iterations. Please try again.';
+        const assistantMsg: ChatMessage = { role: 'assistant', content: finalResponse };
+        this.history.push(assistantMsg);
+        this.saveHistory(assistantMsg);
+      }
 
-    this.abortController = null;
-    this.emit('message', { 
-      role: 'assistant', 
-      content: finalResponse,
-      reasoning: this.history[this.history.length - 1]?.reasoning
-    });
+      this.abortController = null;
+      this.emit('message', {
+        role: 'assistant',
+        content: finalResponse,
+        reasoning: this.history[this.history.length - 1]?.reasoning
+      });
 
-    return finalResponse;
+      return finalResponse;
     } finally {
       this.endProcessing();
     }

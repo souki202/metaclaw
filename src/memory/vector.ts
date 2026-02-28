@@ -4,8 +4,8 @@ import { randomUUID } from 'crypto';
 import type { MemoryEntry, ChatMessage, ContentPartText } from '../types.js';
 import type { EmbeddingProvider } from './embedding.js';
 
-const AUTO_CHUNK_TARGET = 1200;
-const AUTO_CHUNK_MAX = 1600;
+const AUTO_CHUNK_TARGET = 2000;
+const AUTO_CHUNK_MAX = 2500;
 
 const IMPORTANT_HINTS = [
   'important',
@@ -297,7 +297,7 @@ export class VectorMemory {
     this.save();
   }
 
-  async search(query: string, limit = 10): Promise<Array<{ entry: MemoryEntry; score: number }>> {
+  async search(query: string, limit = 10): Promise<Array<{ entry: MemoryEntry; score: number; }>> {
     if (this.entries.length === 0) return [];
     const queryEmbedding = await this.embedder.embed(query);
     const scored = this.entries.map((entry) => ({
