@@ -1,6 +1,5 @@
 import OpenAI from 'openai';
 import type { ChatMessage, ToolDefinition, ProviderConfig, ContentPart, ContentPartText, ContentPartImageUrl } from '../types.js';
-import { ResponseStreamParams } from 'openai/lib/responses/ResponseStream.js';
 
 function isInvalidPromptError(error: unknown): boolean {
   const e = error as { status?: number; code?: string; message?: string };
@@ -11,6 +10,14 @@ function isInvalidPromptError(error: unknown): boolean {
 
 function invalidPromptFallbackMessage(): string {
   return 'The provider rejected this request as an invalid prompt payload. This is usually caused by request formatting or tool-call context, not user safety policy. Please retry once; if it persists, check tool-call IDs and message formatting.';
+}
+
+function isToolUseUnsupportedError(error: unknown): boolean {
+  const e = error as { status?: number; message?: string };
+  const msg = String(e?.message ?? '').toLowerCase();
+  return (e?.status === 404 || msg.includes('404'))
+    && msg.includes('tool')
+    && (msg.includes('support') || msg.includes('endpoint') || msg.includes('routing'));
 }
 
 // Helper: extract text from potentially multi-part content
@@ -189,108 +196,123 @@ export class OpenAIProvider {
     onStream?: (chunk: string, type?: 'content' | 'reasoning') => void,
     signal?: AbortSignal
   ): Promise<ChatMessage> {
-    const params: ResponseStreamParams = {
+    const mappedTools = toResponsesTools(tools);
+    const buildParams = (includeTools: boolean) => ({
       model: this.config.model,
       input: toResponsesInput(messages),
       reasoning: {
         effort: 'high',
       },
-      ...(toResponsesTools(tools) && { tools: toResponsesTools(tools), tool_choice: 'auto' as const }),
-    };
+      ...(includeTools && mappedTools && { tools: mappedTools, tool_choice: 'auto' as const }),
+    });
 
     const requestOpts = signal ? { signal } : undefined;
+    const canUseTools = Boolean(mappedTools && mappedTools.length > 0);
 
     if (onStream) {
-      let stream: ReturnType<typeof this.client.responses.stream>;
-      try {
-        stream = this.client.responses.stream(params, requestOpts);
-      } catch (e) {
-        if (isInvalidPromptError(e)) {
-          const fallback = invalidPromptFallbackMessage();
-          onStream(fallback, 'content');
-          console.log(e);
-          return { role: 'assistant', content: fallback };
+      const runStreamRequest = async (includeTools: boolean): Promise<ChatMessage> => {
+        let stream: ReturnType<typeof this.client.responses.stream>;
+        try {
+          stream = this.client.responses.stream(buildParams(includeTools) as any, requestOpts);
+        } catch (e) {
+          if (isInvalidPromptError(e)) {
+            const fallback = invalidPromptFallbackMessage();
+            onStream(fallback, 'content');
+            console.log(e);
+            return { role: 'assistant', content: fallback };
+          }
+          throw e;
         }
-        throw e;
-      }
 
-      let fullContent = '';
-      let fullReasoning = '';
+        let fullContent = '';
+        let fullReasoning = '';
 
-      try {
-        for await (const event of stream) {
-          if (signal?.aborted) break;
+        try {
+          for await (const event of stream) {
+            if (signal?.aborted) break;
 
-          if ((event as any).type === 'response.output_text.delta' && typeof (event as any).delta === 'string') {
-            fullContent += (event as any).delta;
-            onStream((event as any).delta, 'content');
-          } else if ((event as any).type === 'response.reasoning_text.delta' && typeof (event as any).delta === 'string') {
-            fullReasoning += (event as any).delta;
-            onStream((event as any).delta, 'reasoning');
-          } else if ((event as any).type === 'response.content_part.delta' && (event as any).delta?.type === 'text') {
-            // Some models might use different event types for reasoning depending on the specific API implementation
-            const delta = (event as any).delta;
-            if (delta.text) {
-              fullContent += delta.text;
-              onStream(delta.text, 'content');
+            if ((event as any).type === 'response.output_text.delta' && typeof (event as any).delta === 'string') {
+              fullContent += (event as any).delta;
+              onStream((event as any).delta, 'content');
+            } else if ((event as any).type === 'response.reasoning_text.delta' && typeof (event as any).delta === 'string') {
+              fullReasoning += (event as any).delta;
+              onStream((event as any).delta, 'reasoning');
+            } else if ((event as any).type === 'response.content_part.delta' && (event as any).delta?.type === 'text') {
+              // Some models might use different event types for reasoning depending on the specific API implementation
+              const delta = (event as any).delta;
+              if (delta.text) {
+                fullContent += delta.text;
+                onStream(delta.text, 'content');
+              }
             }
           }
-        }
 
-        const finalResponse = await stream.finalResponse();
-        const toolCalls = extractResponseToolCalls(finalResponse);
-        const content = fullContent || extractResponseText(finalResponse);
-        const generatedImages = extractResponseImages(finalResponse);
+          const finalResponse = await stream.finalResponse();
+          const toolCalls = extractResponseToolCalls(finalResponse);
+          const content = fullContent || extractResponseText(finalResponse);
+          const generatedImages = extractResponseImages(finalResponse);
 
-        // Extract reasoning from final response if available
-        let reasoning = fullReasoning;
-        if (!reasoning && (finalResponse as any).output?.[0]?.content) {
-          const reasoningPart = (finalResponse as any).output[0].content.find((p: any) => p.type === 'reasoning_text');
-          if (reasoningPart) {
-            reasoning = reasoningPart.text;
+          let reasoning = fullReasoning;
+          if (!reasoning && (finalResponse as any).output?.[0]?.content) {
+            const reasoningPart = (finalResponse as any).output[0].content.find((p: any) => p.type === 'reasoning_text');
+            if (reasoningPart) {
+              reasoning = reasoningPart.text;
+            }
           }
-        }
 
-        return {
-          role: 'assistant',
-          content: content || null,
-          ...(reasoning && { reasoning }),
-          ...(toolCalls && { tool_calls: toolCalls }),
-          ...(generatedImages.length > 0 && { generatedImages }),
-        };
-      } catch (e: any) {
-        if (isInvalidPromptError(e)) {
-          const fallback = invalidPromptFallbackMessage();
-          console.log(e);
-          onStream(fallback, 'content');
           return {
             role: 'assistant',
-            content: fallback,
+            content: content || null,
+            ...(reasoning && { reasoning }),
+            ...(toolCalls && { tool_calls: toolCalls }),
+            ...(generatedImages.length > 0 && { generatedImages }),
           };
+        } catch (e: any) {
+          if (isInvalidPromptError(e)) {
+            const fallback = invalidPromptFallbackMessage();
+            console.log(e);
+            onStream(fallback, 'content');
+            return {
+              role: 'assistant',
+              content: fallback,
+            };
+          }
+          if (signal?.aborted || e?.name === 'AbortError') {
+            return {
+              role: 'assistant',
+              content: fullContent || null,
+              ...(fullReasoning && { reasoning: fullReasoning }),
+            };
+          }
+          throw e;
         }
-        // If aborted, return partial content gracefully
-        if (signal?.aborted || e?.name === 'AbortError') {
-          return {
-            role: 'assistant',
-            content: fullContent || null,
-            ...(fullReasoning && { reasoning: fullReasoning }),
-          };
+      };
+
+      try {
+        return await runStreamRequest(canUseTools);
+      } catch (e) {
+        if (canUseTools && isToolUseUnsupportedError(e)) {
+          return runStreamRequest(false);
         }
         throw e;
       }
     } else {
       let response: Awaited<ReturnType<typeof this.client.responses.create>>;
       try {
-        response = await this.client.responses.create(params, requestOpts);
+        response = await this.client.responses.create(buildParams(canUseTools) as any, requestOpts);
       } catch (e) {
-        if (isInvalidPromptError(e)) {
-          console.log(e);
-          return {
-            role: 'assistant',
-            content: invalidPromptFallbackMessage(),
-          };
+        if (canUseTools && isToolUseUnsupportedError(e)) {
+          response = await this.client.responses.create(buildParams(false) as any, requestOpts);
+        } else {
+          if (isInvalidPromptError(e)) {
+            console.log(e);
+            return {
+              role: 'assistant',
+              content: invalidPromptFallbackMessage(),
+            };
+          }
+          throw e;
         }
-        throw e;
       }
       const text = extractResponseText(response);
       const toolCalls = extractResponseToolCalls(response);

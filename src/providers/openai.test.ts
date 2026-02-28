@@ -220,6 +220,51 @@ test('chat streams output_text deltas via responses.stream', async () => {
   assert.equal(result.tool_calls?.[0].function.name, 'search');
 });
 
+test('chat retries without tools when endpoint does not support tool use', async () => {
+  const provider = makeProvider() as any;
+  const calls: any[] = [];
+
+  provider.client = {
+    responses: {
+      create: async (params: any) => {
+        calls.push(params);
+        if (calls.length === 1) {
+          const err = new Error('404 No endpoints found that support tool use.');
+          (err as any).status = 404;
+          throw err;
+        }
+        return { output_text: 'image ready' };
+      },
+    },
+    embeddings: {
+      create: async () => ({ data: [{ embedding: [0.1, 0.2, 0.3] }] }),
+    },
+  };
+
+  const tools: ToolDefinition[] = [
+    {
+      type: 'function',
+      function: {
+        name: 'dummy_tool',
+        description: 'Dummy tool',
+        parameters: {
+          type: 'object',
+          properties: {},
+        },
+      },
+    },
+  ];
+
+  const result = await provider.chat([{ role: 'user', content: 'generate image' }], tools);
+
+  assert.equal(result.content, 'image ready');
+  assert.equal(calls.length, 2);
+  assert.ok(Array.isArray(calls[0].tools));
+  assert.equal(calls[0].tool_choice, 'auto');
+  assert.equal(calls[1].tools, undefined);
+  assert.equal(calls[1].tool_choice, undefined);
+});
+
 test('summarize uses responses API', async () => {
   const provider = makeProvider() as any;
   let capturedParams: any;

@@ -894,6 +894,118 @@ ${text}
     return url;
   }
 
+  private detectImageTypeFromBuffer(buffer: Buffer): { ext: string; mime: string } | null {
+    if (buffer.length >= 8
+      && buffer[0] === 0x89
+      && buffer[1] === 0x50
+      && buffer[2] === 0x4e
+      && buffer[3] === 0x47
+      && buffer[4] === 0x0d
+      && buffer[5] === 0x0a
+      && buffer[6] === 0x1a
+      && buffer[7] === 0x0a) {
+      return { ext: 'png', mime: 'image/png' };
+    }
+
+    if (buffer.length >= 3
+      && buffer[0] === 0xff
+      && buffer[1] === 0xd8
+      && buffer[2] === 0xff) {
+      return { ext: 'jpg', mime: 'image/jpeg' };
+    }
+
+    if (buffer.length >= 12
+      && buffer.toString('ascii', 0, 4) === 'RIFF'
+      && buffer.toString('ascii', 8, 12) === 'WEBP') {
+      return { ext: 'webp', mime: 'image/webp' };
+    }
+
+    if (buffer.length >= 6) {
+      const sig6 = buffer.toString('ascii', 0, 6);
+      if (sig6 === 'GIF87a' || sig6 === 'GIF89a') {
+        return { ext: 'gif', mime: 'image/gif' };
+      }
+    }
+
+    return null;
+  }
+
+  private parseGeneratedImageJson(raw: string): string | null {
+    const trimmed = raw.trim();
+    if (!(trimmed.startsWith('{') || trimmed.startsWith('['))) return null;
+
+    try {
+      const parsed = JSON.parse(trimmed) as any;
+      if (typeof parsed?.b64_json === 'string') return parsed.b64_json;
+      if (typeof parsed?.image_base64 === 'string') return parsed.image_base64;
+      if (typeof parsed?.image === 'string') return parsed.image;
+
+      if (Array.isArray(parsed)) {
+        for (const item of parsed) {
+          if (typeof item?.b64_json === 'string') return item.b64_json;
+          if (typeof item?.image_base64 === 'string') return item.image_base64;
+          if (typeof item?.image === 'string') return item.image;
+        }
+      }
+
+      if (Array.isArray(parsed?.data)) {
+        for (const item of parsed.data) {
+          if (typeof item?.b64_json === 'string') return item.b64_json;
+          if (typeof item?.image_base64 === 'string') return item.image_base64;
+          if (typeof item?.image === 'string') return item.image;
+          if (typeof item?.url === 'string') return item.url;
+        }
+      }
+    } catch {
+      return null;
+    }
+
+    return null;
+  }
+
+  private decodeGeneratedImagePayload(rawPayload: string): { bytes: Buffer; ext: string; mime: string } | null {
+    let payload = rawPayload.trim();
+    if (!payload) return null;
+
+    const jsonPayload = this.parseGeneratedImageJson(payload);
+    if (jsonPayload) payload = jsonPayload.trim();
+
+    const dataUrlMatch = payload.match(/^data:(image\/[a-z0-9.+-]+);base64,(.+)$/i);
+    const declaredMime = dataUrlMatch?.[1]?.toLowerCase();
+    const base64Part = (dataUrlMatch ? dataUrlMatch[2] : payload).replace(/\s+/g, '');
+
+    const tryDecode = (input: string, encoding: BufferEncoding): Buffer | null => {
+      try {
+        const decoded = Buffer.from(input, encoding);
+        if (decoded.length === 0) return null;
+        return decoded;
+      } catch {
+        return null;
+      }
+    };
+
+    const candidates: Buffer[] = [];
+    const base64Decoded = tryDecode(base64Part, 'base64');
+    if (base64Decoded) candidates.push(base64Decoded);
+    if (/[-_]/.test(base64Part)) {
+      const base64UrlDecoded = tryDecode(base64Part, 'base64url');
+      if (base64UrlDecoded) candidates.push(base64UrlDecoded);
+    }
+
+    for (const candidate of candidates) {
+      const detected = this.detectImageTypeFromBuffer(candidate);
+      if (detected) return { bytes: candidate, ext: detected.ext, mime: detected.mime };
+    }
+
+    if (dataUrlMatch && candidates.length > 0) {
+      const fallback = candidates[0];
+      const ext = declaredMime?.split('/')[1] || 'png';
+      return { bytes: fallback, ext, mime: declaredMime || 'image/png' };
+    }
+
+    return null;
+  }
+
   private toPublicImageUrl(rawUrl: string): string | null {
     if (!rawUrl) return null;
     if (rawUrl.startsWith('/api/sessions/')) return rawUrl;
@@ -1164,10 +1276,17 @@ ${text}
             fs.mkdirSync(genImgDir, { recursive: true });
 
             for (let i = 0; i < response.generatedImages.length; i++) {
-              const b64 = response.generatedImages[i];
-              const filename = `${Date.now()}_${i}.png`;
+              const payload = response.generatedImages[i];
+              const decoded = this.decodeGeneratedImagePayload(payload);
+
+              if (!decoded) {
+                this.log.warn(`Generated image payload could not be decoded (index=${i}, head=${payload.slice(0, 64)})`);
+                continue;
+              }
+
+              const filename = `${Date.now()}_${i}.${decoded.ext}`;
               const filePath = path.join(genImgDir, filename);
-              fs.writeFileSync(filePath, Buffer.from(b64, 'base64'));
+              fs.writeFileSync(filePath, decoded.bytes);
               imageUrls.push(`/api/sessions/${this.sessionId}/artifacts/generated-images/${encodeURIComponent(filename)}`);
             }
 
