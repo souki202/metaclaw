@@ -40,6 +40,7 @@ export class DashboardServer {
       res.json(
         ids.map((id) => ({
           id,
+          organizationId: configs[id]?.organizationId ?? 'default',
           name: configs[id]?.name ?? id,
           description: configs[id]?.description ?? '',
           model: this.getSessionModel(id),
@@ -282,6 +283,7 @@ export class DashboardServer {
         }
         
         const newSession: SessionConfig = {
+          organizationId: req.body.organizationId || 'default',
           name: req.body.name || sessionId,
           description: req.body.description,
           provider: req.body.provider || {

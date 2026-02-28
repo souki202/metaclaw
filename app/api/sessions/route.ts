@@ -12,6 +12,7 @@ export async function GET() {
 
     const sessionList = ids.map((id) => ({
       id,
+      organizationId: configs[id]?.organizationId ?? 'default',
       name: configs[id]?.name ?? id,
       description: configs[id]?.description ?? '',
       model: configs[id]?.provider?.model || '',
@@ -46,6 +47,7 @@ export async function POST(request: Request) {
     }
 
     const newSession: SessionConfig = {
+      organizationId: body.organizationId || baseSession?.organizationId || 'default',
       name: body.name || (baseSession ? `${baseSession.name} (Copy)` : sessionId),
       description: body.description || baseSession?.description,
       provider: body.provider || baseSession?.provider || {

@@ -53,6 +53,21 @@ export async function createSession(
       };
     }
 
+    const creatorOrg = ctx.sessionManager.getSessionOrganizationId(ctx.sessionId);
+    if (!creatorOrg) {
+      return {
+        success: false,
+        output: `Creator session "${ctx.sessionId}" not found.`,
+      };
+    }
+
+    if (args.organizationId && args.organizationId !== creatorOrg) {
+      return {
+        success: false,
+        output: `Cross-organization session creation is not allowed. Your organization is "${creatorOrg}".`,
+      };
+    }
+
     const template = templates[args.providerTemplate];
     const model = args.model || template.defaultModel;
 
@@ -69,6 +84,7 @@ export async function createSession(
 
     // Create new session config
     const newSession: any = {
+      organizationId: creatorOrg,
       name: args.name,
       description: args.description || `Session created by ${ctx.sessionId}`,
       provider: {
@@ -188,6 +204,13 @@ export async function sendMessageToSession(
       return {
         success: false,
         output: `Target session "${args.target_session}" not found or not running.`,
+      };
+    }
+
+    if (!ctx.sessionManager.isSameOrganization(ctx.sessionId, args.target_session)) {
+      return {
+        success: false,
+        output: 'Cross-organization communication is not allowed. You can only message sessions in the same organization.',
       };
     }
 
@@ -317,6 +340,13 @@ export async function delegateTaskAsync(
       return {
         success: false,
         output: `Target session "${args.target_session}" not found or not running.`,
+      };
+    }
+
+    if (!ctx.sessionManager.isSameOrganization(ctx.sessionId, args.target_session)) {
+      return {
+        success: false,
+        output: 'Cross-organization task delegation is not allowed. You can only delegate to sessions in the same organization.',
       };
     }
 
@@ -589,6 +619,13 @@ export async function getSessionOutputs(
       };
     }
 
+    if (!ctx.sessionManager.isSameOrganization(ctx.sessionId, args.session_id)) {
+      return {
+        success: false,
+        output: 'Cross-organization access is not allowed. You can only inspect outputs from sessions in the same organization.',
+      };
+    }
+
     const extractContent = (content: any): string => {
       if (!content) return '';
       if (typeof content === 'string') return content;
@@ -651,6 +688,7 @@ export function buildA2AEnhancedTools(ctx: ToolContext): ToolDefinition[] {
           type: 'object',
           properties: {
             sessionId: { type: 'string', description: 'Unique ID for the new session (e.g., "researcher", "coder")' },
+            organizationId: { type: 'string', description: 'Organization ID (must match your own organization)' },
             name: { type: 'string', description: 'Display name for the session' },
             description: { type: 'string', description: 'Description of the session purpose' },
             providerTemplate: { type: 'string', description: 'Provider template to use (use list_provider_templates to see options)' },

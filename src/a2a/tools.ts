@@ -29,6 +29,7 @@ export async function listAgents(ctx: A2AToolContext): Promise<ToolResult> {
     }
 
     const cards = ctx.a2aRegistry.getAllCards();
+    const currentOrg = ctx.sessionManager?.getSessionOrganizationId(ctx.sessionId) ?? null;
 
     if (cards.length === 0) {
       return {
@@ -41,6 +42,11 @@ export async function listAgents(ctx: A2AToolContext): Promise<ToolResult> {
 
     for (const card of cards) {
       if (card.sessionId === ctx.sessionId) continue; // Skip self
+
+      if (currentOrg) {
+        const targetOrg = ctx.sessionManager?.getSessionOrganizationId(card.sessionId);
+        if (!targetOrg || targetOrg !== currentOrg) continue;
+      }
 
       lines.push(`\n### ${card.agentName} (${card.sessionId})`);
       lines.push(`Status: ${card.status}`);
@@ -91,6 +97,14 @@ export async function findAgents(
         success: false,
         output: 'Please specify either capability or specialization to search for.',
       };
+    }
+
+    const currentOrg = ctx.sessionManager?.getSessionOrganizationId(ctx.sessionId) ?? null;
+    if (currentOrg) {
+      cards = cards.filter((card) => {
+        const targetOrg = ctx.sessionManager?.getSessionOrganizationId(card.sessionId);
+        return !!targetOrg && targetOrg === currentOrg;
+      });
     }
 
     if (cards.length === 0) {
@@ -148,6 +162,13 @@ export async function sendToAgent(
       return {
         success: false,
         output: `Target session not found: ${args.target_session}. Use list_agents to see available agents.`,
+      };
+    }
+
+    if (ctx.sessionManager && !ctx.sessionManager.isSameOrganization(ctx.sessionId, args.target_session)) {
+      return {
+        success: false,
+        output: 'Cross-organization communication is not allowed. You can only send tasks to sessions in the same organization.',
       };
     }
 

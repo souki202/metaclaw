@@ -1,13 +1,24 @@
 import React, { useState, useEffect } from "react";
 
-export const NewSessionModal = ({ onClose, onSuccess }: any) => {
+export const NewSessionModal = ({
+  onClose,
+  onSuccess,
+  defaultOrganizationId,
+}: any) => {
   const [id, setId] = useState("");
   const [name, setName] = useState("");
+  const [organizationId, setOrganizationId] = useState(
+    defaultOrganizationId || "default",
+  );
   const [endpoint, setEndpoint] = useState("https://api.openai.com/v1");
   const [apiKey, setApiKey] = useState("");
   const [model, setModel] = useState("gpt-4o");
   const [copyFrom, setCopyFrom] = useState("");
   const [sessions, setSessions] = useState<any[]>([]);
+
+  const organizations = Array.from(
+    new Set(sessions.map((s) => s.organizationId || "default")),
+  ).sort((a, b) => String(a).localeCompare(String(b)));
 
   useEffect(() => {
     fetch("/api/sessions")
@@ -16,14 +27,31 @@ export const NewSessionModal = ({ onClose, onSuccess }: any) => {
       .catch((err) => console.error("Failed to load sessions", err));
   }, []);
 
+  useEffect(() => {
+    if (!defaultOrganizationId) return;
+    setOrganizationId(defaultOrganizationId);
+  }, [defaultOrganizationId]);
+
+  useEffect(() => {
+    if (!copyFrom) return;
+    const source = sessions.find((s) => s.id === copyFrom);
+    if (source?.organizationId) {
+      setOrganizationId(source.organizationId);
+    }
+  }, [copyFrom, sessions]);
+
   const handleCreate = async () => {
     if (!id || !/^[a-zA-Z0-9_-]+$/.test(id)) return alert("Invalid ID");
+    if (!organizationId || !/^[a-zA-Z0-9_-]+$/.test(organizationId)) {
+      return alert("Invalid Organization ID");
+    }
     const res = await fetch("/api/sessions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         id,
         name: name || id,
+        organizationId,
         copyFrom: copyFrom || undefined,
         provider: copyFrom ? undefined : { endpoint, apiKey, model },
       }),
@@ -77,6 +105,21 @@ export const NewSessionModal = ({ onClose, onSuccess }: any) => {
                 </option>
               ))}
             </select>
+          </div>
+          <div className="form-group">
+            <label className="form-label">Organization</label>
+            <input
+              className="form-input mono"
+              value={organizationId}
+              onChange={(e) => setOrganizationId(e.target.value)}
+              list="organization-list"
+              placeholder="default"
+            />
+            <datalist id="organization-list">
+              {organizations.map((orgId) => (
+                <option key={orgId} value={orgId} />
+              ))}
+            </datalist>
           </div>
           <div className="form-group">
             <label className="form-label">Session ID</label>

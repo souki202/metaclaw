@@ -706,7 +706,10 @@ export const SessionSettingsModal = ({
                   </div>
 
                   <div className="form-group">
-                    <label className="form-checkbox" style={{ marginBottom: 10 }}>
+                    <label
+                      className="form-checkbox"
+                      style={{ marginBottom: 10 }}
+                    >
                       <input
                         type="checkbox"
                         checked={useSameCompressionModel}
@@ -722,11 +725,15 @@ export const SessionSettingsModal = ({
 
                     {!useSameCompressionModel && (
                       <>
-                        <label className="form-label">Memory Compression API Endpoint (optional)</label>
+                        <label className="form-label">
+                          Memory Compression API Endpoint (optional)
+                        </label>
                         <input
                           className="form-input mono"
                           placeholder="empty = conversation endpoint"
-                          value={config.context?.memoryCompressionEndpoint || ""}
+                          value={
+                            config.context?.memoryCompressionEndpoint || ""
+                          }
                           onChange={(e) =>
                             setNested(
                               ["context", "memoryCompressionEndpoint"],
@@ -735,7 +742,9 @@ export const SessionSettingsModal = ({
                           }
                         />
 
-                        <label className="form-label" style={{ marginTop: 10 }}>Memory Compression API Key (optional)</label>
+                        <label className="form-label" style={{ marginTop: 10 }}>
+                          Memory Compression API Key (optional)
+                        </label>
                         <input
                           type="password"
                           className="form-input mono"
@@ -749,7 +758,9 @@ export const SessionSettingsModal = ({
                           }
                         />
 
-                        <label className="form-label" style={{ marginTop: 10 }}>Memory Compression Model (optional)</label>
+                        <label className="form-label" style={{ marginTop: 10 }}>
+                          Memory Compression Model (optional)
+                        </label>
                         <ModelSelector
                           value={config.context?.memoryCompressionModel || ""}
                           onChange={(v) =>
@@ -780,7 +791,8 @@ export const SessionSettingsModal = ({
                         fontSize: 12,
                       }}
                     >
-                      スイッチ ON: 会話モデルを使用 / OFF: 専用 endpoint・API key・model を設定可能
+                      Switch ON: Dedicated endpoint, API key, and model can be
+                      set. Small model recommended. (e.g. lfm2-8b-a1b)
                     </div>
                   </div>
 

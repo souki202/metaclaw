@@ -117,6 +117,7 @@ export interface McpServerConfig {
 }
 
 export interface SessionConfig {
+  organizationId?: string;
   name: string;
   description?: string;
   provider: ProviderConfig;
@@ -243,6 +244,7 @@ export interface AsyncTask {
 
 export interface SessionCreationParams {
   sessionId: string;
+  organizationId?: string;
   name: string;
   description?: string;
   providerTemplate: string;

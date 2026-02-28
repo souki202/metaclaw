@@ -129,6 +129,7 @@ export async function setupApiRoutes(
       res,
       ids.map((id) => ({
         id,
+        organizationId: configs[id]?.organizationId ?? 'default',
         name: configs[id]?.name ?? id,
         description: configs[id]?.description ?? '',
         model: configs[id]?.provider?.model || '',
@@ -398,6 +399,7 @@ export async function setupApiRoutes(
       }
 
       const newSession: SessionConfig = {
+        organizationId: body.organizationId || 'default',
         name: body.name || sessionId,
         description: body.description,
         provider: body.provider || {

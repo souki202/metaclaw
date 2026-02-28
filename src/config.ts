@@ -54,6 +54,10 @@ export function loadConfig(): Config {
   
   // Migrate backward capability (if it had environment but no provider, map back if we can)
   for (const session of Object.values(config.sessions)) {
+    if (!session.organizationId || session.organizationId.trim().length === 0) {
+      session.organizationId = 'default';
+    }
+
     if (!session.provider) {
       // If it had environment and there were global environments in older config format
        const oldEnv = (config as any).environments?.[(session as any).environment || 'default'];
@@ -100,6 +104,7 @@ function createDefaultConfig(): Config {
     },
     sessions: {
       'default': {
+        organizationId: 'default',
         name: 'Default Agent',
         description: 'Default AI agent session',
         provider: { ...DEFAULT_PROVIDER },
@@ -133,6 +138,9 @@ function validateConfig(config: Config) {
   }
 
   for (const [id, session] of Object.entries(config.sessions)) {
+    if (!session.organizationId || session.organizationId.trim().length === 0) {
+      throw new Error(`Session "${id}" must have "organizationId" defined.`);
+    }
     if (!session.provider) {
       throw new Error(`Session "${id}" must have "provider" defined.`);
     }

@@ -102,6 +102,19 @@ header .status {
   padding: 4px 8px;
 }
 
+.organization-group {
+  margin-bottom: 10px;
+}
+
+.organization-name {
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text2);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
 .session-item {
   padding: 8px 10px;
   border-radius: var(--radius);

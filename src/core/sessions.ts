@@ -215,6 +215,27 @@ export class SessionManager {
     return this.config.sessions[sessionId];
   }
 
+  getSessionOrganizationId(sessionId: string): string | null {
+    const config = this.config.sessions[sessionId];
+    if (!config) return null;
+    const orgId = config.organizationId?.trim();
+    return orgId && orgId.length > 0 ? orgId : 'default';
+  }
+
+  isSameOrganization(sessionA: string, sessionB: string): boolean {
+    const orgA = this.getSessionOrganizationId(sessionA);
+    const orgB = this.getSessionOrganizationId(sessionB);
+    return !!orgA && !!orgB && orgA === orgB;
+  }
+
+  getOrganizationIds(): string[] {
+    const orgs = new Set<string>();
+    for (const config of Object.values(this.config.sessions)) {
+      orgs.add(config.organizationId?.trim() || 'default');
+    }
+    return Array.from(orgs.values()).sort((a, b) => a.localeCompare(b));
+  }
+
   resolveWorkspace(sessionConfig: SessionConfig): string {
     const ws = sessionConfig.workspace;
     if (path.isAbsolute(ws)) return ws;

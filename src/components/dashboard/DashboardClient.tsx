@@ -27,6 +27,7 @@ export default function DashboardClient() {
   const [activeModal, setActiveModal] = useState<
     "none" | "global" | "session" | "new-session"
   >("none");
+  const [newSessionDefaultOrg, setNewSessionDefaultOrg] = useState("default");
   const currentSessionRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -466,7 +467,10 @@ export default function DashboardClient() {
           sessions={sessions}
           currentSession={currentSession}
           onSelectSession={handleSelectSession}
-          onNewSession={() => setActiveModal("new-session")}
+          onNewSession={(organizationId: string) => {
+            setNewSessionDefaultOrg(organizationId || "default");
+            setActiveModal("new-session");
+          }}
         />
 
         <ChatArea
@@ -510,6 +514,7 @@ export default function DashboardClient() {
 
       {activeModal === "new-session" && (
         <NewSessionModal
+          defaultOrganizationId={newSessionDefaultOrg}
           onClose={() => setActiveModal("none")}
           onSuccess={(id: string) => {
             setActiveModal("none");

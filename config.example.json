@@ -38,6 +38,7 @@
   },
   "sessions": {
     "default": {
+      "organizationId": "default",
       "name": "Claw",
       "description": "Default AI personal agent session with A2A and ACA enabled",
       "provider": {
@@ -89,6 +90,7 @@
       }
     },
     "coder": {
+      "organizationId": "default",
       "name": "CodeClaw",
       "description": "A session focused on software development with A2A collaboration",
       "provider": {
@@ -129,6 +131,7 @@
       }
     },
     "researcher": {
+      "organizationId": "default",
       "name": "Research Agent",
       "description": "A specialized research agent with web search and memory capabilities",
       "provider": {

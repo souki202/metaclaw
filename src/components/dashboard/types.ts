@@ -1,5 +1,6 @@
 export interface SessionData {
   id: string;
+  organizationId?: string;
   name: string;
   description?: string;
   model?: string;
