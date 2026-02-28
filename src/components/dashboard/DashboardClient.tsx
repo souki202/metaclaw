@@ -3,17 +3,33 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Sidebar } from "./Sidebar";
 import { ChatArea } from "./ChatArea";
+import { OrganizationChatArea } from "./OrganizationChatArea";
 import { RightPanel } from "./RightPanel";
 import {
   GlobalSettingsModal,
   SessionSettingsModal,
   NewSessionModal,
 } from "./Modals";
-import { SessionData, ChatMessage, Skill } from "./types";
+import {
+  SessionData,
+  ChatMessage,
+  Skill,
+  OrganizationGroupChatMessage,
+  OrganizationUnread,
+} from "./types";
 
 export default function DashboardClient() {
   const [sessions, setSessions] = useState<SessionData[]>([]);
   const [currentSession, setCurrentSession] = useState<string | null>(null);
+  const [currentOrganizationChat, setCurrentOrganizationChat] = useState<
+    string | null
+  >(null);
+  const [organizationUnread, setOrganizationUnread] = useState<
+    Record<string, OrganizationUnread>
+  >({});
+  const [organizationMessages, setOrganizationMessages] = useState<
+    OrganizationGroupChatMessage[]
+  >([]);
 
   const [wsConnected, setWsConnected] = useState(false);
   const [isThinking, setIsThinking] = useState(false);
@@ -29,16 +45,115 @@ export default function DashboardClient() {
   >("none");
   const [newSessionDefaultOrg, setNewSessionDefaultOrg] = useState("default");
   const currentSessionRef = useRef<string | null>(null);
+  const currentOrganizationChatRef = useRef<string | null>(null);
 
   useEffect(() => {
     currentSessionRef.current = currentSession;
   }, [currentSession]);
+
+  useEffect(() => {
+    currentOrganizationChatRef.current = currentOrganizationChat;
+  }, [currentOrganizationChat]);
+
+  const findViewerSessionIdForOrg = (
+    orgId: string,
+    sessionList: SessionData[] = sessions,
+    preferredSessionId: string | null = currentSessionRef.current,
+  ): string | null => {
+    const preferred = sessionList.find((s) => s.id === preferredSessionId);
+    if (preferred && (preferred.organizationId || "default") === orgId) {
+      return preferred.id;
+    }
+
+    const first = sessionList.find((s) => (s.organizationId || "default") === orgId);
+    return first?.id || null;
+  };
+
+  const refreshOrganizationUnread = async (
+    sessionList: SessionData[] = sessions,
+    preferredSessionId: string | null = currentSessionRef.current,
+  ) => {
+    const orgs = Array.from(
+      new Set(sessionList.map((s) => s.organizationId || "default")),
+    );
+
+    const entries = await Promise.all(
+      orgs.map(async (orgId) => {
+        const viewerSessionId = findViewerSessionIdForOrg(
+          orgId,
+          sessionList,
+          preferredSessionId,
+        );
+
+        if (!viewerSessionId) {
+          return [orgId, { total: 0, mentions: 0 }] as const;
+        }
+
+        try {
+          const res = await fetch(
+            `/api/organizations/${encodeURIComponent(orgId)}/group-chat?viewerSessionId=${encodeURIComponent(viewerSessionId)}&limit=1`,
+          );
+          if (!res.ok) {
+            return [orgId, { total: 0, mentions: 0 }] as const;
+          }
+          const data = await res.json();
+          return [
+            orgId,
+            {
+              total: Number(data?.unread?.total || 0),
+              mentions: Number(data?.unread?.mentions || 0),
+            },
+          ] as const;
+        } catch {
+          return [orgId, { total: 0, mentions: 0 }] as const;
+        }
+      }),
+    );
+
+    setOrganizationUnread(Object.fromEntries(entries));
+  };
+
+  const loadOrganizationMessages = async (orgId: string) => {
+    const viewerSessionId = findViewerSessionIdForOrg(orgId);
+    if (!viewerSessionId) {
+      setOrganizationMessages([]);
+      return;
+    }
+
+    try {
+      const res = await fetch(
+        `/api/organizations/${encodeURIComponent(orgId)}/group-chat?viewerSessionId=${encodeURIComponent(viewerSessionId)}&limit=200`,
+      );
+      const data = await res.json();
+      setOrganizationMessages(Array.isArray(data?.messages) ? data.messages : []);
+    } catch (e) {
+      console.error("Failed to load organization group chat", e);
+      setOrganizationMessages([]);
+    }
+  };
+
+  const markOrganizationMessagesAsRead = async (orgId: string) => {
+    const viewerSessionId = findViewerSessionIdForOrg(orgId);
+    if (!viewerSessionId) return;
+
+    try {
+      await fetch(`/api/organizations/${encodeURIComponent(orgId)}/group-chat/read`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ viewerSessionId }),
+      });
+      await refreshOrganizationUnread();
+    } catch (e) {
+      console.error("Failed to mark org chat as read", e);
+    }
+  };
 
   const loadSessions = async () => {
     try {
       const res = await fetch("/api/sessions");
       const data = await res.json();
       setSessions(data);
+      await refreshOrganizationUnread(data, currentSessionRef.current);
     } catch (e) {
       console.error("Failed to load sessions", e);
     }
@@ -70,6 +185,25 @@ export default function DashboardClient() {
           // session_list_update: セッション一覧を再取得（新規作成/削除/busy変化）
           if (event.type === "session_list_update") {
             loadSessions();
+            return;
+          }
+
+          if (event.type === "organization_group_chat") {
+            const orgId = event.data?.organizationId;
+            if (typeof orgId === "string") {
+              refreshOrganizationUnread();
+              if (currentOrganizationChatRef.current === orgId) {
+                const message = event.data?.message as
+                  | OrganizationGroupChatMessage
+                  | undefined;
+                if (message?.id) {
+                  setOrganizationMessages((prev) => {
+                    if (prev.some((m) => m.id === message.id)) return prev;
+                    return [...prev, message];
+                  });
+                }
+              }
+            }
             return;
           }
 
@@ -367,10 +501,23 @@ export default function DashboardClient() {
   };
 
   const handleSelectSession = (id: string) => {
+    setCurrentOrganizationChat(null);
     setCurrentSession(id);
     setIsThinking(false);
     loadHistory(id);
     loadSkillsList(id);
+    const selected = sessions.find((s) => s.id === id);
+    if (selected) {
+      refreshOrganizationUnread(sessions, id);
+    }
+  };
+
+  const handleSelectOrganizationChat = (organizationId: string) => {
+    setCurrentOrganizationChat(organizationId);
+    setMessages([]);
+    setIsThinking(false);
+    loadOrganizationMessages(organizationId);
+    markOrganizationMessagesAsRead(organizationId);
   };
 
   const handleSendMessage = async (msg: string, imageUrls?: string[]) => {
@@ -402,6 +549,30 @@ export default function DashboardClient() {
       setIsThinking(false);
     } catch (e) {
       console.error("Failed to cancel", e);
+    }
+  };
+
+  const handleSendOrganizationMessage = async (content: string) => {
+    if (!currentOrganizationChat) return;
+    const viewerSessionId = findViewerSessionIdForOrg(currentOrganizationChat);
+    if (!viewerSessionId) return;
+
+    try {
+      await fetch(
+        `/api/organizations/${encodeURIComponent(currentOrganizationChat)}/group-chat`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            content,
+            senderType: "human",
+            senderSessionId: viewerSessionId,
+            senderName: "Human",
+          }),
+        },
+      );
+    } catch (e) {
+      console.error("Failed to send organization group message", e);
     }
   };
 
@@ -443,6 +614,24 @@ export default function DashboardClient() {
   const currentSessionName =
     sessions.find((s) => s.id === currentSession)?.name || currentSession || "";
 
+  const organizationViewerSessionId = currentOrganizationChat
+    ? findViewerSessionIdForOrg(currentOrganizationChat)
+    : null;
+  const organizationViewerSessionName = organizationViewerSessionId
+    ? sessions.find((s) => s.id === organizationViewerSessionId)?.name ||
+      organizationViewerSessionId
+    : "";
+
+  const organizationMentionCandidates = currentOrganizationChat
+    ? sessions
+        .filter(
+          (session) => (session.organizationId || "default") === currentOrganizationChat,
+        )
+        .map((session) => session.name)
+        .filter((name): name is string => !!name && name.trim().length > 0)
+        .sort((a, b) => a.localeCompare(b))
+    : [];
+
   return (
     <>
       <header>
@@ -466,24 +655,40 @@ export default function DashboardClient() {
         <Sidebar
           sessions={sessions}
           currentSession={currentSession}
+          currentOrganizationChat={currentOrganizationChat}
+          organizationUnread={organizationUnread}
           onSelectSession={handleSelectSession}
+          onSelectOrganizationChat={handleSelectOrganizationChat}
           onNewSession={(organizationId: string) => {
             setNewSessionDefaultOrg(organizationId || "default");
             setActiveModal("new-session");
           }}
         />
 
-        <ChatArea
-          currentSession={currentSession}
-          sessionName={currentSessionName}
-          messages={messages}
-          isThinking={isThinking}
-          availableSkills={availableSkills}
-          onSendMessage={handleSendMessage}
-          onCancel={handleCancelGeneration}
-          onClearHistory={handleClearHistory}
-          onOpenSessionSettings={() => setActiveModal("session")}
-        />
+        {currentOrganizationChat ? (
+          <OrganizationChatArea
+            organizationId={currentOrganizationChat}
+            viewerSessionId={organizationViewerSessionId}
+            viewerSessionName={organizationViewerSessionName}
+            mentionCandidates={organizationMentionCandidates}
+            messages={organizationMessages}
+            unread={organizationUnread[currentOrganizationChat] || { total: 0, mentions: 0 }}
+            onSendMessage={handleSendOrganizationMessage}
+            onMarkRead={() => markOrganizationMessagesAsRead(currentOrganizationChat)}
+          />
+        ) : (
+          <ChatArea
+            currentSession={currentSession}
+            sessionName={currentSessionName}
+            messages={messages}
+            isThinking={isThinking}
+            availableSkills={availableSkills}
+            onSendMessage={handleSendMessage}
+            onCancel={handleCancelGeneration}
+            onClearHistory={handleClearHistory}
+            onOpenSessionSettings={() => setActiveModal("session")}
+          />
+        )}
 
         <RightPanel
           currentSession={currentSession}

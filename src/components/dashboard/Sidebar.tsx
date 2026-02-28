@@ -1,17 +1,23 @@
 import React from "react";
-import { SessionData } from "./types";
+import { OrganizationUnread, SessionData } from "./types";
 
 interface SidebarProps {
   sessions: SessionData[];
   currentSession: string | null;
+  currentOrganizationChat: string | null;
+  organizationUnread: Record<string, OrganizationUnread>;
   onSelectSession: (id: string) => void;
+  onSelectOrganizationChat: (organizationId: string) => void;
   onNewSession: (organizationId: string) => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
   sessions,
   currentSession,
+  currentOrganizationChat,
+  organizationUnread,
   onSelectSession,
+  onSelectOrganizationChat,
   onNewSession,
 }) => {
   const sessionsByOrg = sessions.reduce<Record<string, SessionData[]>>(
@@ -42,6 +48,27 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {organizationIds.map((organizationId) => (
           <div key={organizationId} className="organization-group">
             <div className="organization-name">{organizationId}</div>
+            <div
+              className={`session-item group-chat-item ${currentOrganizationChat === organizationId ? "active" : ""}`}
+              onClick={() => onSelectOrganizationChat(organizationId)}
+            >
+              <div className="avatar">#</div>
+              <div className="info">
+                <div className="name">
+                  Group Chat
+                  {organizationUnread[organizationId]?.mentions > 0 && (
+                    <span className="unread-badge mention">
+                      @{organizationUnread[organizationId].mentions}
+                    </span>
+                  )}
+                  {organizationUnread[organizationId]?.total > 0 && (
+                    <span className="unread-badge">
+                      {organizationUnread[organizationId].total}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
             {sessionsByOrg[organizationId].map((s) => (
               <div
                 key={s.id}

@@ -118,6 +118,7 @@ export class Agent {
   private abortController: AbortController | null = null;
   private activeProcessingCount = 0;
   private idleWaiters: Array<() => void> = [];
+  private pendingNotifications: string[] = [];
 
   constructor(
     sessionId: string,
@@ -859,7 +860,7 @@ ${text}
     const historyPath = path.join(this.sessionDir, 'history.jsonl');
     fs.mkdirSync(path.dirname(historyPath), { recursive: true });
     // Strip transient fields (e.g. generatedImages base64) before persisting
-    const { generatedImages: _drop, ...persistable } = message as ChatMessage & { generatedImages?: string[] };
+    const { generatedImages: _drop, ...persistable } = message as ChatMessage & { generatedImages?: string[]; };
     const line = JSON.stringify({ ...persistable, timestamp: new Date().toISOString() });
     fs.appendFileSync(historyPath, line + '\n', 'utf-8');
   }
@@ -894,7 +895,7 @@ ${text}
     return url;
   }
 
-  private detectImageTypeFromBuffer(buffer: Buffer): { ext: string; mime: string } | null {
+  private detectImageTypeFromBuffer(buffer: Buffer): { ext: string; mime: string; } | null {
     if (buffer.length >= 8
       && buffer[0] === 0x89
       && buffer[1] === 0x50
@@ -963,7 +964,7 @@ ${text}
     return null;
   }
 
-  private decodeGeneratedImagePayload(rawPayload: string): { bytes: Buffer; ext: string; mime: string } | null {
+  private decodeGeneratedImagePayload(rawPayload: string): { bytes: Buffer; ext: string; mime: string; } | null {
     let payload = rawPayload.trim();
     if (!payload) return null;
 
@@ -1124,6 +1125,10 @@ ${text}
     });
   }
 
+  injectNotification(content: string) {
+    this.pendingNotifications.push(content);
+  }
+
   async processMessage(
     userMessage: string,
     channelId?: string,
@@ -1232,6 +1237,22 @@ ${text}
 
         iterations++;
 
+        // Process any queued notifications sent while the agent was running
+        if (this.pendingNotifications.length > 0) {
+          for (const notification of this.pendingNotifications) {
+            const notifMsg: ChatMessage = { role: 'system', content: notification };
+            messages.push(notifMsg);
+            this.history.push(notifMsg);
+            this.saveHistory(notifMsg);
+            if (this.config.tools.memory && this.vectorMemory && !options?.noMemory) {
+              this.vectorMemory.autoAdd(notifMsg).catch(e => {
+                this.log.warn('Auto-save notification to vector failed:', e);
+              });
+            }
+          }
+          this.pendingNotifications = [];
+        }
+
         let streamBuffer = '';
         try {
           let response = await this.provider.chat(messages, tools, (chunk, type) => {
@@ -1293,10 +1314,10 @@ ${text}
             // Append Markdown image tags to response content
             const imageMarkdown = imageUrls.map(url => `![Generated Image](${url})`).join('\n\n');
             const existingText = typeof response.content === 'string' ? response.content : '';
+            const { generatedImages: _dropGen, ...restResponse } = response;
             response = {
-              ...response,
+              ...restResponse,
               content: existingText ? `${existingText}\n\n${imageMarkdown}` : imageMarkdown,
-              generatedImages: undefined,
             };
 
             this.log.info(`Saved ${imageUrls.length} generated image(s) to ${genImgDir}`);

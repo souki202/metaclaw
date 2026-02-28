@@ -308,6 +308,230 @@ export async function readSessionMessages(
   }
 }
 
+export async function postOrganizationGroupChat(
+  ctx: EnhancedA2AToolContext,
+  args: { message: string }
+): Promise<ToolResult> {
+  try {
+    if (!ctx.sessionManager) {
+      return {
+        success: false,
+        output: 'Session manager is not available.',
+      };
+    }
+
+    const organizationId = ctx.sessionManager.getSessionOrganizationId(ctx.sessionId);
+    if (!organizationId) {
+      return {
+        success: false,
+        output: 'Your session organization could not be determined.',
+      };
+    }
+
+    const message = ctx.sessionManager.postOrganizationGroupChatMessage({
+      organizationId,
+      content: args.message,
+      senderType: 'ai',
+      senderSessionId: ctx.sessionId,
+    });
+
+    broadcastSseEvent({
+      type: 'organization_group_chat',
+      sessionId: ctx.sessionId,
+      data: {
+        organizationId,
+        message,
+      },
+      timestamp: new Date().toISOString(),
+    });
+
+    return {
+      success: true,
+      output: [
+        `Posted to organization group chat: ${organizationId}`,
+        `Message ID: ${message.id}`,
+        message.mentionSessionNames.length > 0
+          ? `Mentions: ${message.mentionSessionNames.join(', ')}`
+          : 'Mentions: none',
+      ].join('\n'),
+    };
+  } catch (error) {
+    log.error('Error posting organization group chat message:', error);
+    return {
+      success: false,
+      output: `Error: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}
+
+export async function readOrganizationGroupChat(
+  ctx: EnhancedA2AToolContext,
+  args: { unread_only?: boolean; mentions_only?: boolean; mark_as_read?: boolean; limit?: number }
+): Promise<ToolResult> {
+  try {
+    if (!ctx.sessionManager) {
+      return {
+        success: false,
+        output: 'Session manager is not available.',
+      };
+    }
+
+    const organizationId = ctx.sessionManager.getSessionOrganizationId(ctx.sessionId);
+    if (!organizationId) {
+      return {
+        success: false,
+        output: 'Your session organization could not be determined.',
+      };
+    }
+
+    const result = ctx.sessionManager.getOrganizationGroupChatMessages({
+      organizationId,
+      viewerSessionId: ctx.sessionId,
+      unreadOnly: args.unread_only,
+      mentionsOnly: args.mentions_only,
+      limit: args.limit,
+    });
+
+    const lines: string[] = [
+      `Organization: ${organizationId}`,
+      `Unread: total=${result.unread.total}, mentions=${result.unread.mentions}`,
+      '',
+    ];
+
+    if (result.messages.length === 0) {
+      lines.push('No messages matched your filters.');
+    } else {
+      lines.push(`Messages (${result.messages.length}):`);
+      for (const msg of result.messages) {
+        lines.push(`- [${msg.timestamp}] ${msg.senderName}: ${msg.content}`);
+      }
+    }
+
+    if (args.mark_as_read) {
+      const unread = ctx.sessionManager.markOrganizationGroupChatAsRead({
+        organizationId,
+        viewerSessionId: ctx.sessionId,
+      });
+      lines.push('');
+      lines.push(`Marked as read. Remaining unread: total=${unread.total}, mentions=${unread.mentions}`);
+    }
+
+    return {
+      success: true,
+      output: lines.join('\n'),
+    };
+  } catch (error) {
+    log.error('Error reading organization group chat:', error);
+    return {
+      success: false,
+      output: `Error: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}
+
+export async function searchOrganizationGroupChat(
+  ctx: EnhancedA2AToolContext,
+  args: { query: string; mode?: 'semantic' | 'fuzzy' | 'substring'; limit?: number }
+): Promise<ToolResult> {
+  try {
+    if (!ctx.sessionManager) {
+      return {
+        success: false,
+        output: 'Session manager is not available.',
+      };
+    }
+
+    const organizationId = ctx.sessionManager.getSessionOrganizationId(ctx.sessionId);
+    if (!organizationId) {
+      return {
+        success: false,
+        output: 'Your session organization could not be determined.',
+      };
+    }
+
+    const mode = args.mode || 'substring';
+    const result = await ctx.sessionManager.searchOrganizationGroupChatMessages({
+      organizationId,
+      query: args.query,
+      mode,
+      viewerSessionId: ctx.sessionId,
+      limit: args.limit,
+    });
+
+    if (result.hits.length === 0) {
+      return {
+        success: true,
+        output: `No group chat results found (mode=${mode}).`,
+      };
+    }
+
+    const lines: string[] = [
+      `Organization: ${organizationId}`,
+      `Mode: ${result.mode}`,
+      `Results: ${result.hits.length}`,
+      '',
+    ];
+
+    for (const hit of result.hits) {
+      lines.push(`- [${hit.score.toFixed(3)}] [${hit.message.timestamp}] ${hit.message.senderName}: ${hit.message.content}`);
+    }
+
+    return {
+      success: true,
+      output: lines.join('\n'),
+    };
+  } catch (error) {
+    log.error('Error searching organization group chat:', error);
+    return {
+      success: false,
+      output: `Error: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}
+
+export async function listOrganizationGroupChatMembers(
+  ctx: EnhancedA2AToolContext,
+): Promise<ToolResult> {
+  try {
+    if (!ctx.sessionManager) {
+      return {
+        success: false,
+        output: 'Session manager is not available.',
+      };
+    }
+
+    const organizationId = ctx.sessionManager.getSessionOrganizationId(ctx.sessionId);
+    if (!organizationId) {
+      return {
+        success: false,
+        output: 'Your session organization could not be determined.',
+      };
+    }
+
+    const members = ctx.sessionManager.getOrganizationSessions(organizationId);
+    const unread = ctx.sessionManager.getOrganizationGroupChatUnreadCount(organizationId, ctx.sessionId);
+
+    const lines: string[] = [
+      `Organization: ${organizationId}`,
+      `Unread: total=${unread.total}, mentions=${unread.mentions}`,
+      '',
+      'Members:',
+      ...members.map((member) => `- ${member.name} (@${member.name}, id=${member.id})`),
+    ];
+
+    return {
+      success: true,
+      output: lines.join('\n'),
+    };
+  } catch (error) {
+    log.error('Error listing organization group chat members:', error);
+    return {
+      success: false,
+      output: `Error: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}
+
 /**
  * Delegate a task asynchronously to another session
  */
@@ -749,6 +973,65 @@ export function buildA2AEnhancedTools(ctx: ToolContext): ToolDefinition[] {
     {
       type: 'function',
       function: {
+        name: 'post_organization_group_chat',
+        description: 'Post a message to the organization-wide group chat visible to all sessions in your organization. Mention sessions by @SessionName.',
+        parameters: {
+          type: 'object',
+          properties: {
+            message: { type: 'string', description: 'Message content for organization group chat. Use @SessionName to mention.' },
+          },
+          required: ['message'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'read_organization_group_chat',
+        description: 'Read organization group chat messages and unread/mention counters for this session.',
+        parameters: {
+          type: 'object',
+          properties: {
+            unread_only: { type: 'boolean', description: 'If true, only return unread messages for this session.' },
+            mentions_only: { type: 'boolean', description: 'If true, only return messages that mention this session.' },
+            mark_as_read: { type: 'boolean', description: 'If true, mark all current messages as read for this session after reading.' },
+            limit: { type: 'number', description: 'Maximum number of messages to return (default 200, max 500).' },
+          },
+          required: [],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'search_organization_group_chat',
+        description: 'Search organization group chat messages. Supports semantic vector search and text search modes (fuzzy, substring).',
+        parameters: {
+          type: 'object',
+          properties: {
+            query: { type: 'string', description: 'Search query text.' },
+            mode: { type: 'string', enum: ['semantic', 'fuzzy', 'substring'], description: 'Search mode. semantic uses vector DB. fuzzy and substring use text matching.' },
+            limit: { type: 'number', description: 'Maximum number of results (default 20).' },
+          },
+          required: ['query'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'list_organization_group_chat_members',
+        description: 'List sessions in your organization and current unread counters for group chat. Useful to discover mention targets.',
+        parameters: {
+          type: 'object',
+          properties: {},
+          required: [],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
         name: 'get_session_outputs',
         description: 'Get the recent normal assistant outputs from a session. Useful for seeing what the session was thinking or reporting right before it stopped.',
         parameters: {
@@ -833,6 +1116,25 @@ export async function executeA2AEnhancedTool(
         thread_id: args.thread_id as string | undefined,
         mark_as_read: args.mark_as_read as boolean | undefined,
       });
+    case 'post_organization_group_chat':
+      return postOrganizationGroupChat(ctx, {
+        message: args.message as string,
+      });
+    case 'read_organization_group_chat':
+      return readOrganizationGroupChat(ctx, {
+        unread_only: args.unread_only as boolean | undefined,
+        mentions_only: args.mentions_only as boolean | undefined,
+        mark_as_read: args.mark_as_read as boolean | undefined,
+        limit: args.limit as number | undefined,
+      });
+    case 'search_organization_group_chat':
+      return searchOrganizationGroupChat(ctx, {
+        query: args.query as string,
+        mode: args.mode as 'semantic' | 'fuzzy' | 'substring' | undefined,
+        limit: args.limit as number | undefined,
+      });
+    case 'list_organization_group_chat_members':
+      return listOrganizationGroupChatMembers(ctx);
     case 'get_session_outputs':
       return getSessionOutputs(ctx, {
         session_id: args.session_id as string,

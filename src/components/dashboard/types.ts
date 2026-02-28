@@ -52,3 +52,20 @@ export interface MCPStatus {
   error?: string;
   toolCount?: number;
 }
+
+export interface OrganizationGroupChatMessage {
+  id: string;
+  organizationId: string;
+  senderType: 'ai' | 'human';
+  senderSessionId?: string;
+  senderName: string;
+  content: string;
+  mentionSessionIds: string[];
+  mentionSessionNames: string[];
+  timestamp: string;
+}
+
+export interface OrganizationUnread {
+  total: number;
+  mentions: number;
+}

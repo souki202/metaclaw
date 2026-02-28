@@ -3,6 +3,8 @@
     "target": "ES2022",
     "module": "commonjs",
     "moduleResolution": "node",
+    "ignoreDeprecations": "5.0",
+    "forceConsistentCasingInFileNames": true,
     "lib": [
       "ES2022",
       "DOM",

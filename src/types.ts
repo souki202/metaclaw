@@ -212,10 +212,34 @@ export interface ScheduleUpsertInput {
 }
 
 export interface DashboardEvent {
-  type: 'message' | 'tool_call' | 'tool_result' | 'system' | 'memory_update' | 'stream' | 'connected' | 'schedule_update' | 'session_list_update';
+  type: 'message' | 'tool_call' | 'tool_result' | 'system' | 'memory_update' | 'stream' | 'connected' | 'schedule_update' | 'session_list_update' | 'organization_group_chat';
   sessionId: string;
   data: unknown;
   timestamp: string;
+}
+
+export interface OrganizationGroupChatMessage {
+  id: string;
+  organizationId: string;
+  senderType: 'ai' | 'human';
+  senderSessionId?: string;
+  senderName: string;
+  content: string;
+  mentionSessionIds: string[];
+  mentionSessionNames: string[];
+  timestamp: string;
+}
+
+export interface OrganizationGroupChatUnread {
+  total: number;
+  mentions: number;
+}
+
+export type OrganizationGroupChatSearchMode = 'semantic' | 'fuzzy' | 'substring';
+
+export interface OrganizationGroupChatSearchHit {
+  message: OrganizationGroupChatMessage;
+  score: number;
 }
 
 export interface SessionMessage {

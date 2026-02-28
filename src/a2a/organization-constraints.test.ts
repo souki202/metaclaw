@@ -2,7 +2,14 @@ import test, { mock } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { listAgents, sendToAgent } from './tools.js';
-import { createSession, sendMessageToSession } from './enhanced-tools.js';
+import {
+  createSession,
+  sendMessageToSession,
+  postOrganizationGroupChat,
+  readOrganizationGroupChat,
+  searchOrganizationGroupChat,
+  listOrganizationGroupChatMembers,
+} from './enhanced-tools.js';
 import type { AgentCard } from './types.js';
 
 function makeCard(sessionId: string): AgentCard {
@@ -121,4 +128,132 @@ test('create_session blocks creation into another organization', async () => {
 
   assert.equal(result.success, false);
   assert.match(result.output, /Cross-organization session creation is not allowed/);
+});
+
+test('post_organization_group_chat posts within same organization', async () => {
+  const result = await postOrganizationGroupChat(
+    {
+      sessionId: 'alpha',
+      sessionManager: {
+        getSessionOrganizationId: () => 'org-main',
+        postOrganizationGroupChatMessage: () => ({
+          id: 'msg-1',
+          organizationId: 'org-main',
+          senderType: 'ai',
+          senderSessionId: 'alpha',
+          senderName: 'Alpha',
+          content: 'hello @Beta',
+          mentionSessionIds: ['beta'],
+          mentionSessionNames: ['Beta'],
+          timestamp: new Date().toISOString(),
+        }),
+      } as any,
+    } as any,
+    {
+      message: 'hello @Beta',
+    }
+  );
+
+  assert.equal(result.success, true);
+  assert.match(result.output, /Posted to organization group chat: org-main/);
+  assert.match(result.output, /Mentions: Beta/);
+});
+
+test('read_organization_group_chat returns unread summary and marks as read', async () => {
+  const markReadMock = mock.fn(() => ({ total: 0, mentions: 0 }));
+
+  const result = await readOrganizationGroupChat(
+    {
+      sessionId: 'alpha',
+      sessionManager: {
+        getSessionOrganizationId: () => 'org-main',
+        getOrganizationGroupChatMessages: () => ({
+          unread: { total: 2, mentions: 1 },
+          messages: [
+            {
+              id: '1',
+              organizationId: 'org-main',
+              senderType: 'ai',
+              senderSessionId: 'beta',
+              senderName: 'Beta',
+              content: 'Ping @Alpha',
+              mentionSessionIds: ['alpha'],
+              mentionSessionNames: ['Alpha'],
+              timestamp: '2026-02-28T00:00:00.000Z',
+            },
+          ],
+        }),
+        markOrganizationGroupChatAsRead: markReadMock,
+      } as any,
+    } as any,
+    {
+      unread_only: true,
+      mentions_only: true,
+      mark_as_read: true,
+    }
+  );
+
+  assert.equal(result.success, true);
+  assert.match(result.output, /Unread: total=2, mentions=1/);
+  assert.match(result.output, /Ping @Alpha/);
+  assert.match(result.output, /Marked as read\. Remaining unread: total=0, mentions=0/);
+  assert.equal(markReadMock.mock.callCount(), 1);
+});
+
+test('search_organization_group_chat supports semantic mode and formats results', async () => {
+  const result = await searchOrganizationGroupChat(
+    {
+      sessionId: 'alpha',
+      sessionManager: {
+        getSessionOrganizationId: () => 'org-main',
+        searchOrganizationGroupChatMessages: async () => ({
+          mode: 'semantic',
+          hits: [
+            {
+              score: 0.88,
+              message: {
+                id: 'm-1',
+                organizationId: 'org-main',
+                senderType: 'ai',
+                senderSessionId: 'beta',
+                senderName: 'Beta',
+                content: 'Investigate latency issue',
+                mentionSessionIds: ['alpha'],
+                mentionSessionNames: ['Alpha'],
+                timestamp: '2026-02-28T00:00:00.000Z',
+              },
+            },
+          ],
+        }),
+      } as any,
+    } as any,
+    {
+      query: 'latency',
+      mode: 'semantic',
+    }
+  );
+
+  assert.equal(result.success, true);
+  assert.match(result.output, /Mode: semantic/);
+  assert.match(result.output, /Investigate latency issue/);
+});
+
+test('list_organization_group_chat_members outputs mention targets and unread counters', async () => {
+  const result = await listOrganizationGroupChatMembers(
+    {
+      sessionId: 'alpha',
+      sessionManager: {
+        getSessionOrganizationId: () => 'org-main',
+        getOrganizationSessions: () => [
+          { id: 'alpha', name: 'Alpha' },
+          { id: 'beta', name: 'Beta Worker' },
+        ],
+        getOrganizationGroupChatUnreadCount: () => ({ total: 3, mentions: 1 }),
+      } as any,
+    } as any,
+  );
+
+  assert.equal(result.success, true);
+  assert.match(result.output, /Unread: total=3, mentions=1/);
+  assert.match(result.output, /@Beta Worker/);
 });
