@@ -1239,13 +1239,21 @@ ${text}
 
         // Process any queued notifications sent while the agent was running
         if (this.pendingNotifications.length > 0) {
+          const now = new Date();
+          const localTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'local';
+          const timestampMarker = `[[timestamp:${now.toLocaleString()} (${localTimeZone})]] `;
+
           for (const notification of this.pendingNotifications) {
-            const notifMsg: ChatMessage = { role: 'system', content: notification };
+            const userContent = `${timestampMarker}${notification}`;
+            const notifMsg: ChatMessage = { role: 'user', content: userContent };
             messages.push(notifMsg);
             this.history.push(notifMsg);
             this.saveHistory(notifMsg);
+
+            this.emit('message', { role: 'user', content: notification, channelId: 'system' });
+
             if (this.config.tools.memory && this.vectorMemory && !options?.noMemory) {
-              this.vectorMemory.autoAdd(notifMsg).catch(e => {
+              this.vectorMemory.autoAdd({ role: 'user', content: notification }).catch(e => {
                 this.log.warn('Auto-save notification to vector failed:', e);
               });
             }
