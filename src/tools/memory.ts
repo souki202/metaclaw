@@ -143,6 +143,25 @@ export function buildMemoryTools(ctx: ToolContext): ToolDefinition[] {
             required: [],
           },
         },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'schedule',
+          description: 'Unified schedule tool. Use action: create, update, delete, list. Parameters mirror the dedicated schedule_* tools.',
+          parameters: {
+            type: 'object',
+            properties: {
+              action: { type: 'string', description: 'Action to perform: create, update, delete, list.' },
+              scheduleId: { type: 'string', description: 'Schedule ID for update/delete.' },
+              startAt: { type: 'string', description: 'ISO datetime for create/update.' },
+              repeatCron: { type: 'string', description: 'Cron expression or "none".' },
+              memo: { type: 'string', description: 'Task memo.' },
+              enabled: { type: 'boolean', description: 'Enable/disable on update.' },
+            },
+            required: ['action'],
+          },
+        },
       }
     );
   }
@@ -256,6 +275,48 @@ export async function executeMemoryTool(
         .map((s, i) => `${i + 1}. ${s.memo}\n${formatSchedule(s)}`)
         .join('\n\n');
       return { success: true, output };
+    }
+
+    case 'schedule': {
+      const action = (args.action as string) ?? (args.type as string);
+      if (!action) return { success: false, output: 'Schedule action is required.' };
+      if (!ctx.scheduleList || !ctx.scheduleCreate || !ctx.scheduleUpdate || !ctx.scheduleDelete) {
+        return { success: false, output: 'Schedule tool not available.' };
+      }
+      switch (action) {
+        case 'create': {
+          const schedule = ctx.scheduleCreate({
+            startAt: args.startAt as string,
+            repeatCron: args.repeatCron as string,
+            memo: args.memo as string,
+          });
+          return { success: true, output: `Schedule created.\n${formatSchedule(schedule)}` };
+        }
+        case 'update': {
+          const schedule = ctx.scheduleUpdate(args.scheduleId as string, {
+            startAt: args.startAt as string | undefined,
+            repeatCron: args.repeatCron as string | undefined,
+            memo: args.memo as string | undefined,
+            enabled: args.enabled as boolean | undefined,
+          });
+          return { success: true, output: `Schedule updated.\n${formatSchedule(schedule)}` };
+        }
+        case 'delete': {
+          const deleted = ctx.scheduleDelete(args.scheduleId as string);
+          if (!deleted) return { success: false, output: 'Schedule not found.' };
+          return { success: true, output: `Schedule deleted: ${args.scheduleId as string}` };
+        }
+        case 'list': {
+          const schedules = ctx.scheduleList();
+          if (schedules.length === 0) return { success: true, output: 'No schedules registered.' };
+          const output = schedules
+            .map((s, i) => `${i + 1}. ${s.memo}\n${formatSchedule(s)}`)
+            .join('\n\n');
+          return { success: true, output };
+        }
+        default:
+          return { success: false, output: `Unknown schedule action: ${action}` };
+      }
     }
 
     case 'sleep': {
