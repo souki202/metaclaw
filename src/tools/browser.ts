@@ -629,8 +629,96 @@ export async function browserClose(): Promise<ToolResult> {
   }
 }
 
+async function browserUnified(
+  type: string,
+  params: Record<string, unknown>,
+  sessionInfo?: { sessionId?: string; sessionDir?: string }
+): Promise<ToolResult> {
+  const pageId = params.page_id as string | undefined;
+  switch (type) {
+    case 'navigate':
+      return params.url ? browserNavigate(params.url as string) : { success: false, output: 'url is required for navigate.' };
+    case 'click':
+      return typeof params.ref === 'number'
+        ? browserClick(params.ref as number, pageId)
+        : { success: false, output: 'ref is required for click.' };
+    case 'type':
+      return typeof params.ref === 'number' && typeof params.text === 'string'
+        ? browserType(params.ref as number, params.text as string, pageId)
+        : { success: false, output: 'ref and text are required for type.' };
+    case 'select':
+      return typeof params.ref === 'number' && typeof params.value === 'string'
+        ? browserSelect(params.ref as number, params.value as string, pageId)
+        : { success: false, output: 'ref and value are required for select.' };
+    case 'snapshot':
+      return browserSnapshot(pageId);
+    case 'press':
+      return typeof params.key === 'string'
+        ? browserPress(params.key as string, pageId)
+        : { success: false, output: 'key is required for press.' };
+    case 'scroll':
+      return typeof params.direction === 'string'
+        ? browserScroll(params.direction as 'up' | 'down' | 'top' | 'bottom', params.amount as number | undefined, pageId)
+        : { success: false, output: 'direction is required for scroll.' };
+    case 'screenshot':
+      return browserScreenshot(pageId, sessionInfo?.sessionId, sessionInfo?.sessionDir);
+    case 'evaluate':
+      return typeof params.script === 'string'
+        ? browserEvaluate(params.script as string, pageId)
+        : { success: false, output: 'script is required for evaluate.' };
+    case 'get_content':
+      return browserGetContent(params.selector as string | undefined, pageId);
+    case 'get_html':
+    case 'get_simplified_html':
+      return browserGetSimplifiedHtml(pageId);
+    case 'wait_for':
+      return typeof params.selector === 'string'
+        ? browserWaitFor(params.selector as string, params.timeout as number | undefined, pageId)
+        : { success: false, output: 'selector is required for wait_for.' };
+    case 'get_url':
+      return browserGetUrl(pageId);
+    case 'list_pages':
+      return browserListPages();
+    case 'switch_page':
+      return typeof params.page_id === 'string'
+        ? browserSwitchPage(params.page_id as string)
+        : { success: false, output: 'page_id is required for switch_page.' };
+    case 'close_page':
+      return browserClosePage(pageId);
+    case 'close':
+      return browserClose();
+    default:
+      return { success: false, output: `Unknown browser action: ${type}` };
+  }
+}
+
 export function buildBrowserTools(_ctx: ToolContext): ToolDefinition[] {
   return [
+    {
+      type: 'function',
+      function: {
+        name: 'browser',
+        description: 'Unified browser tool. Choose an action via type: navigate, click, type, select, snapshot, press, scroll, screenshot, evaluate, get_content, get_simplified_html, wait_for, get_url, list_pages, switch_page, close_page, close. Uses the same params as the dedicated tools.',
+        parameters: {
+          type: 'object',
+          properties: {
+            type: { type: 'string', description: 'Browser action to perform.' },
+            url: { type: 'string', description: 'For navigate.' },
+            ref: { type: 'number', description: 'Element reference for click/type/select.' },
+            text: { type: 'string', description: 'Text for type.' },
+            value: { type: 'string', description: 'Value/label for select.' },
+            selector: { type: 'string', description: 'CSS selector for get_content/wait_for.' },
+            direction: { type: 'string', description: 'Scroll direction: up, down, top, bottom.' },
+            amount: { type: 'number', description: 'Scroll amount for up/down.' },
+            key: { type: 'string', description: 'Key for press.' },
+            timeout: { type: 'number', description: 'Timeout for wait_for.' },
+            script: { type: 'string', description: 'JS for evaluate.' },
+            page_id: { type: 'string', description: 'Target page ID (optional).' },
+          },
+          required: ['type'],
+        },
+      },
+    },
     {
       type: 'function',
       function: {
@@ -912,6 +1000,8 @@ export async function executeBrowserTool(
       return browserClosePage(args.page_id as string | undefined);
     case 'browser_close':
       return browserClose();
+    case 'browser':
+      return browserUnified(args.type as string, args, { sessionId: ctx.sessionId, sessionDir: ctx.sessionDir });
     default:
       return null;
   }
