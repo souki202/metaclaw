@@ -5,7 +5,7 @@ import type { ToolDefinition, ToolResult } from '../types.js';
 import type { ToolContext } from './context.js';
 import { CURRENT_OS } from './context.js';
 import { selfFileSearch, selfTextSearch } from './search.js';
-import { gitStatus, gitDiff, gitDiffStaged, gitLog, gitCommit, gitBranch, gitCheckout, gitStash, gitReset, gitPush, gitPull } from './git.js';
+import { gitCommand } from './git.js';
 
 const ROOT = process.cwd();
 const SRC_DIR = path.join(ROOT, 'src');
@@ -343,146 +343,19 @@ export function buildSelfTools(ctx: ToolContext): ToolDefinition[] {
     {
       type: 'function',
       function: {
-        name: 'self_git_status',
-        description: "Show git working tree status of the AI system's own repository (meta-claw).",
-        parameters: { type: 'object', properties: {}, required: [] },
-      },
-    },
-    {
-      type: 'function',
-      function: {
-        name: 'self_git_diff',
-        description: "Show unstaged changes in the AI system's own repository. Optionally filter by path.",
+        name: 'self_git',
+        description: "Run git commands in the AI system's repository using a single entry point. Common types: status, diff, diff_staged, log, commit, branch, checkout, stash, reset, push, pull. Other git subcommands are forwarded as-is.",
         parameters: {
           type: 'object',
           properties: {
-            path: { type: 'string', description: 'File path to diff (optional).' },
+            type: { type: 'string', description: 'Git subcommand to run (e.g., status, pull, push, commit).' },
+            args: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Additional arguments for the git subcommand (e.g., ["origin", "main"]).',
+            },
           },
-          required: [],
-        },
-      },
-    },
-    {
-      type: 'function',
-      function: {
-        name: 'self_git_diff_staged',
-        description: "Show staged (cached) changes in the AI system's own repository. Optionally filter by path.",
-        parameters: {
-          type: 'object',
-          properties: {
-            path: { type: 'string', description: 'File path to diff (optional).' },
-          },
-          required: [],
-        },
-      },
-    },
-    {
-      type: 'function',
-      function: {
-        name: 'self_git_log',
-        description: "Show recent commit history of the AI system's own repository.",
-        parameters: {
-          type: 'object',
-          properties: {
-            count: { type: 'number', description: 'Number of commits to show (default 20).' },
-          },
-          required: [],
-        },
-      },
-    },
-    {
-      type: 'function',
-      function: {
-        name: 'self_git_commit',
-        description: "Stage all changes and commit to the AI system's own repository with a message.",
-        parameters: {
-          type: 'object',
-          properties: {
-            message: { type: 'string', description: 'Commit message.' },
-          },
-          required: ['message'],
-        },
-      },
-    },
-    {
-      type: 'function',
-      function: {
-        name: 'self_git_branch',
-        description: "List all branches (local and remote) of the AI system's own repository.",
-        parameters: { type: 'object', properties: {}, required: [] },
-      },
-    },
-    {
-      type: 'function',
-      function: {
-        name: 'self_git_checkout',
-        description: "Switch to a branch or restore files in the AI system's own repository.",
-        parameters: {
-          type: 'object',
-          properties: {
-            ref: { type: 'string', description: 'Branch name, tag, or commit hash.' },
-          },
-          required: ['ref'],
-        },
-      },
-    },
-    {
-      type: 'function',
-      function: {
-        name: 'self_git_stash',
-        description: "Stash changes in the AI system's own repository. Actions: push (default), pop, list, drop, apply, show.",
-        parameters: {
-          type: 'object',
-          properties: {
-            action: { type: 'string', description: 'Stash action (push, pop, list, drop, apply, show).' },
-            message: { type: 'string', description: 'Stash message (only for push action).' },
-          },
-          required: [],
-        },
-      },
-    },
-    {
-      type: 'function',
-      function: {
-        name: 'self_git_reset',
-        description: "Reset current HEAD of the AI system's own repository to a commit. Use for reverting changes.",
-        parameters: {
-          type: 'object',
-          properties: {
-            mode: { type: 'string', description: 'Reset mode: soft, mixed (default), or hard.' },
-            ref: { type: 'string', description: 'Commit ref to reset to (e.g., HEAD~1).' },
-          },
-          required: [],
-        },
-      },
-    },
-    {
-      type: 'function',
-      function: {
-        name: 'self_git_push',
-        description: "Push commits from the AI system's own repository to remote repository.",
-        parameters: {
-          type: 'object',
-          properties: {
-            remote: { type: 'string', description: 'Remote name (default: origin).' },
-            branch: { type: 'string', description: 'Branch name.' },
-          },
-          required: [],
-        },
-      },
-    },
-    {
-      type: 'function',
-      function: {
-        name: 'self_git_pull',
-        description: "Pull changes for the AI system's own repository from remote repository.",
-        parameters: {
-          type: 'object',
-          properties: {
-            remote: { type: 'string', description: 'Remote name (default: origin).' },
-            branch: { type: 'string', description: 'Branch name.' },
-          },
-          required: [],
+          required: ['type'],
         },
       },
     },
@@ -602,28 +475,8 @@ export async function executeSelfTool(
       return selfRestart(args.reason as string | undefined);
     case 'self_read_config':
       return readConfigFile();
-    case 'self_git_status':
-      return gitStatus();
-    case 'self_git_diff':
-      return gitDiff(args.path as string | undefined);
-    case 'self_git_diff_staged':
-      return gitDiffStaged(args.path as string | undefined);
-    case 'self_git_log':
-      return gitLog(args.count as number | undefined);
-    case 'self_git_commit':
-      return gitCommit(args.message as string);
-    case 'self_git_branch':
-      return gitBranch();
-    case 'self_git_checkout':
-      return gitCheckout(args.ref as string);
-    case 'self_git_stash':
-      return gitStash(args.action as string | undefined, args.message as string | undefined);
-    case 'self_git_reset':
-      return gitReset(args.mode as string | undefined, args.ref as string | undefined);
-    case 'self_git_push':
-      return gitPush(args.remote as string | undefined, args.branch as string | undefined);
-    case 'self_git_pull':
-      return gitPull(args.remote as string | undefined, args.branch as string | undefined);
+    case 'self_git':
+      return gitCommand(args.type as string, (args.args as string[] | undefined) ?? []);
     case 'self_read_root':
       return selfReadRoot(args.path as string);
     case 'self_write_root':

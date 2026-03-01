@@ -109,3 +109,44 @@ export function gitPull(remote?: string, branch?: string): Promise<ToolResult> {
   if (branch) args.push(branch);
   return gitExec(args);
 }
+
+/** Unified git command entry point. */
+export function gitCommand(type: string, args: string[] = []): Promise<ToolResult> {
+  switch (type) {
+    case 'status':
+      return gitStatus();
+    case 'diff':
+      return gitDiff(args[0]);
+    case 'diff_staged':
+    case 'diff-staged':
+      return gitDiffStaged(args[0]);
+    case 'log': {
+      const count = args[0] ? Number(args[0]) : undefined;
+      return gitLog(Number.isFinite(count) ? count : undefined);
+    }
+    case 'commit': {
+      const message = args.join(' ').trim();
+      if (!message) return Promise.resolve({ success: false, output: 'Commit message is required.' });
+      return gitCommit(message);
+    }
+    case 'branch':
+      return gitBranch();
+    case 'checkout':
+      return args[0]
+        ? gitCheckout(args[0])
+        : Promise.resolve({ success: false, output: 'Checkout ref is required.' });
+    case 'stash': {
+      const [action, ...rest] = args;
+      const message = rest.join(' ') || undefined;
+      return gitStash(action || undefined, message);
+    }
+    case 'reset':
+      return gitReset(args[0], args[1]);
+    case 'push':
+      return gitPush(args[0], args[1]);
+    case 'pull':
+      return gitPull(args[0], args[1]);
+    default:
+      return gitExec([type, ...args]);
+  }
+}
