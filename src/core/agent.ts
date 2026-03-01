@@ -14,6 +14,7 @@ import type { A2ARegistry } from '../a2a/registry.js';
 import { ACAManager } from '../aca/manager.js';
 import type { ACAConfig } from '../aca/types.js';
 import type { SessionCommsManager } from '../a2a/session-comms.js';
+import { countTokens, sliceToTokenLimit } from '../utils/tokens.js';
 
 const MAX_ITERATIONS = 100;
 const RESTART_CODE = 75;
@@ -21,10 +22,16 @@ const DEFAULT_CONTEXT_WINDOW = 128000;
 const DEFAULT_COMPRESSION_THRESHOLD = 0.8;
 const DEFAULT_KEEP_RECENT_MESSAGES = 20;
 const MIN_KEEP_RECENT_MESSAGES = 4;
-const MAX_RECALL_COMPRESSED_CHARS = 1000;
-const MAX_RECALL_RAW_CHARS = 100000;
-const TURN_RECALL_LIMIT = 30;
-const AUTONOMOUS_RECALL_LIMIT = 20;
+// Fallback default constants for memory limits when not provided in config
+const DEFAULT_MAX_RECALL_COMPRESSED_TOKENS = 250;  // ~1000 chars / 4
+const DEFAULT_MAX_RECALL_RAW_TOKENS = 25000;  // ~100000 chars / 4
+const DEFAULT_TURN_RECALL_LIMIT = 30;
+const DEFAULT_AUTONOMOUS_RECALL_LIMIT = 20;
+
+const DEFAULT_MAX_CRITICAL_MEMORY_TOKENS = 550;  // ~2200 chars / 4
+const DEFAULT_MAX_RELATED_MEMORY_TOKENS = 175;  // ~700 chars / 4
+const DEFAULT_MAX_CUE_TOKENS = 300;  // ~1200 chars / 4
+const DEFAULT_MAX_FLOW_CONTEXT_TOKENS = 500;  // ~2000 chars / 4
 
 // Remove image_url content parts from messages for models that don't support vision.
 // If a message becomes empty after stripping, keep it with an empty string.
@@ -45,17 +52,18 @@ function stripImageUrls(messages: ChatMessage[]): ChatMessage[] {
   });
 }
 
-// Rough token estimation: ~4 chars per token, ~765 tokens per high-detail image
+// Accurate token estimation using tiktoken
 function estimateTokens(messages: ChatMessage[]): number {
   return messages.reduce((sum, m) => {
     if (!m.content) return sum + 10;
     if (typeof m.content === 'string') {
-      return sum + Math.ceil(m.content.length / 4) + 10;
+      // OpenAI以外のtokenizerの場合を考え、余剰をもたせる
+      return sum + Math.ceil(countTokens(m.content) * 1.3) + 10;
     }
     // Multi-part content
     let tokens = 10;
     for (const part of m.content) {
-      if (part.type === 'text') tokens += Math.ceil(part.text.length / 4);
+      if (part.type === 'text') tokens += countTokens(part.text);
       else tokens += 765; // high detail image
     }
     return sum + tokens;
@@ -144,7 +152,7 @@ export class Agent {
     // Embedding provider: only use global embedding config (no per-session fallback)
     if (globalConfig?.embedding?.endpoint && globalConfig.embedding.apiKey && globalConfig.embedding.model) {
       this.embeddingProvider = new EmbeddingClient(globalConfig.embedding);
-      this.vectorMemory = new VectorMemory(sessionDir, sessionId, this.embeddingProvider);
+      this.vectorMemory = new VectorMemory(sessionDir, sessionId, this.embeddingProvider, globalConfig.memory);
     } else {
       this.embeddingProvider = null;
       this.vectorMemory = null;
@@ -314,8 +322,11 @@ export class Agent {
 
     if (this.vectorMemory) {
       this.vectorMemory.updateEmbedder(embedder);
+      if (newGlobalConfig.memory) {
+        this.vectorMemory.updateMemoryConfig(newGlobalConfig.memory);
+      }
     } else {
-      this.vectorMemory = new VectorMemory(this.sessionDir, this.sessionId, embedder);
+      this.vectorMemory = new VectorMemory(this.sessionDir, this.sessionId, embedder, newGlobalConfig.memory);
     }
   }
 
@@ -340,9 +351,9 @@ export class Agent {
         const text = extractText(msg.content);
         if (!text) return '';
         if (msg.role === 'tool' && msg.name) {
-          return `[tool:${msg.name}] ${text.slice(0, 300)}`;
+          return `[tool:${msg.name}] ${sliceToTokenLimit(text, 75)}`;  // ~300 chars / 4
         }
-        return text.slice(0, 300);
+        return sliceToTokenLimit(text, 75);  // ~300 chars / 4
       })
       .filter(text => text.trim().length > 0);
 
@@ -350,7 +361,7 @@ export class Agent {
 
     const stitched = recentHistory.slice(-3).join('\n');
     if (stitched.trim().length > 0) {
-      cues.push(stitched.slice(0, 800));
+      cues.push(sliceToTokenLimit(stitched, 200));  // ~800 chars / 4
     }
 
     return cues;
@@ -358,7 +369,7 @@ export class Agent {
 
   private buildRecentFlowContext(limit = 6): string {
     type FlowEntry = { role: ChatMessage['role']; prefix: string; text: string; };
-    const maxChars = 2000;
+    const maxTokens = 750;  // ~2000 chars / 4
 
     const toEntry = (msg: ChatMessage): FlowEntry | null => {
       const text = extractText(msg.content).replace(/\s+/g, ' ').trim();
@@ -366,12 +377,12 @@ export class Agent {
       return {
         role: msg.role,
         prefix: msg.role === 'tool' && msg.name ? `tool:${msg.name}` : msg.role,
-        text: text.slice(0, 240),
+        text: sliceToTokenLimit(text, 60),  // ~240 chars / 4
       };
     };
 
     const toLine = (entry: FlowEntry): string => `[${entry.prefix}] ${entry.text}`;
-    const joinedLength = (entries: FlowEntry[]): number => entries.map(toLine).join('\n').length;
+    const joinedTokens = (entries: FlowEntry[]): number => countTokens(entries.map(toLine).join('\n'));
 
     const selected = this.history
       .slice(-Math.max(limit * 2, limit))
@@ -400,34 +411,38 @@ export class Agent {
       }
     }
 
-    while (joinedLength(selected) > maxChars && selected.some(entry => entry.role === 'tool')) {
+    while (joinedTokens(selected) > maxTokens && selected.some(entry => entry.role === 'tool')) {
       const idx = selected.findIndex(entry => entry.role === 'tool');
       if (idx < 0) break;
       selected.splice(idx, 1);
     }
 
-    while (joinedLength(selected) > maxChars) {
+    while (joinedTokens(selected) > maxTokens) {
       const idx = selected.findIndex(entry => entry.role !== 'user');
       if (idx < 0) break;
       selected.splice(idx, 1);
     }
 
-    if (joinedLength(selected) > maxChars) {
+    if (joinedTokens(selected) > maxTokens) {
       const firstUser = selected.find(entry => entry.role === 'user');
       if (firstUser) {
         const prefix = `[${firstUser.prefix}] `;
-        const available = Math.max(0, maxChars - prefix.length);
-        return `${prefix}${firstUser.text.slice(0, available)}`;
+        const prefixTokens = countTokens(prefix);
+        const available = Math.max(0, maxTokens - prefixTokens);
+        return `${prefix}${sliceToTokenLimit(firstUser.text, available)}`;
       }
     }
 
-    return selected.map(toLine).join('\n').slice(0, maxChars);
+    return sliceToTokenLimit(selected.map(toLine).join('\n'), maxTokens);
   }
 
-  private getRecallRawCharLimit(): number {
+  private getRecallRawTokenLimit(): number {
     return Math.max(
-      MAX_RECALL_COMPRESSED_CHARS,
-      Math.min(MAX_RECALL_RAW_CHARS, this.getEffectiveContextLimit()),
+      this.globalConfig?.memory?.maxRecallCompressedTokens ?? DEFAULT_MAX_RECALL_COMPRESSED_TOKENS,
+      Math.min(
+        this.globalConfig?.memory?.maxRecallRawTokens ?? DEFAULT_MAX_RECALL_RAW_TOKENS,
+        this.getEffectiveContextLimit()
+      ),
     );
   }
 
@@ -475,30 +490,39 @@ export class Agent {
     return this.memoryCompressionProvider;
   }
 
-  private buildRawRecalledMemories(results: RecalledEntry[], maxChars: number): string {
+  private buildRawRecalledMemories(results: RecalledEntry[], maxTokens: number): string {
     const sorted = [...results].sort((a, b) => b.combinedScore - a.combinedScore);
     const critical = sorted.slice(0, 6);
     const related = sorted.slice(6);
 
     let output = '';
+    let currentTokens = 0;
+
     const append = (line: string) => {
-      if (output.length >= maxChars) return;
+      if (currentTokens >= maxTokens) return;
       const safeLine = line.trim();
       if (!safeLine) return;
       const withNewline = output.length === 0 ? safeLine : `\n${safeLine}`;
-      const remaining = maxChars - output.length;
-      if (withNewline.length <= remaining) {
+      const lineTokens = countTokens(withNewline);
+      const remaining = maxTokens - currentTokens;
+
+      if (lineTokens <= remaining) {
         output += withNewline;
+        currentTokens += lineTokens;
         return;
       }
-      output += withNewline.slice(0, Math.max(0, remaining));
+
+      // Slice the line to fit within remaining tokens
+      const sliced = sliceToTokenLimit(withNewline, remaining);
+      output += sliced;
+      currentTokens += countTokens(sliced);
     };
 
     append('# CRITICAL_MEMORIES');
     for (const item of critical) {
       const ts = item.entry.metadata.timestamp.slice(0, 10);
       const role = item.entry.metadata.role ?? 'unknown';
-      const text = item.entry.text.replace(/\s+/g, ' ').trim().slice(0, 2200);
+      const text = sliceToTokenLimit(item.entry.text.replace(/\s+/g, ' ').trim(), this.globalConfig?.memory?.maxCriticalMemoryTokens ?? DEFAULT_MAX_CRITICAL_MEMORY_TOKENS);
       append(`[CRITICAL][${ts}|${role}|sim:${item.similarity.toFixed(3)}|score:${item.combinedScore.toFixed(3)}] ${text}`);
     }
 
@@ -506,7 +530,7 @@ export class Agent {
     for (const item of related) {
       const ts = item.entry.metadata.timestamp.slice(0, 10);
       const role = item.entry.metadata.role ?? 'unknown';
-      const text = item.entry.text.replace(/\s+/g, ' ').trim().slice(0, 700);
+      const text = sliceToTokenLimit(item.entry.text.replace(/\s+/g, ' ').trim(), this.globalConfig?.memory?.maxRelatedMemoryTokens ?? DEFAULT_MAX_RELATED_MEMORY_TOKENS);
       append(`[RELATED][${ts}|${role}|sim:${item.similarity.toFixed(3)}|score:${item.combinedScore.toFixed(3)}] ${text}`);
     }
 
@@ -526,7 +550,7 @@ export class Agent {
       .join(' / ')
       .trim();
 
-    return compact.slice(0, MAX_RECALL_COMPRESSED_CHARS);
+    return sliceToTokenLimit(compact, this.globalConfig?.memory?.maxRecallCompressedTokens ?? DEFAULT_MAX_RECALL_COMPRESSED_TOKENS);
   }
 
   private async formatRecalledMemories(
@@ -535,22 +559,27 @@ export class Agent {
     mode: 'turn' | 'autonomous',
     recentFlowContext?: string,
   ): Promise<string> {
-    const raw = this.buildRawRecalledMemories(results, this.getRecallRawCharLimit());
+    const raw = this.buildRawRecalledMemories(results, this.getRecallRawTokenLimit());
     if (!raw) return '';
 
-    if (raw.length <= MAX_RECALL_COMPRESSED_CHARS) {
+    const compressedTokensLimit = this.globalConfig?.memory?.maxRecallCompressedTokens ?? DEFAULT_MAX_RECALL_COMPRESSED_TOKENS;
+
+    const rawTokens = countTokens(raw);
+    if (rawTokens <= compressedTokensLimit) {
       return raw;
     }
 
     try {
+      const slicedCue = sliceToTokenLimit(cue, this.globalConfig?.memory?.maxCueTokens ?? DEFAULT_MAX_CUE_TOKENS);
+      const slicedContext = sliceToTokenLimit(recentFlowContext || '', this.globalConfig?.memory?.maxFlowContextTokens ?? DEFAULT_MAX_FLOW_CONTEXT_TOKENS);
       const compressed = await this.getMemoryCompressionProvider().summarizeMemory(
-        `Current cue:\n${cue.slice(0, 1200)}\n\nRecent conversation flow:\n${(recentFlowContext || '').slice(0, 2000)}\n\nRecalled memory corpus:\n${raw}`,
+        `Current cue:\n${slicedCue}\n\nRecent conversation flow:\n${slicedContext}\n\nRecalled memory corpus:\n${raw}`,
         {
           model: this.getMemoryCompressionModel(),
           systemPrompt: `
 You compress recalled memories for an AI agent.
 Mode: ${mode}.
-Output must be <= ${MAX_RECALL_COMPRESSED_CHARS} characters.
+Output must be <= ${compressedTokensLimit} tokens.
 Use a highly dense telegraphic style, but you preserve chronological order and causal relationships.
 Use symbols (e.g., "->", ">", "+", "@") to denote time sequence, causality, or relationships compactly instead of words (e.g., "Action A -> Result B").
 Focus on core events and outcomes (Subject-Action-Result) rather than isolated nouns. Strip out adjectives, fluff, and non-essential modifiers.
@@ -561,7 +590,7 @@ Plain text only. No markdown formatting.
       );
 
       const normalized = compressed.replace(/\s+/g, ' ').trim();
-      return normalized.slice(0, MAX_RECALL_COMPRESSED_CHARS);
+      return sliceToTokenLimit(normalized, compressedTokensLimit);
     } catch (e) {
       this.log.warn('Memory compression failed; using fallback compression:', e);
       return this.fallbackCompressRecalledMemories(raw);
@@ -577,10 +606,10 @@ Plain text only. No markdown formatting.
     try {
       const cues = this.buildRecallCues(userMessage);
       const results = await this.vectorMemory.humanLikeRecall(cues, {
-        limit: TURN_RECALL_LIMIT,
-        minSimilarity: 0.34,
-        salienceWeight: 0.35,
-        dedupeThreshold: 0.95,
+        limit: this.globalConfig?.memory?.turnRecallLimit ?? DEFAULT_TURN_RECALL_LIMIT,
+        minSimilarity: this.globalConfig?.memory?.minSimilarity ?? 0.34,
+        salienceWeight: this.globalConfig?.memory?.salienceWeight ?? 0.35,
+        dedupeThreshold: this.globalConfig?.memory?.dedupeThreshold ?? 0.95,
       });
       if (results.length === 0) return { text: null, ids: [] };
 
@@ -590,7 +619,7 @@ Plain text only. No markdown formatting.
         count: results.length,
         memories: results.slice(0, 4).map(item => ({
           role: item.entry.metadata.role ?? 'unknown',
-          text: item.entry.text.slice(0, 160),
+          text: sliceToTokenLimit(item.entry.text, 40),  // ~160 chars / 4
         })),
       });
 
@@ -619,9 +648,9 @@ Plain text only. No markdown formatting.
           const text = extractText(msg.content);
           if (!text) return '';
           if (msg.role === 'tool' && msg.name) {
-            return `[tool:${msg.name}] ${text.slice(0, 280)}`;
+            return `[tool:${msg.name}] ${sliceToTokenLimit(text, 70)}`;  // ~280 chars / 4
           }
-          return text.slice(0, 280);
+          return sliceToTokenLimit(text, 70);  // ~280 chars / 4
         })
         .filter(Boolean)
         .join('\n');
@@ -630,10 +659,10 @@ Plain text only. No markdown formatting.
 
       const cues = this.buildRecallCues(latestContext, 10);
       const recalled = await this.vectorMemory.humanLikeRecall(cues, {
-        limit: AUTONOMOUS_RECALL_LIMIT,
-        minSimilarity: 0.34,
-        salienceWeight: 0.4,
-        dedupeThreshold: 0.95,
+        limit: this.globalConfig?.memory?.autonomousRecallLimit ?? DEFAULT_AUTONOMOUS_RECALL_LIMIT,
+        minSimilarity: this.globalConfig?.memory?.minSimilarity ?? 0.34,
+        salienceWeight: this.globalConfig?.memory?.salienceWeight ?? 0.4,
+        dedupeThreshold: this.globalConfig?.memory?.dedupeThreshold ?? 0.95,
       });
 
       const fresh = recalled.filter(item => !recalledIds.has(item.entry.id));
@@ -649,7 +678,7 @@ Plain text only. No markdown formatting.
         count: fresh.length,
         memories: fresh.slice(0, 4).map(item => ({
           role: item.entry.metadata.role ?? 'unknown',
-          text: item.entry.text.slice(0, 160),
+          text: sliceToTokenLimit(item.entry.text, 40),  // ~160 chars / 4
         })),
       });
 

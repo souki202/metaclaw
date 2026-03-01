@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import type { SessionManager } from '../core/sessions.js';
 import type { Config, SessionConfig, SearchConfig } from '../types.js';
-import { loadConfig, saveConfig, setSession, deleteSession, setSearchConfig, setEmbeddingConfig } from '../config.js';
+import { loadConfig, saveConfig, setSession, deleteSession, setSearchConfig, setEmbeddingConfig, setMemoryConfig } from '../config.js';
 import { loadSkills, type Skill } from '../core/skills.js';
 import { createLogger } from '../logger.js';
 
@@ -33,7 +33,7 @@ function sendJson(res: ServerResponse, data: any, status = 200) {
 }
 
 // Route matcher
-function matchRoute(pathname: string, pattern: string): { params: Record<string, string> } | null {
+function matchRoute(pathname: string, pattern: string): { params: Record<string, string>; } | null {
   const patternParts = pattern.split('/');
   const pathParts = pathname.split('/');
 
@@ -301,7 +301,7 @@ export async function setupApiRoutes(
       const entries = JSON.parse(fs.readFileSync(vectorPath, 'utf-8'));
       sendJson(
         res,
-        entries.map((e: { id: string; text: string; metadata: unknown }) => ({ id: e.id, text: e.text, metadata: e.metadata }))
+        entries.map((e: { id: string; text: string; metadata: unknown; }) => ({ id: e.id, text: e.text, metadata: e.metadata }))
       );
     } catch {
       sendJson(res, []);
@@ -512,18 +512,18 @@ export async function setupApiRoutes(
 
       session.mcpServers[serverId] = type === 'builtin-consult'
         ? {
-            type: 'builtin-consult',
-            endpointUrl: body.endpointUrl,
-            apiKey: body.apiKey,
-            model: body.model,
-            enabled: body.enabled !== false,
-          }
+          type: 'builtin-consult',
+          endpointUrl: body.endpointUrl,
+          apiKey: body.apiKey,
+          model: body.model,
+          enabled: body.enabled !== false,
+        }
         : {
-            command: body.command,
-            args: body.args || [],
-            env: body.env || {},
-            enabled: body.enabled !== false,
-          };
+          command: body.command,
+          args: body.args || [],
+          env: body.env || {},
+          enabled: body.enabled !== false,
+        };
 
       saveConfig(config);
       sendJson(res, { ok: true, server: session.mcpServers[serverId] });
@@ -713,6 +713,42 @@ export async function setupApiRoutes(
         model: body.model ?? existing.model,
       };
       setEmbeddingConfig(config, embeddingConfig);
+      saveConfig(config);
+      sendJson(res, { ok: true });
+    } catch (e: unknown) {
+      sendJson(res, { error: (e as Error).message }, 500);
+    }
+    return true;
+  }
+
+  // GET /api/memory
+  if (method === 'GET' && pathname === '/api/memory') {
+    const config = loadConfig();
+    const memory = config.memory || {};
+    sendJson(res, memory);
+    return true;
+  }
+
+  // PUT /api/memory
+  if (method === 'PUT' && pathname === '/api/memory') {
+    try {
+      const config = loadConfig();
+      const existing = config.memory || {};
+      const body = await parseBody(req);
+      const memoryConfig = {
+        ...existing,
+        ...body,
+      };
+      // numeric string -> number conversion where applicable
+      for (const key of Object.keys(memoryConfig)) {
+        if (typeof memoryConfig[key] === 'string' && memoryConfig[key] !== '') {
+          const parsed = Number(memoryConfig[key]);
+          if (!isNaN(parsed)) {
+            memoryConfig[key] = parsed;
+          }
+        }
+      }
+      setMemoryConfig(config, memoryConfig);
       saveConfig(config);
       sendJson(res, { ok: true });
     } catch (e: unknown) {

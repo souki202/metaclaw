@@ -30,6 +30,7 @@
     "remark-breaks": "^4.0.0",
     "remark-gfm": "^4.0.1",
     "skills": "^1.4.1",
+    "tiktoken": "^1.0.22",
     "uuid": "^13.0.0",
     "ws": "^8.18.0",
     "zlib-sync": "^0.1.10"

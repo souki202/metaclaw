@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import type { Config, SessionConfig, ProviderConfig, SearchConfig, EmbeddingConfig } from './types.js';
+import type { Config, SessionConfig, ProviderConfig, SearchConfig, EmbeddingConfig, MemoryConfig } from './types.js';
 
 const CONFIG_PATH = path.resolve(process.cwd(), 'config.json');
 const EXAMPLE_PATH = path.resolve(process.cwd(), 'config.example.json');
@@ -51,7 +51,7 @@ export function loadConfig(): Config {
 
   const raw = fs.readFileSync(CONFIG_PATH, 'utf-8');
   const config: Config = JSON.parse(raw);
-  
+
   // Migrate backward capability (if it had environment but no provider, map back if we can)
   for (const session of Object.values(config.sessions)) {
     if (!session.organizationId || session.organizationId.trim().length === 0) {
@@ -60,34 +60,34 @@ export function loadConfig(): Config {
 
     if (!session.provider) {
       // If it had environment and there were global environments in older config format
-       const oldEnv = (config as any).environments?.[(session as any).environment || 'default'];
-       if (oldEnv) {
-         session.provider = {
-           endpoint: oldEnv.endpoint,
-           apiKey: oldEnv.apiKey,
-           model: oldEnv.model,
-           contextWindow: oldEnv.contextWindow,
-         };
-       } else {
-         session.provider = { ...DEFAULT_PROVIDER };
-       }
+      const oldEnv = (config as any).environments?.[(session as any).environment || 'default'];
+      if (oldEnv) {
+        session.provider = {
+          endpoint: oldEnv.endpoint,
+          apiKey: oldEnv.apiKey,
+          model: oldEnv.model,
+          contextWindow: oldEnv.contextWindow,
+        };
+      } else {
+        session.provider = { ...DEFAULT_PROVIDER };
+      }
     }
 
-    const mutableSession = session as unknown as { heartbeat?: unknown };
+    const mutableSession = session as unknown as { heartbeat?: unknown; };
     if ('heartbeat' in mutableSession) {
       delete mutableSession.heartbeat;
     }
 
     ensureBuiltinMcpServer(session);
   }
-  
+
   // Clean up old environments field
   if ('environments' in config) {
     delete (config as any).environments;
     // Auto-save cleaned config
     fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2), 'utf-8');
   }
-  
+
   validateConfig(config);
   return config;
 }
@@ -164,7 +164,7 @@ export function resolveProvider(sessionConfig: SessionConfig, config: Config): P
   if (sessionConfig.provider) {
     return sessionConfig.provider;
   }
-  
+
   throw new Error('No provider configuration found for session');
 }
 
@@ -201,5 +201,11 @@ export function setSearchConfig(config: Config, search: SearchConfig): Config {
 // Embedding設定を更新
 export function setEmbeddingConfig(config: Config, embedding: EmbeddingConfig): Config {
   config.embedding = embedding;
+  return config;
+}
+
+// Memory設定を更新
+export function setMemoryConfig(config: Config, memory: MemoryConfig): Config {
+  config.memory = memory;
   return config;
 }
