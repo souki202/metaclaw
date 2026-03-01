@@ -57,7 +57,8 @@ function estimateTokens(messages: ChatMessage[]): number {
   return messages.reduce((sum, m) => {
     if (!m.content) return sum + 10;
     if (typeof m.content === 'string') {
-      return sum + countTokens(m.content) + 10;
+      // OpenAI以外のtokenizerの場合を考え、余剰をもたせる
+      return sum + Math.ceil(countTokens(m.content) * 1.3) + 10;
     }
     // Multi-part content
     let tokens = 10;
@@ -365,7 +366,7 @@ export class Agent {
 
   private buildRecentFlowContext(limit = 6): string {
     type FlowEntry = { role: ChatMessage['role']; prefix: string; text: string; };
-    const maxTokens = 500;  // ~2000 chars / 4
+    const maxTokens = 750;  // ~2000 chars / 4
 
     const toEntry = (msg: ChatMessage): FlowEntry | null => {
       const text = extractText(msg.content).replace(/\s+/g, ' ').trim();

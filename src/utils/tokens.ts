@@ -28,7 +28,7 @@ export function countTokens(text: string): number {
   } catch (error) {
     // Fallback to character-based estimation if encoding fails
     console.error('Token counting failed, using fallback:', error);
-    return Math.ceil(text.length / 4);
+    return Math.ceil(text.length / 2.3);
   }
 }
 
