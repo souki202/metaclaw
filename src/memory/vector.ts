@@ -1,11 +1,11 @@
 import fs from 'fs';
 import path from 'path';
 import { randomUUID } from 'crypto';
-import type { MemoryEntry, ChatMessage, ContentPartText } from '../types.js';
+import type { MemoryEntry, ChatMessage, ContentPartText, MemoryConfig } from '../types.js';
 import type { EmbeddingProvider } from './embedding.js';
 
-const AUTO_CHUNK_TARGET = 2000;
-const AUTO_CHUNK_MAX = 2500;
+const DEFAULT_AUTO_CHUNK_TARGET = 2000;
+const DEFAULT_AUTO_CHUNK_MAX = 2500;
 
 const IMPORTANT_HINTS = [
   'important',
@@ -122,11 +122,11 @@ function splitByWordBoundary(text: string, maxLength: number): string[] {
   return chunks;
 }
 
-function splitTextForAutoMemory(text: string): string[] {
+function splitTextForAutoMemory(text: string, targetLength: number, maxLength: number): string[] {
   const normalized = text.trim();
   if (!normalized) return [];
 
-  if (normalized.length <= AUTO_CHUNK_TARGET) {
+  if (normalized.length <= targetLength) {
     return [normalized];
   }
 
@@ -137,15 +137,15 @@ function splitTextForAutoMemory(text: string): string[] {
 
   const units: string[] = [];
   for (const unit of sentenceLikeUnits) {
-    if (unit.length <= AUTO_CHUNK_MAX) {
+    if (unit.length <= maxLength) {
       units.push(unit);
       continue;
     }
-    units.push(...splitByWordBoundary(unit, AUTO_CHUNK_MAX));
+    units.push(...splitByWordBoundary(unit, maxLength));
   }
 
   if (units.length === 0) {
-    return splitByWordBoundary(normalized, AUTO_CHUNK_MAX);
+    return splitByWordBoundary(normalized, maxLength);
   }
 
   const chunks: string[] = [];
@@ -157,13 +157,13 @@ function splitTextForAutoMemory(text: string): string[] {
       continue;
     }
 
-    if (current.length >= AUTO_CHUNK_TARGET) {
+    if (current.length >= targetLength) {
       chunks.push(current);
       current = unit;
       continue;
     }
 
-    if ((current.length + 1 + unit.length) <= AUTO_CHUNK_MAX) {
+    if ((current.length + 1 + unit.length) <= maxLength) {
       current += ` ${unit}`;
     } else {
       chunks.push(current);
@@ -199,16 +199,22 @@ export class VectorMemory {
   private entries: MemoryEntry[] = [];
   private embedder: EmbeddingProvider;
   private sessionId: string;
+  private memoryConfig?: MemoryConfig;
 
-  constructor(workspace: string, sessionId: string, embedder: EmbeddingProvider) {
+  constructor(workspace: string, sessionId: string, embedder: EmbeddingProvider, memoryConfig?: MemoryConfig) {
     this.filePath = path.join(workspace, 'memory', 'vectors.json');
     this.sessionId = sessionId;
     this.embedder = embedder;
+    this.memoryConfig = memoryConfig;
     this.load();
   }
 
   updateEmbedder(embedder: EmbeddingProvider) {
     this.embedder = embedder;
+  }
+
+  updateMemoryConfig(memoryConfig: MemoryConfig) {
+    this.memoryConfig = memoryConfig;
   }
 
   private load() {
@@ -274,7 +280,9 @@ export class VectorMemory {
     const text = extractTextForMemory(msg);
     if (text.trim().length < 10) return;
 
-    const chunks = splitTextForAutoMemory(text);
+    const targetLength = this.memoryConfig?.autoChunkTargetLength ?? DEFAULT_AUTO_CHUNK_TARGET;
+    const maxLength = this.memoryConfig?.autoChunkMaxLength ?? DEFAULT_AUTO_CHUNK_MAX;
+    const chunks = splitTextForAutoMemory(text, targetLength, maxLength);
     if (chunks.length === 0) return;
 
     const timestamp = new Date().toISOString();

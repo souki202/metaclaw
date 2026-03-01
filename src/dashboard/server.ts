@@ -6,7 +6,7 @@ import fs from 'fs';
 import type { SessionManager } from '../core/sessions.js';
 import type { DashboardEvent, Config, SessionConfig, SearchConfig } from '../types.js';
 import { createLogger } from '../logger.js';
-import { loadConfig, saveConfig, setSession, deleteSession, setSearchConfig, setEmbeddingConfig, ensureBuiltinMcpServer } from '../config.js';
+import { loadConfig, saveConfig, setSession, deleteSession, setSearchConfig, setEmbeddingConfig, setMemoryConfig, ensureBuiltinMcpServer } from '../config.js';
 import { loadSkills, type Skill } from '../core/skills.js';
 
 const log = createLogger('dashboard');
@@ -202,7 +202,7 @@ export class DashboardServer {
       try {
         const entries = JSON.parse(fs.readFileSync(vectorPath, 'utf-8'));
         // Return without embeddings (too large for API)
-        res.json(entries.map((e: { id: string; text: string; metadata: unknown }) => ({ id: e.id, text: e.text, metadata: e.metadata })));
+        res.json(entries.map((e: { id: string; text: string; metadata: unknown; }) => ({ id: e.id, text: e.text, metadata: e.metadata })));
       } catch {
         res.json([]);
       }
@@ -232,13 +232,13 @@ export class DashboardServer {
         if (!existing) {
           return res.status(404).json({ error: 'Session not found' });
         }
-        
+
         // 更新
         const updated: SessionConfig = {
           ...existing,
           ...req.body,
         };
-        
+
         setSession(config, req.params.id, updated);
         saveConfig(config);
         res.json({ ok: true, session: updated });
@@ -255,7 +255,7 @@ export class DashboardServer {
         if (!session) {
           return res.status(404).json({ error: 'Session not found' });
         }
-        
+
         session.discord = {
           enabled: req.body.enabled ?? false,
           token: req.body.token,
@@ -264,7 +264,7 @@ export class DashboardServer {
           allowFrom: req.body.allowFrom || [],
           prefix: req.body.prefix,
         };
-        
+
         saveConfig(config);
         res.json({ ok: true, discord: session.discord });
       } catch (e: unknown) {
@@ -277,11 +277,11 @@ export class DashboardServer {
       try {
         const config = this.loadCurrentConfig();
         const sessionId = req.body.id || `session_${Date.now()}`;
-        
+
         if (config.sessions[sessionId]) {
           return res.status(400).json({ error: 'Session already exists' });
         }
-        
+
         const newSession: SessionConfig = {
           organizationId: req.body.organizationId || 'default',
           name: req.body.name || sessionId,
@@ -298,9 +298,9 @@ export class DashboardServer {
           tools: req.body.tools || { exec: true, web: true, memory: true },
           discord: req.body.discord,
         };
-        
+
         ensureBuiltinMcpServer(newSession);
-        
+
         setSession(config, sessionId, newSession);
         saveConfig(config);
         res.json({ ok: true, id: sessionId, session: newSession });
@@ -373,18 +373,18 @@ export class DashboardServer {
 
         session.mcpServers[serverId] = type === 'builtin-consult'
           ? {
-              type: 'builtin-consult',
-              endpointUrl: req.body.endpointUrl,
-              apiKey: req.body.apiKey,
-              model: req.body.model,
-              enabled: req.body.enabled !== false,
-            }
+            type: 'builtin-consult',
+            endpointUrl: req.body.endpointUrl,
+            apiKey: req.body.apiKey,
+            model: req.body.model,
+            enabled: req.body.enabled !== false,
+          }
           : {
-              command: req.body.command,
-              args: req.body.args || [],
-              env: req.body.env || {},
-              enabled: req.body.enabled !== false,
-            };
+            command: req.body.command,
+            args: req.body.args || [],
+            env: req.body.env || {},
+            enabled: req.body.enabled !== false,
+          };
 
         saveConfig(config);
         res.json({ ok: true, server: session.mcpServers[serverId] });
@@ -458,7 +458,7 @@ export class DashboardServer {
       try {
         const sessionId = req.params.id;
         const serverId = req.params.serverId;
-        
+
         log.info(`Deleting MCP server "${serverId}" from session "${sessionId}"...`);
 
         const config = this.loadCurrentConfig();
@@ -483,7 +483,7 @@ export class DashboardServer {
         delete session.mcpServers[serverId];
         saveConfig(config);
         log.info(`MCP server "${serverId}" deleted from config.`);
-        
+
         res.json({ ok: true });
       } catch (e: unknown) {
         log.error('MCP server deletion error:', e);
@@ -519,7 +519,7 @@ export class DashboardServer {
       try {
         const config = this.loadCurrentConfig();
         const existing = config.search || { provider: 'brave' } as SearchConfig;
-        
+
         const searchConfig: SearchConfig = {
           provider: req.body.provider || 'brave',
           braveApiKey: req.body.braveApiKey !== undefined && !req.body.braveApiKey.includes('***') ? req.body.braveApiKey : existing.braveApiKey,
@@ -528,7 +528,7 @@ export class DashboardServer {
           vertexLocation: req.body.vertexLocation,
           vertexDataStoreId: req.body.vertexDataStoreId,
         };
-        
+
         setSearchConfig(config, searchConfig);
         saveConfig(config);
         res.json({ ok: true });
@@ -559,6 +559,39 @@ export class DashboardServer {
           model: req.body.model ?? existing.model,
         };
         setEmbeddingConfig(config, embeddingConfig);
+        saveConfig(config);
+        res.json({ ok: true });
+      } catch (e: unknown) {
+        res.status(500).json({ error: (e as Error).message });
+      }
+    });
+
+    // API: memory設定取得
+    this.app.get('/api/memory', (_req, res) => {
+      const config = this.loadCurrentConfig();
+      const memory = config.memory || {};
+      res.json(memory);
+    });
+
+    // API: memory設定更新
+    this.app.put('/api/memory', (req, res) => {
+      try {
+        const config = this.loadCurrentConfig();
+        const existing = config.memory || {};
+        const memoryConfig = {
+          ...existing,
+          ...req.body,
+        };
+        // numeric string -> number conversion where applicable
+        for (const key of Object.keys(memoryConfig)) {
+          if (typeof memoryConfig[key] === 'string' && memoryConfig[key] !== '') {
+            const parsed = Number(memoryConfig[key]);
+            if (!isNaN(parsed)) {
+              memoryConfig[key] = parsed;
+            }
+          }
+        }
+        setMemoryConfig(config, memoryConfig);
         saveConfig(config);
         res.json({ ok: true });
       } catch (e: unknown) {

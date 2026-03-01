@@ -3,7 +3,7 @@ import React, { useState, useEffect } from "react";
 // -------- Global Settings Modal --------
 export const GlobalSettingsModal = ({ onClose, onSave }: any) => {
   const [tab, setTab] = useState<
-    "search" | "embedding" | "skills" | "providers"
+    "search" | "embedding" | "memory" | "skills" | "providers"
   >("search");
   const [provider, setProvider] = useState("brave");
   const [braveKey, setBraveKey] = useState("");
@@ -32,6 +32,21 @@ export const GlobalSettingsModal = ({ onClose, onSave }: any) => {
   const [embeddingModel, setEmbeddingModel] = useState("");
   const [configLoading, setConfigLoading] = useState(true);
 
+  // Memory Settings State
+  const [memMaxRecallCompressed, setMemMaxRecallCompressed] = useState("");
+  const [memMaxRecallRaw, setMemMaxRecallRaw] = useState("");
+  const [memMaxCritical, setMemMaxCritical] = useState("");
+  const [memMaxRelated, setMemMaxRelated] = useState("");
+  const [memMaxCue, setMemMaxCue] = useState("");
+  const [memMaxFlow, setMemMaxFlow] = useState("");
+  const [memTurnRecall, setMemTurnRecall] = useState("");
+  const [memAutoRecall, setMemAutoRecall] = useState("");
+  const [memMinSim, setMemMinSim] = useState("");
+  const [memSalience, setMemSalience] = useState("");
+  const [memDedupe, setMemDedupe] = useState("");
+  const [memChunkTarget, setMemChunkTarget] = useState("");
+  const [memChunkMax, setMemChunkMax] = useState("");
+
   useEffect(() => {
     setConfigLoading(true);
     fetch("/api/search")
@@ -55,6 +70,29 @@ export const GlobalSettingsModal = ({ onClose, onSave }: any) => {
           setEmbeddingEndpoint(data.endpoint || "");
           setEmbeddingApiKey(data.apiKey || "");
           setEmbeddingModel(data.model || "");
+        }
+      })
+      .catch(() => {});
+
+    fetch("/api/memory")
+      .then((r) => r.ok && r.json())
+      .then((data) => {
+        if (data) {
+          setMemMaxRecallCompressed(
+            data.maxRecallCompressedTokens?.toString() || "",
+          );
+          setMemMaxRecallRaw(data.maxRecallRawTokens?.toString() || "");
+          setMemMaxCritical(data.maxCriticalMemoryTokens?.toString() || "");
+          setMemMaxRelated(data.maxRelatedMemoryTokens?.toString() || "");
+          setMemMaxCue(data.maxCueTokens?.toString() || "");
+          setMemMaxFlow(data.maxFlowContextTokens?.toString() || "");
+          setMemTurnRecall(data.turnRecallLimit?.toString() || "");
+          setMemAutoRecall(data.autonomousRecallLimit?.toString() || "");
+          setMemMinSim(data.minSimilarity?.toString() || "");
+          setMemSalience(data.salienceWeight?.toString() || "");
+          setMemDedupe(data.dedupeThreshold?.toString() || "");
+          setMemChunkTarget(data.autoChunkTargetLength?.toString() || "");
+          setMemChunkMax(data.autoChunkMaxLength?.toString() || "");
         }
       })
       .catch(() => {});
@@ -83,6 +121,29 @@ export const GlobalSettingsModal = ({ onClose, onSave }: any) => {
           endpoint: embeddingEndpoint,
           apiKey: embeddingApiKey,
           model: embeddingModel,
+        }),
+      });
+    }
+
+    // Save memory settings if on that tab
+    if (tab === "memory") {
+      await fetch("/api/memory", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          maxRecallCompressedTokens: memMaxRecallCompressed,
+          maxRecallRawTokens: memMaxRecallRaw,
+          maxCriticalMemoryTokens: memMaxCritical,
+          maxRelatedMemoryTokens: memMaxRelated,
+          maxCueTokens: memMaxCue,
+          maxFlowContextTokens: memMaxFlow,
+          turnRecallLimit: memTurnRecall,
+          autonomousRecallLimit: memAutoRecall,
+          minSimilarity: memMinSim,
+          salienceWeight: memSalience,
+          dedupeThreshold: memDedupe,
+          autoChunkTargetLength: memChunkTarget,
+          autoChunkMaxLength: memChunkMax,
         }),
       });
     }
@@ -243,6 +304,12 @@ export const GlobalSettingsModal = ({ onClose, onSave }: any) => {
                   Embedding
                 </div>
                 <div
+                  className={`modal-tab ${tab === "memory" ? "active" : ""}`}
+                  onClick={() => setTab("memory")}
+                >
+                  Memory
+                </div>
+                <div
                   className={`modal-tab ${tab === "providers" ? "active" : ""}`}
                   onClick={() => {
                     setTab("providers");
@@ -368,6 +435,218 @@ export const GlobalSettingsModal = ({ onClose, onSave }: any) => {
                       onChange={(e) => setEmbeddingModel(e.target.value)}
                       placeholder="text-embedding-3-small"
                     />
+                  </div>
+                </div>
+              )}
+
+              {tab === "memory" && (
+                <div className="settings-section" style={{ marginTop: 20 }}>
+                  <p
+                    style={{
+                      fontSize: 13,
+                      color: "var(--text-dim)",
+                      marginBottom: 16,
+                    }}
+                  >
+                    Global memory heuristics and token limits. Leave empty to
+                    use default constants.
+                  </p>
+
+                  <h4 style={{ margin: "16px 0 8px 0" }}>
+                    Token Limits (Recall)
+                  </h4>
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "1fr 1fr",
+                      gap: "12px",
+                    }}
+                  >
+                    <div className="form-group">
+                      <label className="form-label">
+                        Max Recall Compressed Tokens
+                      </label>
+                      <input
+                        type="number"
+                        className="form-input"
+                        placeholder="250"
+                        value={memMaxRecallCompressed}
+                        onChange={(e) =>
+                          setMemMaxRecallCompressed(e.target.value)
+                        }
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">
+                        Max Recall Raw Tokens
+                      </label>
+                      <input
+                        type="number"
+                        className="form-input"
+                        placeholder="25000"
+                        value={memMaxRecallRaw}
+                        onChange={(e) => setMemMaxRecallRaw(e.target.value)}
+                      />
+                    </div>
+                  </div>
+
+                  <h4 style={{ margin: "16px 0 8px 0" }}>
+                    Token Limits (Per Entry)
+                  </h4>
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "1fr 1fr",
+                      gap: "12px",
+                    }}
+                  >
+                    <div className="form-group">
+                      <label className="form-label">
+                        Max Critical Memory Tokens
+                      </label>
+                      <input
+                        type="number"
+                        className="form-input"
+                        placeholder="550"
+                        value={memMaxCritical}
+                        onChange={(e) => setMemMaxCritical(e.target.value)}
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">
+                        Max Related Memory Tokens
+                      </label>
+                      <input
+                        type="number"
+                        className="form-input"
+                        placeholder="175"
+                        value={memMaxRelated}
+                        onChange={(e) => setMemMaxRelated(e.target.value)}
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Max Cue Tokens</label>
+                      <input
+                        type="number"
+                        className="form-input"
+                        placeholder="300"
+                        value={memMaxCue}
+                        onChange={(e) => setMemMaxCue(e.target.value)}
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">
+                        Max Flow Context Tokens
+                      </label>
+                      <input
+                        type="number"
+                        className="form-input"
+                        placeholder="500"
+                        value={memMaxFlow}
+                        onChange={(e) => setMemMaxFlow(e.target.value)}
+                      />
+                    </div>
+                  </div>
+
+                  <h4 style={{ margin: "16px 0 8px 0" }}>Recall Heuristics</h4>
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "1fr 1fr",
+                      gap: "12px",
+                    }}
+                  >
+                    <div className="form-group">
+                      <label className="form-label">
+                        Turn Recall Limit (Count)
+                      </label>
+                      <input
+                        type="number"
+                        className="form-input"
+                        placeholder="30"
+                        value={memTurnRecall}
+                        onChange={(e) => setMemTurnRecall(e.target.value)}
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">
+                        Auto Recall Limit (Count)
+                      </label>
+                      <input
+                        type="number"
+                        className="form-input"
+                        placeholder="20"
+                        value={memAutoRecall}
+                        onChange={(e) => setMemAutoRecall(e.target.value)}
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Min Similarity</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        className="form-input"
+                        placeholder="0.34"
+                        value={memMinSim}
+                        onChange={(e) => setMemMinSim(e.target.value)}
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Salience Weight</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        className="form-input"
+                        placeholder="0.35"
+                        value={memSalience}
+                        onChange={(e) => setMemSalience(e.target.value)}
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Dedupe Threshold</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        className="form-input"
+                        placeholder="0.95"
+                        value={memDedupe}
+                        onChange={(e) => setMemDedupe(e.target.value)}
+                      />
+                    </div>
+                  </div>
+
+                  <h4 style={{ margin: "16px 0 8px 0" }}>Chunking Rules</h4>
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "1fr 1fr",
+                      gap: "12px",
+                    }}
+                  >
+                    <div className="form-group">
+                      <label className="form-label">
+                        Auto Chunk Target Length
+                      </label>
+                      <input
+                        type="number"
+                        className="form-input"
+                        placeholder="2000"
+                        value={memChunkTarget}
+                        onChange={(e) => setMemChunkTarget(e.target.value)}
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">
+                        Auto Chunk Max Length
+                      </label>
+                      <input
+                        type="number"
+                        className="form-input"
+                        placeholder="2500"
+                        value={memChunkMax}
+                        onChange={(e) => setMemChunkMax(e.target.value)}
+                      />
+                    </div>
                   </div>
                 </div>
               )}
