@@ -14,6 +14,7 @@ import type { A2ARegistry } from '../a2a/registry.js';
 import { ACAManager } from '../aca/manager.js';
 import type { ACAConfig } from '../aca/types.js';
 import type { SessionCommsManager } from '../a2a/session-comms.js';
+import { countTokens, sliceToTokenLimit } from '../utils/tokens.js';
 
 const MAX_ITERATIONS = 100;
 const RESTART_CODE = 75;
@@ -21,10 +22,16 @@ const DEFAULT_CONTEXT_WINDOW = 128000;
 const DEFAULT_COMPRESSION_THRESHOLD = 0.8;
 const DEFAULT_KEEP_RECENT_MESSAGES = 20;
 const MIN_KEEP_RECENT_MESSAGES = 4;
-const MAX_RECALL_COMPRESSED_CHARS = 1000;
-const MAX_RECALL_RAW_CHARS = 100000;
+// Token-based limits for memory recall (changed from character-based)
+const MAX_RECALL_COMPRESSED_TOKENS = 250;  // ~1000 chars / 4
+const MAX_RECALL_RAW_TOKENS = 25000;  // ~100000 chars / 4
 const TURN_RECALL_LIMIT = 30;
 const AUTONOMOUS_RECALL_LIMIT = 20;
+// Token limits for individual memory entries
+const MAX_CRITICAL_MEMORY_TOKENS = 550;  // ~2200 chars / 4
+const MAX_RELATED_MEMORY_TOKENS = 175;  // ~700 chars / 4
+const MAX_CUE_TOKENS = 300;  // ~1200 chars / 4
+const MAX_FLOW_CONTEXT_TOKENS = 500;  // ~2000 chars / 4
 
 // Remove image_url content parts from messages for models that don't support vision.
 // If a message becomes empty after stripping, keep it with an empty string.
@@ -45,17 +52,17 @@ function stripImageUrls(messages: ChatMessage[]): ChatMessage[] {
   });
 }
 
-// Rough token estimation: ~4 chars per token, ~765 tokens per high-detail image
+// Accurate token estimation using tiktoken
 function estimateTokens(messages: ChatMessage[]): number {
   return messages.reduce((sum, m) => {
     if (!m.content) return sum + 10;
     if (typeof m.content === 'string') {
-      return sum + Math.ceil(m.content.length / 4) + 10;
+      return sum + countTokens(m.content) + 10;
     }
     // Multi-part content
     let tokens = 10;
     for (const part of m.content) {
-      if (part.type === 'text') tokens += Math.ceil(part.text.length / 4);
+      if (part.type === 'text') tokens += countTokens(part.text);
       else tokens += 765; // high detail image
     }
     return sum + tokens;
@@ -424,10 +431,10 @@ export class Agent {
     return selected.map(toLine).join('\n').slice(0, maxChars);
   }
 
-  private getRecallRawCharLimit(): number {
+  private getRecallRawTokenLimit(): number {
     return Math.max(
-      MAX_RECALL_COMPRESSED_CHARS,
-      Math.min(MAX_RECALL_RAW_CHARS, this.getEffectiveContextLimit()),
+      MAX_RECALL_COMPRESSED_TOKENS,
+      Math.min(MAX_RECALL_RAW_TOKENS, this.getEffectiveContextLimit()),
     );
   }
 
@@ -475,30 +482,39 @@ export class Agent {
     return this.memoryCompressionProvider;
   }
 
-  private buildRawRecalledMemories(results: RecalledEntry[], maxChars: number): string {
+  private buildRawRecalledMemories(results: RecalledEntry[], maxTokens: number): string {
     const sorted = [...results].sort((a, b) => b.combinedScore - a.combinedScore);
     const critical = sorted.slice(0, 6);
     const related = sorted.slice(6);
 
     let output = '';
+    let currentTokens = 0;
+
     const append = (line: string) => {
-      if (output.length >= maxChars) return;
+      if (currentTokens >= maxTokens) return;
       const safeLine = line.trim();
       if (!safeLine) return;
       const withNewline = output.length === 0 ? safeLine : `\n${safeLine}`;
-      const remaining = maxChars - output.length;
-      if (withNewline.length <= remaining) {
+      const lineTokens = countTokens(withNewline);
+      const remaining = maxTokens - currentTokens;
+
+      if (lineTokens <= remaining) {
         output += withNewline;
+        currentTokens += lineTokens;
         return;
       }
-      output += withNewline.slice(0, Math.max(0, remaining));
+
+      // Slice the line to fit within remaining tokens
+      const sliced = sliceToTokenLimit(withNewline, remaining);
+      output += sliced;
+      currentTokens += countTokens(sliced);
     };
 
     append('# CRITICAL_MEMORIES');
     for (const item of critical) {
       const ts = item.entry.metadata.timestamp.slice(0, 10);
       const role = item.entry.metadata.role ?? 'unknown';
-      const text = item.entry.text.replace(/\s+/g, ' ').trim().slice(0, 2200);
+      const text = sliceToTokenLimit(item.entry.text.replace(/\s+/g, ' ').trim(), MAX_CRITICAL_MEMORY_TOKENS);
       append(`[CRITICAL][${ts}|${role}|sim:${item.similarity.toFixed(3)}|score:${item.combinedScore.toFixed(3)}] ${text}`);
     }
 
@@ -506,7 +522,7 @@ export class Agent {
     for (const item of related) {
       const ts = item.entry.metadata.timestamp.slice(0, 10);
       const role = item.entry.metadata.role ?? 'unknown';
-      const text = item.entry.text.replace(/\s+/g, ' ').trim().slice(0, 700);
+      const text = sliceToTokenLimit(item.entry.text.replace(/\s+/g, ' ').trim(), MAX_RELATED_MEMORY_TOKENS);
       append(`[RELATED][${ts}|${role}|sim:${item.similarity.toFixed(3)}|score:${item.combinedScore.toFixed(3)}] ${text}`);
     }
 
@@ -526,7 +542,7 @@ export class Agent {
       .join(' / ')
       .trim();
 
-    return compact.slice(0, MAX_RECALL_COMPRESSED_CHARS);
+    return sliceToTokenLimit(compact, MAX_RECALL_COMPRESSED_TOKENS);
   }
 
   private async formatRecalledMemories(
@@ -535,22 +551,25 @@ export class Agent {
     mode: 'turn' | 'autonomous',
     recentFlowContext?: string,
   ): Promise<string> {
-    const raw = this.buildRawRecalledMemories(results, this.getRecallRawCharLimit());
+    const raw = this.buildRawRecalledMemories(results, this.getRecallRawTokenLimit());
     if (!raw) return '';
 
-    if (raw.length <= MAX_RECALL_COMPRESSED_CHARS) {
+    const rawTokens = countTokens(raw);
+    if (rawTokens <= MAX_RECALL_COMPRESSED_TOKENS) {
       return raw;
     }
 
     try {
+      const slicedCue = sliceToTokenLimit(cue, MAX_CUE_TOKENS);
+      const slicedContext = sliceToTokenLimit(recentFlowContext || '', MAX_FLOW_CONTEXT_TOKENS);
       const compressed = await this.getMemoryCompressionProvider().summarizeMemory(
-        `Current cue:\n${cue.slice(0, 1200)}\n\nRecent conversation flow:\n${(recentFlowContext || '').slice(0, 2000)}\n\nRecalled memory corpus:\n${raw}`,
+        `Current cue:\n${slicedCue}\n\nRecent conversation flow:\n${slicedContext}\n\nRecalled memory corpus:\n${raw}`,
         {
           model: this.getMemoryCompressionModel(),
           systemPrompt: `
 You compress recalled memories for an AI agent.
 Mode: ${mode}.
-Output must be <= ${MAX_RECALL_COMPRESSED_CHARS} characters.
+Output must be <= ${MAX_RECALL_COMPRESSED_TOKENS} tokens.
 Use a highly dense telegraphic style, but you preserve chronological order and causal relationships.
 Use symbols (e.g., "->", ">", "+", "@") to denote time sequence, causality, or relationships compactly instead of words (e.g., "Action A -> Result B").
 Focus on core events and outcomes (Subject-Action-Result) rather than isolated nouns. Strip out adjectives, fluff, and non-essential modifiers.
@@ -561,7 +580,7 @@ Plain text only. No markdown formatting.
       );
 
       const normalized = compressed.replace(/\s+/g, ' ').trim();
-      return normalized.slice(0, MAX_RECALL_COMPRESSED_CHARS);
+      return sliceToTokenLimit(normalized, MAX_RECALL_COMPRESSED_TOKENS);
     } catch (e) {
       this.log.warn('Memory compression failed; using fallback compression:', e);
       return this.fallbackCompressRecalledMemories(raw);
