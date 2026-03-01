@@ -347,9 +347,9 @@ export class Agent {
         const text = extractText(msg.content);
         if (!text) return '';
         if (msg.role === 'tool' && msg.name) {
-          return `[tool:${msg.name}] ${text.slice(0, 300)}`;
+          return `[tool:${msg.name}] ${sliceToTokenLimit(text, 75)}`;  // ~300 chars / 4
         }
-        return text.slice(0, 300);
+        return sliceToTokenLimit(text, 75);  // ~300 chars / 4
       })
       .filter(text => text.trim().length > 0);
 
@@ -357,7 +357,7 @@ export class Agent {
 
     const stitched = recentHistory.slice(-3).join('\n');
     if (stitched.trim().length > 0) {
-      cues.push(stitched.slice(0, 800));
+      cues.push(sliceToTokenLimit(stitched, 200));  // ~800 chars / 4
     }
 
     return cues;
@@ -365,7 +365,7 @@ export class Agent {
 
   private buildRecentFlowContext(limit = 6): string {
     type FlowEntry = { role: ChatMessage['role']; prefix: string; text: string; };
-    const maxChars = 2000;
+    const maxTokens = 500;  // ~2000 chars / 4
 
     const toEntry = (msg: ChatMessage): FlowEntry | null => {
       const text = extractText(msg.content).replace(/\s+/g, ' ').trim();
@@ -373,12 +373,12 @@ export class Agent {
       return {
         role: msg.role,
         prefix: msg.role === 'tool' && msg.name ? `tool:${msg.name}` : msg.role,
-        text: text.slice(0, 240),
+        text: sliceToTokenLimit(text, 60),  // ~240 chars / 4
       };
     };
 
     const toLine = (entry: FlowEntry): string => `[${entry.prefix}] ${entry.text}`;
-    const joinedLength = (entries: FlowEntry[]): number => entries.map(toLine).join('\n').length;
+    const joinedTokens = (entries: FlowEntry[]): number => countTokens(entries.map(toLine).join('\n'));
 
     const selected = this.history
       .slice(-Math.max(limit * 2, limit))
@@ -407,28 +407,29 @@ export class Agent {
       }
     }
 
-    while (joinedLength(selected) > maxChars && selected.some(entry => entry.role === 'tool')) {
+    while (joinedTokens(selected) > maxTokens && selected.some(entry => entry.role === 'tool')) {
       const idx = selected.findIndex(entry => entry.role === 'tool');
       if (idx < 0) break;
       selected.splice(idx, 1);
     }
 
-    while (joinedLength(selected) > maxChars) {
+    while (joinedTokens(selected) > maxTokens) {
       const idx = selected.findIndex(entry => entry.role !== 'user');
       if (idx < 0) break;
       selected.splice(idx, 1);
     }
 
-    if (joinedLength(selected) > maxChars) {
+    if (joinedTokens(selected) > maxTokens) {
       const firstUser = selected.find(entry => entry.role === 'user');
       if (firstUser) {
         const prefix = `[${firstUser.prefix}] `;
-        const available = Math.max(0, maxChars - prefix.length);
-        return `${prefix}${firstUser.text.slice(0, available)}`;
+        const prefixTokens = countTokens(prefix);
+        const available = Math.max(0, maxTokens - prefixTokens);
+        return `${prefix}${sliceToTokenLimit(firstUser.text, available)}`;
       }
     }
 
-    return selected.map(toLine).join('\n').slice(0, maxChars);
+    return sliceToTokenLimit(selected.map(toLine).join('\n'), maxTokens);
   }
 
   private getRecallRawTokenLimit(): number {
@@ -609,7 +610,7 @@ Plain text only. No markdown formatting.
         count: results.length,
         memories: results.slice(0, 4).map(item => ({
           role: item.entry.metadata.role ?? 'unknown',
-          text: item.entry.text.slice(0, 160),
+          text: sliceToTokenLimit(item.entry.text, 40),  // ~160 chars / 4
         })),
       });
 
@@ -638,9 +639,9 @@ Plain text only. No markdown formatting.
           const text = extractText(msg.content);
           if (!text) return '';
           if (msg.role === 'tool' && msg.name) {
-            return `[tool:${msg.name}] ${text.slice(0, 280)}`;
+            return `[tool:${msg.name}] ${sliceToTokenLimit(text, 70)}`;  // ~280 chars / 4
           }
-          return text.slice(0, 280);
+          return sliceToTokenLimit(text, 70);  // ~280 chars / 4
         })
         .filter(Boolean)
         .join('\n');
@@ -668,7 +669,7 @@ Plain text only. No markdown formatting.
         count: fresh.length,
         memories: fresh.slice(0, 4).map(item => ({
           role: item.entry.metadata.role ?? 'unknown',
-          text: item.entry.text.slice(0, 160),
+          text: sliceToTokenLimit(item.entry.text, 40),  // ~160 chars / 4
         })),
       });
 
