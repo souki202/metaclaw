@@ -22,16 +22,16 @@ const DEFAULT_CONTEXT_WINDOW = 128000;
 const DEFAULT_COMPRESSION_THRESHOLD = 0.8;
 const DEFAULT_KEEP_RECENT_MESSAGES = 20;
 const MIN_KEEP_RECENT_MESSAGES = 4;
-// Token-based limits for memory recall (changed from character-based)
-const MAX_RECALL_COMPRESSED_TOKENS = 250;  // ~1000 chars / 4
-const MAX_RECALL_RAW_TOKENS = 25000;  // ~100000 chars / 4
-const TURN_RECALL_LIMIT = 30;
-const AUTONOMOUS_RECALL_LIMIT = 20;
-// Token limits for individual memory entries
-const MAX_CRITICAL_MEMORY_TOKENS = 550;  // ~2200 chars / 4
-const MAX_RELATED_MEMORY_TOKENS = 175;  // ~700 chars / 4
-const MAX_CUE_TOKENS = 300;  // ~1200 chars / 4
-const MAX_FLOW_CONTEXT_TOKENS = 500;  // ~2000 chars / 4
+// Fallback default constants for memory limits when not provided in config
+const DEFAULT_MAX_RECALL_COMPRESSED_TOKENS = 250;  // ~1000 chars / 4
+const DEFAULT_MAX_RECALL_RAW_TOKENS = 25000;  // ~100000 chars / 4
+const DEFAULT_TURN_RECALL_LIMIT = 30;
+const DEFAULT_AUTONOMOUS_RECALL_LIMIT = 20;
+
+const DEFAULT_MAX_CRITICAL_MEMORY_TOKENS = 550;  // ~2200 chars / 4
+const DEFAULT_MAX_RELATED_MEMORY_TOKENS = 175;  // ~700 chars / 4
+const DEFAULT_MAX_CUE_TOKENS = 300;  // ~1200 chars / 4
+const DEFAULT_MAX_FLOW_CONTEXT_TOKENS = 500;  // ~2000 chars / 4
 
 // Remove image_url content parts from messages for models that don't support vision.
 // If a message becomes empty after stripping, keep it with an empty string.
@@ -152,7 +152,7 @@ export class Agent {
     // Embedding provider: only use global embedding config (no per-session fallback)
     if (globalConfig?.embedding?.endpoint && globalConfig.embedding.apiKey && globalConfig.embedding.model) {
       this.embeddingProvider = new EmbeddingClient(globalConfig.embedding);
-      this.vectorMemory = new VectorMemory(sessionDir, sessionId, this.embeddingProvider);
+      this.vectorMemory = new VectorMemory(sessionDir, sessionId, this.embeddingProvider, globalConfig.memory);
     } else {
       this.embeddingProvider = null;
       this.vectorMemory = null;
@@ -322,8 +322,11 @@ export class Agent {
 
     if (this.vectorMemory) {
       this.vectorMemory.updateEmbedder(embedder);
+      if (newGlobalConfig.memory) {
+        this.vectorMemory.updateMemoryConfig(newGlobalConfig.memory);
+      }
     } else {
-      this.vectorMemory = new VectorMemory(this.sessionDir, this.sessionId, embedder);
+      this.vectorMemory = new VectorMemory(this.sessionDir, this.sessionId, embedder, newGlobalConfig.memory);
     }
   }
 
@@ -435,8 +438,11 @@ export class Agent {
 
   private getRecallRawTokenLimit(): number {
     return Math.max(
-      MAX_RECALL_COMPRESSED_TOKENS,
-      Math.min(MAX_RECALL_RAW_TOKENS, this.getEffectiveContextLimit()),
+      this.globalConfig?.memory?.maxRecallCompressedTokens ?? DEFAULT_MAX_RECALL_COMPRESSED_TOKENS,
+      Math.min(
+        this.globalConfig?.memory?.maxRecallRawTokens ?? DEFAULT_MAX_RECALL_RAW_TOKENS,
+        this.getEffectiveContextLimit()
+      ),
     );
   }
 
@@ -516,7 +522,7 @@ export class Agent {
     for (const item of critical) {
       const ts = item.entry.metadata.timestamp.slice(0, 10);
       const role = item.entry.metadata.role ?? 'unknown';
-      const text = sliceToTokenLimit(item.entry.text.replace(/\s+/g, ' ').trim(), MAX_CRITICAL_MEMORY_TOKENS);
+      const text = sliceToTokenLimit(item.entry.text.replace(/\s+/g, ' ').trim(), this.globalConfig?.memory?.maxCriticalMemoryTokens ?? DEFAULT_MAX_CRITICAL_MEMORY_TOKENS);
       append(`[CRITICAL][${ts}|${role}|sim:${item.similarity.toFixed(3)}|score:${item.combinedScore.toFixed(3)}] ${text}`);
     }
 
@@ -524,7 +530,7 @@ export class Agent {
     for (const item of related) {
       const ts = item.entry.metadata.timestamp.slice(0, 10);
       const role = item.entry.metadata.role ?? 'unknown';
-      const text = sliceToTokenLimit(item.entry.text.replace(/\s+/g, ' ').trim(), MAX_RELATED_MEMORY_TOKENS);
+      const text = sliceToTokenLimit(item.entry.text.replace(/\s+/g, ' ').trim(), this.globalConfig?.memory?.maxRelatedMemoryTokens ?? DEFAULT_MAX_RELATED_MEMORY_TOKENS);
       append(`[RELATED][${ts}|${role}|sim:${item.similarity.toFixed(3)}|score:${item.combinedScore.toFixed(3)}] ${text}`);
     }
 
@@ -544,7 +550,7 @@ export class Agent {
       .join(' / ')
       .trim();
 
-    return sliceToTokenLimit(compact, MAX_RECALL_COMPRESSED_TOKENS);
+    return sliceToTokenLimit(compact, this.globalConfig?.memory?.maxRecallCompressedTokens ?? DEFAULT_MAX_RECALL_COMPRESSED_TOKENS);
   }
 
   private async formatRecalledMemories(
@@ -556,14 +562,16 @@ export class Agent {
     const raw = this.buildRawRecalledMemories(results, this.getRecallRawTokenLimit());
     if (!raw) return '';
 
+    const compressedTokensLimit = this.globalConfig?.memory?.maxRecallCompressedTokens ?? DEFAULT_MAX_RECALL_COMPRESSED_TOKENS;
+
     const rawTokens = countTokens(raw);
-    if (rawTokens <= MAX_RECALL_COMPRESSED_TOKENS) {
+    if (rawTokens <= compressedTokensLimit) {
       return raw;
     }
 
     try {
-      const slicedCue = sliceToTokenLimit(cue, MAX_CUE_TOKENS);
-      const slicedContext = sliceToTokenLimit(recentFlowContext || '', MAX_FLOW_CONTEXT_TOKENS);
+      const slicedCue = sliceToTokenLimit(cue, this.globalConfig?.memory?.maxCueTokens ?? DEFAULT_MAX_CUE_TOKENS);
+      const slicedContext = sliceToTokenLimit(recentFlowContext || '', this.globalConfig?.memory?.maxFlowContextTokens ?? DEFAULT_MAX_FLOW_CONTEXT_TOKENS);
       const compressed = await this.getMemoryCompressionProvider().summarizeMemory(
         `Current cue:\n${slicedCue}\n\nRecent conversation flow:\n${slicedContext}\n\nRecalled memory corpus:\n${raw}`,
         {
@@ -571,7 +579,7 @@ export class Agent {
           systemPrompt: `
 You compress recalled memories for an AI agent.
 Mode: ${mode}.
-Output must be <= ${MAX_RECALL_COMPRESSED_TOKENS} tokens.
+Output must be <= ${compressedTokensLimit} tokens.
 Use a highly dense telegraphic style, but you preserve chronological order and causal relationships.
 Use symbols (e.g., "->", ">", "+", "@") to denote time sequence, causality, or relationships compactly instead of words (e.g., "Action A -> Result B").
 Focus on core events and outcomes (Subject-Action-Result) rather than isolated nouns. Strip out adjectives, fluff, and non-essential modifiers.
@@ -582,7 +590,7 @@ Plain text only. No markdown formatting.
       );
 
       const normalized = compressed.replace(/\s+/g, ' ').trim();
-      return sliceToTokenLimit(normalized, MAX_RECALL_COMPRESSED_TOKENS);
+      return sliceToTokenLimit(normalized, compressedTokensLimit);
     } catch (e) {
       this.log.warn('Memory compression failed; using fallback compression:', e);
       return this.fallbackCompressRecalledMemories(raw);
@@ -598,10 +606,10 @@ Plain text only. No markdown formatting.
     try {
       const cues = this.buildRecallCues(userMessage);
       const results = await this.vectorMemory.humanLikeRecall(cues, {
-        limit: TURN_RECALL_LIMIT,
-        minSimilarity: 0.34,
-        salienceWeight: 0.35,
-        dedupeThreshold: 0.95,
+        limit: this.globalConfig?.memory?.turnRecallLimit ?? DEFAULT_TURN_RECALL_LIMIT,
+        minSimilarity: this.globalConfig?.memory?.minSimilarity ?? 0.34,
+        salienceWeight: this.globalConfig?.memory?.salienceWeight ?? 0.35,
+        dedupeThreshold: this.globalConfig?.memory?.dedupeThreshold ?? 0.95,
       });
       if (results.length === 0) return { text: null, ids: [] };
 
@@ -651,10 +659,10 @@ Plain text only. No markdown formatting.
 
       const cues = this.buildRecallCues(latestContext, 10);
       const recalled = await this.vectorMemory.humanLikeRecall(cues, {
-        limit: AUTONOMOUS_RECALL_LIMIT,
-        minSimilarity: 0.34,
-        salienceWeight: 0.4,
-        dedupeThreshold: 0.95,
+        limit: this.globalConfig?.memory?.autonomousRecallLimit ?? DEFAULT_AUTONOMOUS_RECALL_LIMIT,
+        minSimilarity: this.globalConfig?.memory?.minSimilarity ?? 0.34,
+        salienceWeight: this.globalConfig?.memory?.salienceWeight ?? 0.4,
+        dedupeThreshold: this.globalConfig?.memory?.dedupeThreshold ?? 0.95,
       });
 
       const fresh = recalled.filter(item => !recalledIds.has(item.entry.id));

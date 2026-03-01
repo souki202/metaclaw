@@ -5,7 +5,7 @@ export interface ContentPartText {
 
 export interface ContentPartImageUrl {
   type: 'image_url';
-  image_url: { url: string; detail?: 'low' | 'high' | 'auto' };
+  image_url: { url: string; detail?: 'low' | 'high' | 'auto'; };
 }
 
 export type ContentPart = ContentPartText | ContentPartImageUrl;
@@ -83,6 +83,22 @@ export interface SearchConfig {
   vertexProjectId?: string;
   vertexLocation?: string;
   vertexDataStoreId?: string;
+}
+
+export interface MemoryConfig {
+  maxRecallCompressedTokens?: number;
+  maxRecallRawTokens?: number;
+  maxCriticalMemoryTokens?: number;
+  maxRelatedMemoryTokens?: number;
+  maxCueTokens?: number;
+  maxFlowContextTokens?: number;
+  turnRecallLimit?: number;
+  autonomousRecallLimit?: number;
+  minSimilarity?: number;
+  salienceWeight?: number;
+  dedupeThreshold?: number;
+  autoChunkTargetLength?: number;
+  autoChunkMaxLength?: number;
 }
 
 // セッション別Discord設定
@@ -180,6 +196,7 @@ export interface Config {
   };
   search?: SearchConfig;
   embedding?: EmbeddingConfig;
+  memory?: MemoryConfig;
   providerTemplates?: Record<string, ProviderTemplate>;
   sessions: Record<string, SessionConfig>;
 }
