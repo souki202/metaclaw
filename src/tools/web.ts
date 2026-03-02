@@ -261,7 +261,7 @@ export function buildWebTools(ctx: ToolContext): ToolDefinition[] {
       type: 'function',
       function: {
         name: 'web_fetch',
-        description: 'Fetch content from a URL.',
+        description: 'Fetch content from a URL without using a browser.',
         parameters: {
           type: 'object',
           properties: {

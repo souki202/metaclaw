@@ -579,7 +579,7 @@ export class Agent {
           systemPrompt: `
 You compress recalled memories for an AI agent.
 Mode: ${mode}.
-Output must be <= ${compressedTokensLimit} tokens.
+Output must be <= ${compressedTokensLimit * 3} characters.
 Use a highly dense telegraphic style, but you preserve chronological order and causal relationships.
 Use symbols (e.g., "->", ">", "+", "@") to denote time sequence, causality, or relationships compactly instead of words (e.g., "Action A -> Result B").
 Focus on core events and outcomes (Subject-Action-Result) rather than isolated nouns. Strip out adjectives, fluff, and non-essential modifiers.
