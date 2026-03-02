@@ -22,6 +22,7 @@ export async function GET() {
       allowSelfModify: configs[id]?.allowSelfModify,
       discord: configs[id]?.discord,
       slack: configs[id]?.slack,
+      order: configs[id]?.order ?? undefined,
       isBusy: sessions.getAgent(id)?.isProcessing() ?? false,
     }));
 

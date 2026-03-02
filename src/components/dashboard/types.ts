@@ -5,6 +5,7 @@ export interface SessionData {
   description?: string;
   model?: string;
   isBusy?: boolean;
+  order?: number;
 }
 
 export interface Skill {
@@ -15,7 +16,7 @@ export interface Skill {
 export interface ContentPart {
   type: 'text' | 'image_url';
   text?: string;
-  image_url?: { url: string; detail?: string };
+  image_url?: { url: string; detail?: string; };
 }
 
 export interface ChatMessage {

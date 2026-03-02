@@ -134,6 +134,43 @@ header .status {
   border: 1px solid var(--border);
 }
 
+/* Drag & Drop styles */
+.session-item[draggable="true"] {
+  cursor: grab;
+}
+
+.session-item[draggable="true"]:active {
+  cursor: grabbing;
+}
+
+.session-item.dragging {
+  opacity: 0.4;
+  cursor: grabbing;
+}
+
+.session-item.drag-over {
+  background: rgba(88, 166, 255, 0.12);
+  border: 1px dashed var(--accent);
+  transform: scale(1.01);
+  transition: transform 0.1s ease;
+}
+
+.drag-handle {
+  margin-left: auto;
+  color: var(--text2);
+  opacity: 0;
+  font-size: 14px;
+  line-height: 1;
+  transition: opacity 0.15s;
+  flex-shrink: 0;
+  pointer-events: none;
+}
+
+.session-item:hover .drag-handle {
+  opacity: 0.5;
+}
+
+
 .session-item .avatar {
   width: 28px;
   height: 28px;

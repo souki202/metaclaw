@@ -610,6 +610,42 @@ export default function DashboardClient() {
     }
   };
 
+  const handleReorderSessions = async (orgId: string, orderedIds: string[]) => {
+    // 楽観的にローカルstateを更新
+    setSessions((prev) => {
+      const updated = [...prev];
+      orderedIds.forEach((id, index) => {
+        const idx = updated.findIndex((s) => s.id === id);
+        if (idx !== -1) {
+          updated[idx] = { ...updated[idx], order: index };
+        }
+      });
+      // orderフィールドでソートして返す
+      return updated.sort((a, b) => {
+        const aOrder = a.order ?? Infinity;
+        const bOrder = b.order ?? Infinity;
+        const orgA = a.organizationId || "default";
+        const orgB = b.organizationId || "default";
+        // 別orgはそのまま
+        if (orgA !== orgB) return 0;
+        return aOrder - bOrder;
+      });
+    });
+
+    // バックエンドに保存
+    try {
+      await fetch("/api/sessions/reorder", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          orders: orderedIds.map((id, index) => ({ id, order: index })),
+        }),
+      });
+    } catch (e) {
+      console.error("Failed to save session order", e);
+    }
+  };
+
   const handleDeleteSession = async (id: string) => {
     if (!confirm("Delete this session? This cannot be undone.")) return;
     try {
@@ -681,6 +717,7 @@ export default function DashboardClient() {
             setNewSessionDefaultOrg(organizationId || "default");
             setActiveModal("new-session");
           }}
+          onReorderSessions={handleReorderSessions}
         />
 
         {currentOrganizationChat ? (

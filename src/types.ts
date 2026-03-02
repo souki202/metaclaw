@@ -135,6 +135,7 @@ export interface McpServerConfig {
 export interface SessionConfig {
   organizationId?: string;
   name: string;
+  order?: number;
   description?: string;
   provider: ProviderConfig;
   workspace: string;
