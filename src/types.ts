@@ -187,6 +187,10 @@ export interface ProviderTemplate {
   availableModels: string[];
   defaultModel: string;
   contextWindow?: number;
+  useSessionModelForCompression?: boolean;
+  memoryCompressionEndpoint?: string;
+  memoryCompressionApiKey?: string;
+  memoryCompressionModel?: string;
 }
 
 export interface Config {

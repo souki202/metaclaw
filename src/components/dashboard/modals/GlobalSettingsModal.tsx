@@ -26,6 +26,10 @@ export const GlobalSettingsModal = ({ onClose, onSave }: any) => {
     defaultModel: "",
     description: "",
     contextWindow: "",
+    useSessionModelForCompression: true,
+    memoryCompressionEndpoint: "",
+    memoryCompressionApiKey: "",
+    memoryCompressionModel: "",
   });
   const [embeddingEndpoint, setEmbeddingEndpoint] = useState("");
   const [embeddingApiKey, setEmbeddingApiKey] = useState("");
@@ -198,6 +202,10 @@ export const GlobalSettingsModal = ({ onClose, onSave }: any) => {
       defaultModel: "",
       description: "",
       contextWindow: "",
+      useSessionModelForCompression: true,
+      memoryCompressionEndpoint: "",
+      memoryCompressionApiKey: "",
+      memoryCompressionModel: "",
     });
   };
 
@@ -212,6 +220,11 @@ export const GlobalSettingsModal = ({ onClose, onSave }: any) => {
       defaultModel: template.defaultModel || "",
       description: template.description || "",
       contextWindow: template.contextWindow?.toString() || "",
+      useSessionModelForCompression:
+        template.useSessionModelForCompression ?? true,
+      memoryCompressionEndpoint: template.memoryCompressionEndpoint || "",
+      memoryCompressionApiKey: template.memoryCompressionApiKey || "",
+      memoryCompressionModel: template.memoryCompressionModel || "",
     });
   };
 
@@ -229,6 +242,10 @@ export const GlobalSettingsModal = ({ onClose, onSave }: any) => {
       availableModels: providerForm.availableModels,
       defaultModel: providerForm.defaultModel,
       description: providerForm.description,
+      useSessionModelForCompression: providerForm.useSessionModelForCompression,
+      memoryCompressionEndpoint: providerForm.memoryCompressionEndpoint,
+      memoryCompressionApiKey: providerForm.memoryCompressionApiKey,
+      memoryCompressionModel: providerForm.memoryCompressionModel,
     };
 
     if (providerForm.contextWindow) {
@@ -819,7 +836,116 @@ export const GlobalSettingsModal = ({ onClose, onSave }: any) => {
                               placeholder="128000"
                             />
                           </div>
-                          <div style={{ display: "flex", gap: 8 }}>
+
+                          <div
+                            style={{
+                              marginTop: "16px",
+                              paddingTop: "16px",
+                              borderTop: "1px solid var(--border)",
+                            }}
+                          >
+                            <h4 style={{ margin: "0 0 12px 0" }}>
+                              Memory Compression Settings (Optional)
+                            </h4>
+                            <p
+                              style={{
+                                fontSize: "12px",
+                                color: "var(--text-dim)",
+                                marginBottom: "16px",
+                              }}
+                            >
+                              If empty, the global memory settings will be used.
+                            </p>
+
+                            <label
+                              className="checkbox-label"
+                              style={{ marginBottom: "12px" }}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={
+                                  providerForm.useSessionModelForCompression
+                                }
+                                onChange={(e) =>
+                                  setProviderForm({
+                                    ...providerForm,
+                                    useSessionModelForCompression:
+                                      e.target.checked,
+                                  })
+                                }
+                              />
+                              Use this template's endpoint/model for Memory
+                              Compression
+                            </label>
+
+                            {!providerForm.useSessionModelForCompression && (
+                              <div
+                                style={{
+                                  display: "flex",
+                                  flexDirection: "column",
+                                  gap: 12,
+                                  marginLeft: "24px",
+                                }}
+                              >
+                                <div className="form-group">
+                                  <label className="form-label">
+                                    Compression API Endpoint
+                                  </label>
+                                  <input
+                                    className="form-input mono"
+                                    value={
+                                      providerForm.memoryCompressionEndpoint
+                                    }
+                                    onChange={(e) =>
+                                      setProviderForm({
+                                        ...providerForm,
+                                        memoryCompressionEndpoint:
+                                          e.target.value,
+                                      })
+                                    }
+                                    placeholder="https://api.openai.com/v1"
+                                  />
+                                </div>
+                                <div className="form-group">
+                                  <label className="form-label">
+                                    Compression API Key
+                                  </label>
+                                  <input
+                                    type="password"
+                                    className="form-input mono"
+                                    value={providerForm.memoryCompressionApiKey}
+                                    onChange={(e) =>
+                                      setProviderForm({
+                                        ...providerForm,
+                                        memoryCompressionApiKey: e.target.value,
+                                      })
+                                    }
+                                    placeholder="sk-..."
+                                  />
+                                </div>
+                                <div className="form-group">
+                                  <label className="form-label">
+                                    Compression Model
+                                  </label>
+                                  <input
+                                    className="form-input mono"
+                                    value={providerForm.memoryCompressionModel}
+                                    onChange={(e) =>
+                                      setProviderForm({
+                                        ...providerForm,
+                                        memoryCompressionModel: e.target.value,
+                                      })
+                                    }
+                                    placeholder="gpt-4o-mini"
+                                  />
+                                </div>
+                              </div>
+                            )}
+                          </div>
+
+                          <div
+                            style={{ display: "flex", gap: 8, marginTop: 16 }}
+                          >
                             <button
                               className="btn"
                               onClick={() => setEditingProvider(null)}

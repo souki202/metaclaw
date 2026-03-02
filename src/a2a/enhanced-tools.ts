@@ -101,6 +101,12 @@ export async function createSession(
         web: args.tools?.web !== false,
         memory: args.tools?.memory !== false,
       },
+      context: {
+        memoryCompressionUseSameModel: template.useSessionModelForCompression,
+        memoryCompressionEndpoint: template.memoryCompressionEndpoint,
+        memoryCompressionApiKey: template.memoryCompressionApiKey,
+        memoryCompressionModel: template.memoryCompressionModel,
+      },
       a2a: {
         enabled: args.a2aEnabled !== false,
         hiddenFromAgents: args.hiddenFromAgents || false,
@@ -181,7 +187,7 @@ export async function createSession(
  */
 export async function sendMessageToSession(
   ctx: EnhancedA2AToolContext,
-  args: { target_session: string; message: string; thread_id?: string }
+  args: { target_session: string; message: string; thread_id?: string; }
 ): Promise<ToolResult> {
   try {
     if (!ctx.commsManager) {
@@ -253,7 +259,7 @@ export async function sendMessageToSession(
  */
 export async function readSessionMessages(
   ctx: EnhancedA2AToolContext,
-  args: { thread_id?: string; mark_as_read?: boolean }
+  args: { thread_id?: string; mark_as_read?: boolean; }
 ): Promise<ToolResult> {
   try {
     if (!ctx.commsManager) {
@@ -310,7 +316,7 @@ export async function readSessionMessages(
 
 export async function postOrganizationGroupChat(
   ctx: EnhancedA2AToolContext,
-  args: { message: string }
+  args: { message: string; }
 ): Promise<ToolResult> {
   try {
     if (!ctx.sessionManager) {
@@ -366,7 +372,7 @@ export async function postOrganizationGroupChat(
 
 export async function readOrganizationGroupChat(
   ctx: EnhancedA2AToolContext,
-  args: { unread_only?: boolean; mentions_only?: boolean; mark_as_read?: boolean; limit?: number }
+  args: { unread_only?: boolean; mentions_only?: boolean; mark_as_read?: boolean; limit?: number; }
 ): Promise<ToolResult> {
   try {
     if (!ctx.sessionManager) {
@@ -431,7 +437,7 @@ export async function readOrganizationGroupChat(
 
 export async function searchOrganizationGroupChat(
   ctx: EnhancedA2AToolContext,
-  args: { query: string; mode?: 'semantic' | 'fuzzy' | 'substring'; limit?: number }
+  args: { query: string; mode?: 'semantic' | 'fuzzy' | 'substring'; limit?: number; }
 ): Promise<ToolResult> {
   try {
     if (!ctx.sessionManager) {
@@ -635,7 +641,7 @@ export async function delegateTaskAsync(
  */
 export async function checkAsyncTasks(
   ctx: EnhancedA2AToolContext,
-  args: { task_id?: string }
+  args: { task_id?: string; }
 ): Promise<ToolResult> {
   try {
     if (!ctx.commsManager) {
@@ -825,7 +831,7 @@ export async function listProviderTemplates(ctx: EnhancedA2AToolContext): Promis
  */
 export async function getSessionOutputs(
   ctx: EnhancedA2AToolContext,
-  args: { session_id: string; limit: number }
+  args: { session_id: string; limit: number; }
 ): Promise<ToolResult> {
   try {
     if (!ctx.sessionManager) {
