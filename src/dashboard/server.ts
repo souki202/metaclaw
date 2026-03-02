@@ -105,8 +105,28 @@ export class DashboardServer {
           noRecall: req.body.noRecall === true,
           systemPrompt: req.body.systemPrompt as string | undefined,
         };
+
+        // Resolve text file contents from uploaded file URLs
+        let textFiles: { name: string; content: string; }[] | undefined;
+        if (Array.isArray(req.body.textFiles) && req.body.textFiles.length > 0) {
+          textFiles = [];
+          for (const tf of req.body.textFiles as { name: string; url: string; }[]) {
+            const urlMatch = (tf.url || '').match(/\/api\/sessions\/[^/]+\/uploads\/(.+)$/);
+            if (!urlMatch) continue;
+            const relPath = decodeURIComponent(urlMatch[1]).replace(/\\/g, '/');
+            if (relPath.includes('..') || relPath.includes('//')) continue;
+            const filePath = path.join(agent.getWorkspace(), 'uploads', relPath);
+            if (!fs.existsSync(filePath)) continue;
+            try {
+              const content = fs.readFileSync(filePath, 'utf-8');
+              textFiles.push({ name: tf.name, content });
+            } catch { /* Skip unreadable files */ }
+          }
+          if (textFiles.length === 0) textFiles = undefined;
+        }
+
         const start = Date.now();
-        const response = await agent.processMessage(message, 'dashboard', req.body.imageUrls, opts);
+        const response = await agent.processMessage(message, 'dashboard', req.body.imageUrls, opts, textFiles);
         res.json({ response, duration: Date.now() - start });
       } catch (e: unknown) {
         res.status(500).json({ error: (e as Error).message });

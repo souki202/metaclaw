@@ -1163,6 +1163,7 @@ ${text}
     channelId?: string,
     imageUrls?: string[],
     options?: { noMemory?: boolean; noRecall?: boolean; systemPrompt?: string; },
+    textFiles?: { name: string; content: string; }[],
   ): Promise<string> {
     this.beginProcessing();
     try {
@@ -1187,15 +1188,38 @@ ${text}
         ? `\n\nAttached image URLs (these are visible to the user):\n${imageUrls.map((url) => `- ${url}`).join('\n')}`
         : '';
 
+      // Build attached text file context (RAG)
+      const MAX_FILE_TOKENS = 8000;
+      const MAX_TOTAL_FILE_TOKENS = 25000;
+      let textFileContext = '';
+      if (textFiles && textFiles.length > 0) {
+        let totalTokensUsed = 0;
+        const fileSections: string[] = [];
+        for (const tf of textFiles) {
+          if (totalTokensUsed >= MAX_TOTAL_FILE_TOKENS) break;
+          const remaining = MAX_TOTAL_FILE_TOKENS - totalTokensUsed;
+          const perFileLimit = Math.min(MAX_FILE_TOKENS, remaining);
+          const truncated = sliceToTokenLimit(tf.content, perFileLimit);
+          const section = `### ${tf.name}\n\`\`\`\n${truncated}\n\`\`\``;
+          fileSections.push(section);
+          totalTokensUsed += countTokens(section);
+        }
+        if (fileSections.length > 0) {
+          textFileContext = `\n\n## Attached Files\n${fileSections.join('\n\n')}`;
+        }
+      }
+
+      const baseUserText = `${timestampMarker}${userMessage}${imageUrlReferenceText}${textFileContext}`;
+
       const userMsgContent = resolvedImageUrls && resolvedImageUrls.length > 0
         ? [
-          { type: 'text' as const, text: `${timestampMarker}${userMessage}${imageUrlReferenceText}` },
+          { type: 'text' as const, text: baseUserText },
           ...resolvedImageUrls.map(url => ({
             type: 'image_url' as const,
             image_url: { url, detail: 'high' as const },
           })),
         ]
-        : `${timestampMarker}${userMessage}`;
+        : baseUserText;
 
       const userMsg: ChatMessage = {
         role: 'user',

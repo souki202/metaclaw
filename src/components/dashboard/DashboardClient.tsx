@@ -65,7 +65,9 @@ export default function DashboardClient() {
       return preferred.id;
     }
 
-    const first = sessionList.find((s) => (s.organizationId || "default") === orgId);
+    const first = sessionList.find(
+      (s) => (s.organizationId || "default") === orgId,
+    );
     return first?.id || null;
   };
 
@@ -125,7 +127,9 @@ export default function DashboardClient() {
         `/api/organizations/${encodeURIComponent(orgId)}/group-chat?viewerSessionId=${encodeURIComponent(viewerSessionId)}&limit=200`,
       );
       const data = await res.json();
-      setOrganizationMessages(Array.isArray(data?.messages) ? data.messages : []);
+      setOrganizationMessages(
+        Array.isArray(data?.messages) ? data.messages : [],
+      );
     } catch (e) {
       console.error("Failed to load organization group chat", e);
       setOrganizationMessages([]);
@@ -137,11 +141,14 @@ export default function DashboardClient() {
     if (!viewerSessionId) return;
 
     try {
-      await fetch(`/api/organizations/${encodeURIComponent(orgId)}/group-chat/read`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ viewerSessionId }),
-      });
+      await fetch(
+        `/api/organizations/${encodeURIComponent(orgId)}/group-chat/read`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ viewerSessionId }),
+        },
+      );
       await refreshOrganizationUnread();
     } catch (e) {
       console.error("Failed to mark org chat as read", e);
@@ -366,7 +373,9 @@ export default function DashboardClient() {
         memoryRecall: {
           mode: event.data.mode || "turn",
           count: event.data.count || 0,
-          memories: Array.isArray(event.data.memories) ? event.data.memories : [],
+          memories: Array.isArray(event.data.memories)
+            ? event.data.memories
+            : [],
         },
       });
     } else if (event.type === "cancelled") {
@@ -520,7 +529,11 @@ export default function DashboardClient() {
     markOrganizationMessagesAsRead(organizationId);
   };
 
-  const handleSendMessage = async (msg: string, imageUrls?: string[]) => {
+  const handleSendMessage = async (
+    msg: string,
+    imageUrls?: string[],
+    textFiles?: { name: string; url: string; size: number }[],
+  ) => {
     if (!currentSession) return;
     setMessages((prev) => [...prev, { role: "user", content: msg, imageUrls }]);
     setIsThinking(true);
@@ -529,7 +542,11 @@ export default function DashboardClient() {
       await fetch(`/api/sessions/${currentSession}/message`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: msg, imageUrls }),
+        body: JSON.stringify({
+          message: msg,
+          imageUrls,
+          textFiles: textFiles?.map((tf) => ({ name: tf.name, url: tf.url })),
+        }),
       });
     } catch (e: any) {
       setIsThinking(false);
@@ -625,7 +642,8 @@ export default function DashboardClient() {
   const organizationMentionCandidates = currentOrganizationChat
     ? sessions
         .filter(
-          (session) => (session.organizationId || "default") === currentOrganizationChat,
+          (session) =>
+            (session.organizationId || "default") === currentOrganizationChat,
         )
         .map((session) => session.name)
         .filter((name): name is string => !!name && name.trim().length > 0)
@@ -672,9 +690,16 @@ export default function DashboardClient() {
             viewerSessionName={organizationViewerSessionName}
             mentionCandidates={organizationMentionCandidates}
             messages={organizationMessages}
-            unread={organizationUnread[currentOrganizationChat] || { total: 0, mentions: 0 }}
+            unread={
+              organizationUnread[currentOrganizationChat] || {
+                total: 0,
+                mentions: 0,
+              }
+            }
             onSendMessage={handleSendOrganizationMessage}
-            onMarkRead={() => markOrganizationMessagesAsRead(currentOrganizationChat)}
+            onMarkRead={() =>
+              markOrganizationMessagesAsRead(currentOrganizationChat)
+            }
           />
         ) : (
           <ChatArea

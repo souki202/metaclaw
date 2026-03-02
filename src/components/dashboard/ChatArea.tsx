@@ -218,13 +218,23 @@ const ToolEventBlock: React.FC<{
   );
 };
 
+interface PendingTextFile {
+  name: string;
+  url: string;
+  size: number;
+}
+
 interface ChatAreaProps {
   currentSession: string | null;
   sessionName: string;
   messages: ExtendedChatMessage[];
   isThinking: boolean;
   availableSkills: Skill[];
-  onSendMessage: (msg: string, imageUrls?: string[]) => void;
+  onSendMessage: (
+    msg: string,
+    imageUrls?: string[],
+    textFiles?: PendingTextFile[],
+  ) => void;
   onCancel: () => void;
   onClearHistory: () => void;
   onOpenSessionSettings: () => void;
@@ -245,6 +255,9 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   const [filteredSkills, setFilteredSkills] = useState<Skill[]>([]);
   const [selectedSkillIndex, setSelectedSkillIndex] = useState(-1);
   const [pendingImages, setPendingImages] = useState<string[]>([]);
+  const [pendingTextFiles, setPendingTextFiles] = useState<PendingTextFile[]>(
+    [],
+  );
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -316,9 +329,17 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
 
   const handleSend = () => {
     const msg = inputValue.trim();
-    if ((!msg && pendingImages.length === 0) || isThinking || !currentSession)
+    if (
+      (!msg && pendingImages.length === 0 && pendingTextFiles.length === 0) ||
+      isThinking ||
+      !currentSession
+    )
       return;
-    const finalMsg = msg || "この画像を確認してください。";
+    const finalMsg =
+      msg ||
+      (pendingImages.length > 0
+        ? "この画像を確認してください。"
+        : "このファイルを確認してください。");
     setInputValue("");
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
@@ -327,8 +348,10 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
     onSendMessage(
       finalMsg,
       pendingImages.length > 0 ? pendingImages : undefined,
+      pendingTextFiles.length > 0 ? pendingTextFiles : undefined,
     );
     setPendingImages([]);
+    setPendingTextFiles([]);
   };
 
   // Image upload via file input
@@ -341,13 +364,20 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   const uploadFiles = async (files: File[]) => {
     if (!currentSession) return;
     const imageFiles = files.filter((f) => f.type.startsWith("image/"));
-    if (imageFiles.length === 0) return;
+    const textFiles = files.filter(
+      (f) => !f.type.startsWith("image/") && isTextFile(f),
+    );
+
+    if (imageFiles.length === 0 && textFiles.length === 0) return;
 
     setIsUploading(true);
     try {
       const formData = new FormData();
       for (const file of imageFiles) {
         formData.append("images", file);
+      }
+      for (const file of textFiles) {
+        formData.append("files", file);
       }
 
       const res = await fetch(`/api/sessions/${currentSession}/upload`, {
@@ -357,7 +387,12 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
 
       if (res.ok) {
         const data = await res.json();
-        setPendingImages((prev) => [...prev, ...data.urls]);
+        if (data.urls && data.urls.length > 0) {
+          setPendingImages((prev) => [...prev, ...data.urls]);
+        }
+        if (data.textFiles && data.textFiles.length > 0) {
+          setPendingTextFiles((prev) => [...prev, ...data.textFiles]);
+        }
       }
     } catch (e) {
       console.error("Upload failed:", e);
@@ -396,9 +431,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
     setIsDragging(false);
     dragCounter.current = 0;
 
-    const files = Array.from(e.dataTransfer.files).filter((f) =>
-      f.type.startsWith("image/"),
-    );
+    const files = Array.from(e.dataTransfer.files);
     if (files.length > 0) {
       await uploadFiles(files);
     }
@@ -406,6 +439,48 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
 
   const removePendingImage = (index: number) => {
     setPendingImages((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const removePendingTextFile = (index: number) => {
+    setPendingTextFiles((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const TEXT_EXTENSIONS = new Set([
+    "txt",
+    "md",
+    "csv",
+    "json",
+    "xml",
+    "html",
+    "htm",
+    "yaml",
+    "yml",
+    "log",
+    "rst",
+    "tsv",
+    "ts",
+    "js",
+    "py",
+    "sh",
+    "bash",
+    "sql",
+    "toml",
+    "ini",
+    "cfg",
+    "conf",
+  ]);
+
+  const isTextFile = (file: File): boolean => {
+    const ext = file.name.split(".").pop()?.toLowerCase() || "";
+    if (TEXT_EXTENSIONS.has(ext)) return true;
+    if (file.type.startsWith("text/")) return true;
+    return false;
+  };
+
+  const formatFileSize = (bytes: number): string => {
+    if (bytes < 1024) return `${bytes}B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
+    return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
   };
 
   const toPublicAssetUrl = (rawUrl: string): string => {
@@ -423,7 +498,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
         .replace(/^\/+/, "")
         .replace(/\\/g, "/")
         .replace(/^\.\//, "");
-      if (!cleaned || cleaned.startsWith("..") || !currentSession) return rawUrl;
+      if (!cleaned || cleaned.startsWith("..") || !currentSession)
+        return rawUrl;
       const encoded = cleaned
         .split("/")
         .filter(Boolean)
@@ -576,8 +652,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
       {isDragging && (
         <div className="drag-overlay">
           <div className="drag-overlay-content">
-            <span className="drag-icon">📷</span>
-            <span>画像をドロップしてアップロード</span>
+            <span className="drag-icon">📁</span>
+            <span>ファイルをドロップしてアップロード</span>
           </div>
         </div>
       )}
@@ -702,11 +778,33 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
           </div>
         )}
 
+        {/* Pending text files preview */}
+        {pendingTextFiles.length > 0 && (
+          <div className="pending-text-files">
+            {pendingTextFiles.map((tf, i) => (
+              <div key={i} className="pending-text-file-item">
+                <span className="file-icon">📄</span>
+                <span className="file-name" title={tf.name}>
+                  {tf.name}
+                </span>
+                <span className="file-size">{formatFileSize(tf.size)}</span>
+                <button
+                  className="remove-image-btn"
+                  onClick={() => removePendingTextFile(i)}
+                  title="Remove"
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
         <div className="input-row">
           <input
             type="file"
             ref={fileInputRef}
-            accept="image/*"
+            accept="image/*,.txt,.md,.csv,.json,.xml,.html,.htm,.yaml,.yml,.log,.rst,.tsv,.ts,.js,.py,.sh,.bash,.sql,.toml,.ini,.cfg,.conf"
             multiple
             style={{ display: "none" }}
             onChange={(e) => handleFileSelect(e.target.files)}
@@ -715,7 +813,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
             className="attach-btn"
             onClick={() => fileInputRef.current?.click()}
             disabled={!currentSession || isThinking || isUploading}
-            title="画像を添付"
+            title="ファイルを添付 (画像・テキスト)"
           >
             {isUploading ? "⏳" : "📎"}
           </button>
@@ -763,7 +861,9 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
               onClick={handleSend}
               disabled={
                 !currentSession ||
-                (!inputValue.trim() && pendingImages.length === 0)
+                (!inputValue.trim() &&
+                  pendingImages.length === 0 &&
+                  pendingTextFiles.length === 0)
               }
             >
               ➤
