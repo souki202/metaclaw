@@ -19,6 +19,7 @@ import { resolveProvider as resolveProviderConfig } from '../config.js';
 import { A2ARegistry } from '../a2a/registry.js';
 import { generateAgentCard } from '../a2a/card-generator.js';
 import { SessionCommsManager } from '../a2a/session-comms.js';
+import { getEventDispatch } from '../a2a/event-dispatch.js';
 import { VectorMemory } from '../memory/vector.js';
 import { EmbeddingClient, type EmbeddingProvider } from '../memory/embedding.js';
 
@@ -113,6 +114,33 @@ export class SessionManager {
     // Load schedules for all configured sessions immediately so that schedules
     // fire even for sessions that are not currently running an agent.
     this.loadAllSessionSchedules();
+    this.setupEventDispatch();
+  }
+
+  /**
+   * Wire the EventDrivenDispatch singleton to this session manager so that
+   * it can deliver agent notifications and post group chat messages.
+   */
+  private setupEventDispatch(): void {
+    const dispatch = getEventDispatch();
+    dispatch.setAgentNotifier(async (sessionId, content) => {
+      const agent = this.agents.get(sessionId);
+      if (agent) {
+        await agent.processMessage(content, 'system');
+      }
+    });
+    dispatch.setGroupChatPoster((organizationId, senderSessionId, content) => {
+      try {
+        this.postOrganizationGroupChatMessage({
+          organizationId,
+          content,
+          senderType: 'ai',
+          senderSessionId,
+        });
+      } catch (err) {
+        log.warn('EventDispatch group chat post failed:', err);
+      }
+    });
   }
 
   /**

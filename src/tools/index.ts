@@ -11,6 +11,7 @@ import { buildMemoryTools, executeMemoryTool } from './memory.js';
 import { buildA2ATools, executeA2ATool } from '../a2a/tools.js';
 import { buildA2AEnhancedTools, executeA2AEnhancedTool } from '../a2a/enhanced-tools.js';
 import { buildAcaTools, executeAcaTool } from '../aca/tools.js';
+import { buildTeamProtocolTools, executeTeamProtocolTool } from '../a2a/team-protocol-tools.js';
 
 export async function buildTools(ctx: ToolContext): Promise<ToolDefinition[]> {
   const mcpTools = ctx.mcpManager ? await ctx.mcpManager.getAllTools() : [];
@@ -20,6 +21,7 @@ export async function buildTools(ctx: ToolContext): Promise<ToolDefinition[]> {
     ...buildMemoryTools(ctx),
     ...buildA2ATools(ctx),
     ...buildA2AEnhancedTools(ctx),
+    ...buildTeamProtocolTools(ctx),
     ...buildAcaTools(ctx),
     ...buildWebTools(ctx),
     ...buildExecTools(ctx),
@@ -39,6 +41,7 @@ export async function executeTool(
     await executeMemoryTool(name, args, ctx) ??
     await executeA2ATool(name, args, ctx) ??
     await executeA2AEnhancedTool(name, args, ctx) ??
+    await executeTeamProtocolTool(name, args, ctx) ??
     await executeAcaTool(name, args, ctx) ??
     await executeWebTool(name, args, ctx) ??
     await executeExecTool(name, args, ctx) ??
