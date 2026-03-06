@@ -1,9 +1,8 @@
-import { spawn } from 'child_process';
 import path from 'path';
-import iconv from 'iconv-lite';
 import type { ToolDefinition, ToolResult } from '../types.js';
 import type { ToolContext } from './context.js';
 import { CURRENT_OS } from './context.js';
+import { PtyManager } from './pty-manager.js';
 
 const DANGEROUS_PATTERNS = [
   /\brm\s+-rf?\b/i,
@@ -16,18 +15,6 @@ const DANGEROUS_PATTERNS = [
   /\bpoweroff\b/i,
   /:\(\)\s*\{.*\}\s*;/,
 ];
-
-function detectShell(): string | true {
-  if (process.platform === 'win32') {
-    // Return true so Node.js uses cmd.exe via spawn's shell:true.
-    // This avoids Node.js's per-argument quoting (execFile) which would
-    // double-escape double-quotes and break cmd.exe command parsing.
-    return true;
-  }
-  const sh = process.env.SHELL ?? '/bin/sh';
-  const safe = sh.endsWith('fish') ? '/bin/bash' : sh;
-  return safe;
-}
 
 /**
  * Context-aware normalisation of bash-style quoting for Windows cmd.exe.
@@ -76,14 +63,35 @@ function sanitizePath(workspace: string, cmdPath: string): boolean {
   return resolved.startsWith(path.resolve(workspace));
 }
 
+function quotePosixPath(targetPath: string): string {
+  return `'${targetPath.replace(/'/g, `'\\''`)}'`;
+}
+
+function quoteWindowsPath(targetPath: string): string {
+  return `"${targetPath.replace(/"/g, '""')}"`;
+}
+
+function wrapCommandForTerminal(command: string, workingDir: string, workspace: string): string {
+  if (workingDir === workspace) {
+    return command;
+  }
+
+  if (process.platform === 'win32') {
+    return `cd /d ${quoteWindowsPath(workingDir)} && ${command}`;
+  }
+
+  return `cd ${quotePosixPath(workingDir)} && ${command}`;
+}
+
 export async function execTool(params: {
   command: string;
   cwd?: string;
   timeout?: number;
   workspace: string;
   restrictToWorkspace: boolean;
+  sessionId: string;
 }): Promise<ToolResult> {
-  const { command, cwd, timeout = 30000, workspace, restrictToWorkspace } = params;
+  const { command, cwd, timeout = 30000, workspace, restrictToWorkspace, sessionId } = params;
 
   for (const pattern of DANGEROUS_PATTERNS) {
     if (pattern.test(command)) {
@@ -103,8 +111,6 @@ export async function execTool(params: {
     return { success: false, output: `Command blocked: working directory outside workspace.` };
   }
 
-  const shell = detectShell();
-
   // AI models generate bash-style quoting which cmd.exe cannot handle directly.
   // We do a context-aware normalisation: only replace \" that are OUTSIDE a bare-"..."
   // context (i.e. AI-generated outer delimiters like -H \"value\").
@@ -114,79 +120,20 @@ export async function execTool(params: {
     ? normalizeWindowsQuotes(command)
     : command;
 
-  // Windows: switch code page to UTF-8 before the actual command.
-  const finalCommand = process.platform === 'win32'
-    ? `chcp 65001 > nul && ${normalizedCommand}`
-    : normalizedCommand;
+  // Execute through the shared PTY so dashboard Terminal view and AI shell work stay aligned.
+  const finalCommand = wrapCommandForTerminal(normalizedCommand, workingDir, workspace);
+  const manager = PtyManager.getInstance();
+  const { output, exitCode } = await manager.execCommand(
+    sessionId,
+    workspace,
+    finalCommand,
+    timeout,
+  );
 
-  return new Promise((resolve) => {
-    // Use spawn with shell:true so that on Windows Node.js wraps the entire
-    // command string in quotes for cmd.exe (/S /C "...") instead of escaping
-    // each argument individually (execFile behaviour), which breaks "..." inside
-    // the command string by turning them into \".
-    const proc = spawn(finalCommand, [], {
-      shell,
-      cwd: workingDir,
-      timeout,
-      env: {
-        PATH: process.env.PATH,
-        HOME: process.env.HOME,
-        USER: process.env.USER,
-        LANG: process.env.LANG,
-        TERM: 'xterm-256color',
-      } as any,
-    });
-
-    const MAX_OUTPUT = 1024 * 1024 * 5; // 5 MB
-    let totalSize = 0;
-    const stdoutChunks: Buffer[] = [];
-    const stderrChunks: Buffer[] = [];
-
-    proc.stdout?.on('data', (chunk: Buffer) => {
-      totalSize += chunk.length;
-      if (totalSize <= MAX_OUTPUT) stdoutChunks.push(chunk);
-    });
-    proc.stderr?.on('data', (chunk: Buffer) => {
-      totalSize += chunk.length;
-      if (totalSize <= MAX_OUTPUT) stderrChunks.push(chunk);
-    });
-
-    proc.on('close', (code) => {
-      const stdout = decodeBuffer(Buffer.concat(stdoutChunks));
-      const stderr = decodeBuffer(Buffer.concat(stderrChunks));
-
-      const output = [stdout, stderr].filter(Boolean).join('\n');
-      resolve({
-        success: code === 0,
-        output: output || `(exited with code ${code})`,
-      });
-    });
-
-    proc.on('error', (err) => {
-      resolve({ success: false, output: `Error: ${err.message}` });
-    });
-  });
-}
-
-function decodeBuffer(buffer: Buffer): string {
-  if (buffer.length === 0) return '';
-
-  if (process.platform === 'win32') {
-    // Try UTF-8 first
-    try {
-      const utf8Text = buffer.toString('utf8');
-      // If it contains replacement character or invalid sequences, it might be SJIS
-      if (!utf8Text.includes('\uFFFD')) {
-        return utf8Text;
-      }
-    } catch {
-      // ignore
-    }
-    // Fallback to CP932 (Shift-JIS) for Windows Japanese environments
-    return iconv.decode(buffer, 'cp932');
-  }
-
-  return buffer.toString('utf8');
+  return {
+    success: exitCode === 0 || exitCode === -1,
+    output: output || `(exited with code ${exitCode})`,
+  };
 }
 
 export function buildExecTools(ctx: ToolContext): ToolDefinition[] {
@@ -196,7 +143,7 @@ export function buildExecTools(ctx: ToolContext): ToolDefinition[] {
       type: 'function',
       function: {
         name: 'exec',
-        description: `Execute a shell command. Each operation is independent, and operations such as "cd" are not carried over. Current runtime OS: ${CURRENT_OS}.`,
+        description: `Execute a shell command in the shared session terminal. Output is reflected in the dashboard Terminal tab, and terminal state can persist across calls. Current runtime OS: ${CURRENT_OS}.`,
         parameters: {
           type: 'object',
           properties: {
@@ -223,5 +170,6 @@ export async function executeExecTool(
     timeout: args.timeout as number | undefined,
     workspace: ctx.workspace,
     restrictToWorkspace: ctx.config.restrictToWorkspace,
+    sessionId: ctx.sessionId,
   });
 }

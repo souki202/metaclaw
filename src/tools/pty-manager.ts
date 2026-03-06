@@ -15,15 +15,17 @@ export interface PtyInstance {
   dataListeners: Set<(data: string) => void>;
 }
 
+// Use globalThis to survive Next.js HMR module reloads
+const g = globalThis as typeof globalThis & { __ptyManager?: PtyManager };
+
 export class PtyManager {
-  private static instance: PtyManager;
   private ptys = new Map<string, PtyInstance>();
 
   static getInstance(): PtyManager {
-    if (!PtyManager.instance) {
-      PtyManager.instance = new PtyManager();
+    if (!g.__ptyManager) {
+      g.__ptyManager = new PtyManager();
     }
-    return PtyManager.instance;
+    return g.__ptyManager;
   }
 
   getOrCreate(sessionId: string, workspace: string): PtyInstance {
