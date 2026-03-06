@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, lazy, Suspense } from "react";
 import { Sidebar } from "./Sidebar";
 import { ChatArea } from "./ChatArea";
 import { OrganizationChatArea } from "./OrganizationChatArea";
@@ -10,6 +10,10 @@ import {
   SessionSettingsModal,
   NewSessionModal,
 } from "./Modals";
+
+const TerminalPanel = lazy(() =>
+  import("./TerminalPanel").then((m) => ({ default: m.TerminalPanel }))
+);
 import {
   SessionData,
   ChatMessage,
@@ -43,12 +47,14 @@ export default function DashboardClient() {
   const [activeModal, setActiveModal] = useState<
     "none" | "global" | "session" | "new-session"
   >("none");
+  const [mainView, setMainView] = useState<"chat" | "terminal">("chat");
   const [newSessionDefaultOrg, setNewSessionDefaultOrg] = useState("default");
   const currentSessionRef = useRef<string | null>(null);
   const currentOrganizationChatRef = useRef<string | null>(null);
 
   useEffect(() => {
     currentSessionRef.current = currentSession;
+    setMainView("chat");
   }, [currentSession]);
 
   useEffect(() => {
@@ -738,6 +744,40 @@ export default function DashboardClient() {
               markOrganizationMessagesAsRead(currentOrganizationChat)
             }
           />
+        ) : currentSession ? (
+          <div className="session-main">
+            <div className="session-view-tabs">
+              <button
+                className={`session-view-tab${mainView === "chat" ? " active" : ""}`}
+                onClick={() => setMainView("chat")}
+              >
+                Chat
+              </button>
+              <button
+                className={`session-view-tab${mainView === "terminal" ? " active" : ""}`}
+                onClick={() => setMainView("terminal")}
+              >
+                Terminal
+              </button>
+            </div>
+            {mainView === "chat" ? (
+              <ChatArea
+                currentSession={currentSession}
+                sessionName={currentSessionName}
+                messages={messages}
+                isThinking={isThinking}
+                availableSkills={availableSkills}
+                onSendMessage={handleSendMessage}
+                onCancel={handleCancelGeneration}
+                onClearHistory={handleClearHistory}
+                onOpenSessionSettings={() => setActiveModal("session")}
+              />
+            ) : (
+              <Suspense fallback={<div className="terminal-loading">Loading terminal...</div>}>
+                <TerminalPanel sessionId={currentSession} />
+              </Suspense>
+            )}
+          </div>
         ) : (
           <ChatArea
             currentSession={currentSession}

@@ -8,6 +8,7 @@ import type { DashboardEvent, Config, SessionConfig, SearchConfig } from '../typ
 import { createLogger } from '../logger.js';
 import { loadConfig, saveConfig, setSession, deleteSession, setSearchConfig, setEmbeddingConfig, setMemoryConfig, ensureBuiltinMcpServer } from '../config.js';
 import { loadSkills, type Skill } from '../core/skills.js';
+import { handleTerminalWs } from './terminal-ws.js';
 
 const log = createLogger('dashboard');
 
@@ -637,7 +638,15 @@ export class DashboardServer {
   }
 
   private setupWebSocket() {
-    this.wss.on('connection', (ws) => {
+    this.wss.on('connection', (ws, req) => {
+      const url = req.url ?? '';
+      const terminalMatch = url.match(/^\/terminal\/([^/?]+)/);
+      if (terminalMatch) {
+        const sessionId = decodeURIComponent(terminalMatch[1]);
+        handleTerminalWs(ws, sessionId, this.sessions);
+        return;
+      }
+
       this.clients.add(ws);
       log.debug(`Dashboard client connected (total: ${this.clients.size})`);
 

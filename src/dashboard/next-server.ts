@@ -6,6 +6,7 @@ import type { SessionManager } from '../core/sessions.js';
 import type { DashboardEvent } from '../types.js';
 import { createLogger } from '../logger.js';
 import { setupApiRoutes } from './api-routes.js';
+import { handleTerminalWs } from './terminal-ws.js';
 
 const log = createLogger('dashboard');
 const dev = process.env.NODE_ENV !== 'production';
@@ -64,9 +65,28 @@ export class DashboardServer {
       }
     });
 
-    // Setup WebSocket
-    this.wss = new WebSocketServer({ server: this.server });
-    this.wss.on('connection', (ws) => {
+    // Setup WebSocket (noServer=true so we control the upgrade event explicitly,
+    // preventing any interference from Next.js dev HMR or other listeners)
+    this.wss = new WebSocketServer({ noServer: true });
+    this.wss.on('connection', (ws, req) => {
+      const pathname = req.url?.split('?')[0] ?? '';
+      log.info(`WS connection: ${pathname}`);
+
+      // Terminal connections: /terminal/{sessionId}
+      if (pathname.startsWith('/terminal/')) {
+        const sessionId = pathname.split('/')[2];
+        if (sessionId) {
+          try {
+            handleTerminalWs(ws, sessionId, this.sessions);
+          } catch (err) {
+            log.error('Terminal WS handler error:', err);
+            ws.close(1011, 'Internal error');
+          }
+          return;
+        }
+      }
+
+      // Dashboard broadcast client
       this.clients.add(ws);
       log.debug(`Dashboard client connected (total: ${this.clients.size})`);
 
@@ -76,6 +96,13 @@ export class DashboardServer {
       });
 
       ws.on('error', (e) => log.debug('WS error:', e));
+    });
+
+    // Handle WebSocket upgrades manually to ensure we process them first
+    this.server.on('upgrade', (req, socket, head) => {
+      this.wss!.handleUpgrade(req, socket, head, (ws) => {
+        this.wss!.emit('connection', ws, req);
+      });
     });
 
     // Start listening

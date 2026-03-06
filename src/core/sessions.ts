@@ -22,6 +22,7 @@ import { SessionCommsManager } from '../a2a/session-comms.js';
 import { getEventDispatch } from '../a2a/event-dispatch.js';
 import { VectorMemory } from '../memory/vector.js';
 import { EmbeddingClient, type EmbeddingProvider } from '../memory/embedding.js';
+import { PtyManager } from '../tools/pty-manager.js';
 
 const log = createLogger('sessions');
 
@@ -257,6 +258,8 @@ export class SessionManager {
   }
 
   stopSession(sessionId: string) {
+    // Kill PTY if one exists for this session
+    PtyManager.getInstance().kill(sessionId);
     // Schedules are intentionally NOT unloaded here so that recurring schedules
     // continue to fire even when the agent is not running.
     const agent = this.agents.get(sessionId);

@@ -1,3 +1,5 @@
+@import '@xterm/xterm/css/xterm.css';
+
 *,
 *::before,
 *::after {
@@ -289,6 +291,7 @@ header .status {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  overflow: hidden;
 }
 
 .chat-toolbar {
@@ -1529,4 +1532,57 @@ textarea::placeholder {
 .close-btn:disabled {
   opacity: 0.3;
   cursor: not-allowed;
+}
+
+/* Terminal feature */
+.session-main {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+}
+
+.session-view-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 6px 12px 0;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.session-view-tab {
+  padding: 6px 16px;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text2);
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.session-view-tab:hover {
+  color: var(--text);
+}
+
+.session-view-tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.terminal-container {
+  flex: 1;
+  overflow: hidden;
+  background: #1a1a1a;
+}
+
+.terminal-loading {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text2);
+  font-size: 13px;
+  background: #1a1a1a;
 }
