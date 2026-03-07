@@ -107,6 +107,57 @@ export class PtyManager {
     return this.ptys.has(sessionId);
   }
 
+  /**
+   * Wait for terminal output to settle (quiet period after last data).
+   * Used for interactive programs where completion isn't signalled by a sentinel.
+   */
+  waitForOutput(
+    sessionId: string,
+    quietMs = 800,
+    maxMs = 12000
+  ): Promise<string> {
+    const instance = this.ptys.get(sessionId);
+    if (!instance) return Promise.resolve('');
+
+    return new Promise((resolve) => {
+      let collected = '';
+      let done = false;
+      let quietTimer: NodeJS.Timeout;
+
+      const maxTimer = setTimeout(() => finish(), maxMs);
+
+      const finish = () => {
+        if (done) return;
+        done = true;
+        clearTimeout(quietTimer);
+        clearTimeout(maxTimer);
+        instance.dataListeners.delete(listener);
+        resolve(collected.replace(ANSI_REGEX, '').trim());
+      };
+
+      const listener = (data: string) => {
+        collected += data;
+        clearTimeout(quietTimer);
+        quietTimer = setTimeout(finish, quietMs);
+      };
+
+      instance.dataListeners.add(listener);
+      quietTimer = setTimeout(finish, quietMs);
+    });
+  }
+
+  /**
+   * Return the last N characters of the terminal buffer (ANSI stripped).
+   * Represents what is currently visible on the terminal screen.
+   */
+  getRecentBuffer(sessionId: string, maxChars = 1000): string {
+    const instance = this.ptys.get(sessionId);
+    if (!instance) return '';
+    const raw = instance.buffer.join('');
+    const stripped = raw.replace(ANSI_REGEX, '').trim();
+    return stripped.length > maxChars ? stripped.slice(-maxChars) : stripped;
+  }
+
   addDataListener(sessionId: string, listener: (data: string) => void): () => void {
     const instance = this.ptys.get(sessionId);
     if (!instance) return () => {};

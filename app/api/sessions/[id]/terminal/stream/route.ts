@@ -35,12 +35,6 @@ export async function GET(
           controller.enqueue(encodeSsePayload({ type: 'output', data: chunk }));
         }
 
-        if (instance.buffer.length === 0) {
-          setTimeout(() => {
-            manager.write(id, process.platform === 'win32' ? '\r\n' : '\n');
-          }, 200);
-        }
-
         unsubscribe = manager.addDataListener(id, (data) => {
           try {
             controller.enqueue(encodeSsePayload({ type: 'output', data }));
