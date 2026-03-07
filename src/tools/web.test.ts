@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { webFetch } from './web.js';
 
 test('webFetch should handle a single URL', async () => {
-    const result = await webFetch('https://example.com');
+    const result = await webFetch(['https://example.com']);
     assert.strictEqual(result.success, true);
     assert.ok(result.output.includes('--- Content from: https://example.com ---'));
 });

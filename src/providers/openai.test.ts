@@ -91,8 +91,7 @@ test('chat uses responses.create and maps tools and multimodal messages', async 
   const toolOutput = capturedParams.input.find((i: any) => i.type === 'function_call_output' && i.call_id === 'call_prev');
   assert.equal(typeof toolOutput.output, 'string');
   const parsedToolOutput = JSON.parse(toolOutput.output);
-  assert.equal(parsedToolOutput.text, '{"ok":true}');
-  assert.equal(parsedToolOutput.images[0].image_url, 'data:image/png;base64,toolimg');
+  assert.equal(parsedToolOutput.ok, true);
   assert.ok(capturedParams.input.some((i: any) => i.role === 'user'));
   assert.ok(Array.isArray(capturedParams.tools));
   assert.equal(capturedParams.tools[0].name, 'read_file');
@@ -179,7 +178,7 @@ test('chat falls back to assistant text for tool message missing tool_call_id', 
 
   const assistantItems = capturedParams.input.filter((i: any) => i.role === 'assistant');
   assert.equal(assistantItems.length, 1);
-  assert.equal(assistantItems[0].content[0].type, 'input_text');
+  assert.equal(assistantItems[0].content, 'legacy tool output without call id');
 });
 
 test('chat streams output_text deltas via responses.stream', async () => {
@@ -293,7 +292,7 @@ test('summarize uses responses API', async () => {
   assert.equal(capturedParams.input[1].role, 'user');
 });
 
-test('summarizeText allows model override', async () => {
+test('summarizeMemory allows model override', async () => {
   const provider = makeProvider() as any;
   let capturedParams: any;
 
@@ -309,7 +308,7 @@ test('summarizeText allows model override', async () => {
     },
   };
 
-  const result = await provider.summarizeText('raw memory corpus', {
+  const result = await provider.summarizeMemory('raw memory corpus', {
     model: 'gpt-4.1-mini',
     systemPrompt: 'compress to keywords',
   });

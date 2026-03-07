@@ -16,11 +16,14 @@ test('schedule unified tool can create and list schedules', async () => {
     scheduleCreate: (input: any) => {
       const entry: SessionSchedule = {
         id: String(schedules.length + 1),
+        sessionId: 's',
         startAt: input.startAt,
         repeatCron: input.repeatCron,
         memo: input.memo,
         nextRunAt: input.startAt,
         enabled: true,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
       };
       schedules.push(entry);
       return entry;
@@ -46,13 +49,13 @@ test('schedule unified tool can create and list schedules', async () => {
     memo: 'unified test',
   }, ctx);
 
-  assert.equal(create.success, true);
-  assert.ok(create.output.includes('Schedule created.'));
-  assert.ok(create.output.includes('memo: unified test'));
+  assert.equal(create!.success, true);
+  assert.ok(create!.output.includes('Schedule created.'));
+  assert.ok(create!.output.includes('memo: unified test'));
 
   const list = await executeMemoryTool('schedule', { action: 'list' }, ctx);
-  assert.equal(list.success, true);
-  assert.ok(list.output.includes('unified test'));
+  assert.equal(list!.success, true);
+  assert.ok(list!.output.includes('unified test'));
 });
 
 test('browser unified tool rejects unknown action without launching browser', async () => {
@@ -64,6 +67,6 @@ test('browser unified tool rejects unknown action without launching browser', as
   } as ToolContext;
 
   const result = await executeBrowserTool('browser', { type: 'unknown' }, ctx);
-  assert.equal(result.success, false);
-  assert.ok(result.output.includes('Unknown browser action'));
+  assert.equal(result!.success, false);
+  assert.ok(result!.output.includes('Unknown browser action'));
 });

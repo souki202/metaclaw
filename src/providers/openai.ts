@@ -2,7 +2,7 @@ import OpenAI from 'openai';
 import type { ChatMessage, ToolDefinition, ProviderConfig, ContentPart, ContentPartText, ContentPartImageUrl } from '../types.js';
 
 function isInvalidPromptError(error: unknown): boolean {
-  const e = error as { status?: number; code?: string; message?: string };
+  const e = error as { status?: number; code?: string; message?: string; };
   if (e?.status === 400 && e?.code === 'invalid_prompt') return true;
   const msg = String(e?.message ?? '').toLowerCase();
   return e?.status === 400 && msg.includes('invalid') && msg.includes('prompt');
@@ -13,7 +13,7 @@ function invalidPromptFallbackMessage(): string {
 }
 
 function isToolUseUnsupportedError(error: unknown): boolean {
-  const e = error as { status?: number; message?: string };
+  const e = error as { status?: number; message?: string; };
   const msg = String(e?.message ?? '').toLowerCase();
   return (e?.status === 404 || msg.includes('404'))
     && msg.includes('tool')
@@ -173,7 +173,7 @@ function extractResponseToolCalls(response: any): ChatMessage['tool_calls'] {
         arguments: typeof item.arguments === 'string' ? item.arguments : JSON.stringify(item.arguments ?? {}),
       },
     }))
-    .filter((item: { id: string; function: { name: string } }) => item.id && item.function.name);
+    .filter((item: { id: string; function: { name: string; }; }) => item.id && item.function.name);
 
   return toolCalls.length > 0 ? toolCalls : undefined;
 }
@@ -203,7 +203,7 @@ export class OpenAIProvider {
       reasoning: {
         effort: 'high',
       },
-      ...(includeTools && mappedTools && { tools: mappedTools, tool_choice: 'auto' as const }),
+      ...(includeTools && mappedTools && { tools: mappedTools, tool_choice: 'auto' as const, parallel_tool_calls: false }),
     });
 
     const requestOpts = signal ? { signal } : undefined;

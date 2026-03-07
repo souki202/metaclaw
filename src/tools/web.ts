@@ -38,8 +38,7 @@ function normalizeFreshnessToSerperTbs(freshness?: string): string | undefined {
   return map[braveFreshness];
 }
 
-export async function webFetch(url: string | string[], selector?: string): Promise<ToolResult> {
-  const urls = Array.isArray(url) ? url : [url];
+export async function webFetch(urls: string[], selector?: string): Promise<ToolResult> {
   const results: string[] = [];
 
   for (const targetUrl of urls) {
@@ -90,6 +89,13 @@ export async function webSearch(query: string, config?: SearchConfig, freshness?
   const braveFreshness = normalizeFreshnessToBrave(freshness);
   const serperTbs = normalizeFreshnessToSerperTbs(freshness);
   const hasFreshnessInput = typeof freshness === 'string' && freshness.trim().length > 0;
+
+  if (!query || query.trim().toLowerCase() === 'undefined' || query.trim() === '') {
+    return {
+      success: false,
+      output: 'Invalid search query provided.',
+    };
+  }
 
   if (hasFreshnessInput && !braveFreshness) {
     return {
@@ -261,15 +267,14 @@ export function buildWebTools(ctx: ToolContext): ToolDefinition[] {
       type: 'function',
       function: {
         name: 'web_fetch',
-        description: 'Fetch content from a URL without using a browser.',
+        description: 'Fetch content from one or more URLs without using a browser.',
         parameters: {
           type: 'object',
           properties: {
             url: {
-              oneOf: [
-                { type: 'string', description: 'URL to fetch.' },
-                { type: 'array', items: { type: 'string' }, description: 'List of URLs to fetch.' }
-              ]
+              type: 'array',
+              items: { type: 'string' },
+              description: 'List of URLs to fetch.'
             },
           },
           required: ['url'],
@@ -304,8 +309,14 @@ export async function executeWebTool(
 ): Promise<ToolResult | null> {
   switch (name) {
     case 'web_fetch':
-      return webFetch(args.url as string | string[]);
+      if (!Array.isArray(args.url)) {
+        return { success: false, output: 'Invalid format: "url" parameter must be an array of strings.' };
+      }
+      return webFetch(args.url as string[]);
     case 'web_search':
+      if (!args.query) {
+        return { success: false, output: 'Invalid search query provided.' };
+      }
       return webSearch(args.query as string, ctx.searchConfig, args.freshness as string | undefined);
     default:
       return null;
