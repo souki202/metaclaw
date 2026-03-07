@@ -1540,8 +1540,8 @@ ${text}
     return [...this.history];
   }
 
-  clearVectorMemory(): void {
-    this.vectorMemory?.clear();
+  async clearVectorMemory(): Promise<void> {
+    await this.vectorMemory?.clear();
     this.log.info('Vector memory cleared');
   }
 

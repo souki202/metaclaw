@@ -12,6 +12,7 @@
     "test": "tsx --test src/**/*.test.ts"
   },
   "dependencies": {
+    "@lancedb/lancedb": "^0.26.2",
     "@modelcontextprotocol/sdk": "^1.26.0",
     "@slack/rtm-api": "^7.0.4",
     "@slack/web-api": "^7.12.0",

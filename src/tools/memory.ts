@@ -41,6 +41,36 @@ export function buildMemoryTools(ctx: ToolContext): ToolDefinition[] {
       {
         type: 'function',
         function: {
+          name: 'memory_keyword_search',
+          description: 'Search long-term memory using exact keywords or phrases. Good for finding specific names, IDs, or exact phrases.',
+          parameters: {
+            type: 'object',
+            properties: {
+              query: { type: 'string', description: 'Keyword or phrase to search for.' },
+              limit: { type: 'number', description: 'Max results to return (default 10).' },
+              exact: { type: 'boolean', description: 'If true, requires exact case-sensitive match. Default false.' }
+            },
+            required: ['query'],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'memory_recent',
+          description: 'Get the most recent chronological memories. Use this to remember what was just discussed or to reconstruct timelines.',
+          parameters: {
+            type: 'object',
+            properties: {
+              limit: { type: 'number', description: 'Max results to return (default 10).' },
+            },
+            required: [],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
           name: 'memory_update_quick',
           description: 'Update MEMORY.md - the quick-reference memory loaded into every conversation.',
           parameters: {
@@ -216,7 +246,31 @@ export async function executeMemoryTool(
       const results = await ctx.vectorMemory.search(args.query as string, (args.limit as number) ?? 5);
       if (results.length === 0) return { success: true, output: 'No matching memories found.' };
       const formatted = results
-        .map((r, i) => `${i + 1}. [${r.score.toFixed(3)}] ${r.entry.text}\n   (${r.entry.metadata.timestamp.slice(0, 10)})`)
+        .map((r, i) => `${i + 1}. [${r.score.toFixed(3)}] [${r.entry.metadata.role || r.entry.metadata.type}] ${r.entry.text}\n   (${new Date(r.entry.metadata.timestamp).toLocaleString()})`)
+        .join('\n\n');
+      return { success: true, output: formatted };
+    }
+
+    case 'memory_keyword_search': {
+      if (!ctx.vectorMemory) return { success: false, output: 'Memory tool not available.' };
+      const results = await ctx.vectorMemory.keywordSearch(
+        args.query as string,
+        (args.limit as number) ?? 10,
+        (args.exact as boolean) ?? false
+      );
+      if (results.length === 0) return { success: true, output: 'No matching memories found.' };
+      const formatted = [...results].reverse()
+        .map((r, i) => `${i + 1}. [${r.metadata.role || r.metadata.type}] ${r.text}\n   (${new Date(r.metadata.timestamp).toLocaleString()})`)
+        .join('\n\n');
+      return { success: true, output: formatted };
+    }
+
+    case 'memory_recent': {
+      if (!ctx.vectorMemory) return { success: false, output: 'Memory tool not available.' };
+      const results = ctx.vectorMemory.list((args.limit as number) ?? 10);
+      if (results.length === 0) return { success: true, output: 'No memories found.' };
+      const formatted = [...results].reverse()
+        .map((r, i) => `${i + 1}. [${r.metadata.role || r.metadata.type}] ${r.text}\n   (${new Date(r.metadata.timestamp).toLocaleString()})`)
         .join('\n\n');
       return { success: true, output: formatted };
     }

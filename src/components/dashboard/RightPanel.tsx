@@ -22,12 +22,11 @@ export function RightPanel({
   currentSession,
   externalSchedules,
 }: RightPanelProps) {
-  const [activeTab, setActiveTab] = useState<"files" | "memory" | "system">(
+  const [activeTab, setActiveTab] = useState<"files" | "schedules" | "system">(
     "files",
   );
   const [fileContents, setFileContents] = useState<Record<string, string>>({});
   const [saveStatus, setSaveStatus] = useState<Record<string, string>>({});
-  const [memoryEntries, setMemoryEntries] = useState<any[]>([]);
   const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
   const [schedules, setSchedules] = useState<ScheduleItem[]>([]);
   const [scheduleStatus, setScheduleStatus] = useState("");
@@ -67,7 +66,6 @@ export function RightPanel({
   useEffect(() => {
     if (!currentSession) {
       setFileContents({});
-      setMemoryEntries([]);
       setSchedules([]);
       setScheduleStatus("");
       return;
@@ -89,23 +87,13 @@ export function RightPanel({
       setFileContents(contents);
     };
 
-    const loadMemory = async () => {
-      try {
-        const res = await fetch(`/api/sessions/${currentSession}/memory`);
-        if (res.ok) {
-          const entries = await res.json();
-          setMemoryEntries(entries);
-        }
-      } catch (e) {
-        console.error("Error loading memory", e);
-      }
-    };
-
     if (activeTab === "files") {
       loadFiles();
+    }
+
+    if (activeTab === "files" || activeTab === "schedules") {
       void loadSchedules();
     }
-    if (activeTab === "memory") loadMemory();
   }, [currentSession, activeTab]);
 
   // SSE 経由でサーバーから届いたスケジュール一覧を反映する
@@ -284,10 +272,10 @@ export function RightPanel({
           Files
         </div>
         <div
-          className={`tab ${activeTab === "memory" ? "active" : ""}`}
-          onClick={() => setActiveTab("memory")}
+          className={`tab ${activeTab === "schedules" ? "active" : ""}`}
+          onClick={() => setActiveTab("schedules")}
         >
-          Memory
+          Schedules
         </div>
         <div
           className={`tab ${activeTab === "system" ? "active" : ""}`}
@@ -321,7 +309,17 @@ export function RightPanel({
                 />
               </div>
             ))}
+          </div>
+        )}
+      </div>
 
+      <div
+        className={`tab-content ${activeTab === "schedules" ? "active" : ""}`}
+      >
+        {!currentSession ? (
+          <div className="empty">Select a session</div>
+        ) : (
+          <div>
             <div className="file-section">
               <div className="file-label">Schedules</div>
 
@@ -430,26 +428,6 @@ export function RightPanel({
                 </div>
               )}
             </div>
-          </div>
-        )}
-      </div>
-
-      <div className={`tab-content ${activeTab === "memory" ? "active" : ""}`}>
-        {!currentSession ? (
-          <div className="empty">Select a session</div>
-        ) : memoryEntries.length === 0 ? (
-          <div className="empty">No long-term memories yet</div>
-        ) : (
-          <div>
-            {memoryEntries.slice(0, 50).map((e, idx) => (
-              <div key={idx} className="memory-entry">
-                <div>{e.text && e.text.slice(0, 200)}</div>
-                <div className="memory-meta">
-                  {e.metadata?.timestamp?.slice(0, 10)}{" "}
-                  {e.metadata?.category ? `· ${e.metadata.category}` : ""}
-                </div>
-              </div>
-            ))}
           </div>
         )}
       </div>

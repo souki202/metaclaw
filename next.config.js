@@ -8,6 +8,7 @@ const nextConfig = {
   },
   // Node.js ネイティブ機能を使うサーバーパッケージをバンドルから除外
   serverExternalPackages: [
+    "@lancedb/lancedb",
     "node-pty",
     "playwright",
     "playwright-core",

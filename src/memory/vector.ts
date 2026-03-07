@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { randomUUID } from 'crypto';
+import * as lancedb from '@lancedb/lancedb';
 import type { MemoryEntry, ChatMessage, ContentPartText, MemoryConfig } from '../types.js';
 import type { EmbeddingProvider } from './embedding.js';
 
@@ -178,6 +179,59 @@ function splitTextForAutoMemory(text: string, targetLength: number, maxLength: n
   return chunks;
 }
 
+// LanceDB row shape — metadata fields are flattened with defaults
+interface LanceRow extends Record<string, unknown> {
+  id: string;
+  text: string;
+  vector: number[];
+  timestamp: string;
+  category: string;
+  source: string;
+  sessionId: string;
+  role: string;
+  entryType: string;
+  salience: number;
+  recallCount: number;
+  lastRecalledAt: string;
+}
+
+function entryToRow(entry: MemoryEntry): LanceRow {
+  return {
+    id: entry.id,
+    text: entry.text,
+    vector: entry.embedding,
+    timestamp: entry.metadata.timestamp,
+    category: entry.metadata.category ?? '',
+    source: entry.metadata.source ?? '',
+    sessionId: entry.metadata.sessionId ?? '',
+    role: entry.metadata.role ?? '',
+    entryType: entry.metadata.type ?? '',
+    salience: entry.metadata.salience ?? 0,
+    recallCount: entry.metadata.recallCount ?? 0,
+    lastRecalledAt: entry.metadata.lastRecalledAt ?? '',
+  };
+}
+
+function rowToEntry(row: Record<string, unknown>): MemoryEntry {
+  const vector = row['vector'] as number[] | Float32Array | Float64Array;
+  return {
+    id: row['id'] as string,
+    text: row['text'] as string,
+    embedding: Array.isArray(vector) ? vector : Array.from(vector as Float32Array),
+    metadata: {
+      timestamp: row['timestamp'] as string,
+      ...(row['category'] ? { category: row['category'] as string } : {}),
+      ...(row['source'] ? { source: row['source'] as string } : {}),
+      ...(row['sessionId'] ? { sessionId: row['sessionId'] as string } : {}),
+      ...(row['role'] ? { role: row['role'] as 'user' | 'assistant' | 'tool' } : {}),
+      ...(row['entryType'] ? { type: row['entryType'] as 'auto' | 'manual' } : {}),
+      ...((row['salience'] as number) > 0 ? { salience: row['salience'] as number } : {}),
+      ...((row['recallCount'] as number) > 0 ? { recallCount: row['recallCount'] as number } : {}),
+      ...(row['lastRecalledAt'] ? { lastRecalledAt: row['lastRecalledAt'] as string } : {}),
+    },
+  };
+}
+
 export interface SmartRecallOptions {
   limit?: number;
   minSimilarity?: number;   // minimum raw cosine similarity (default 0.55)
@@ -195,18 +249,22 @@ export interface RecalledEntry {
 }
 
 export class VectorMemory {
-  private filePath: string;
+  private dbPath: string;
+  private legacyJsonPath: string;
   private entries: MemoryEntry[] = [];
   private embedder: EmbeddingProvider;
   private sessionId: string;
   private memoryConfig?: MemoryConfig;
+  private db: lancedb.Connection | null = null;
+  private table: lancedb.Table | null = null;
+  private initPromise: Promise<void> | null = null;
 
   constructor(workspace: string, sessionId: string, embedder: EmbeddingProvider, memoryConfig?: MemoryConfig) {
-    this.filePath = path.join(workspace, 'memory', 'vectors.json');
+    this.dbPath = path.join(workspace, 'memory', 'lancedb');
+    this.legacyJsonPath = path.join(workspace, 'memory', 'vectors.json');
     this.sessionId = sessionId;
     this.embedder = embedder;
     this.memoryConfig = memoryConfig;
-    this.load();
   }
 
   updateEmbedder(embedder: EmbeddingProvider) {
@@ -217,47 +275,48 @@ export class VectorMemory {
     this.memoryConfig = memoryConfig;
   }
 
-  private load() {
-    if (fs.existsSync(this.filePath)) {
+  private async ensureInit(): Promise<void> {
+    if (!this.initPromise) {
+      this.initPromise = this._init();
+    }
+    return this.initPromise;
+  }
+
+  private async _init(): Promise<void> {
+    fs.mkdirSync(this.dbPath, { recursive: true });
+    this.db = await lancedb.connect(this.dbPath);
+    const tableNames = await this.db.tableNames();
+
+    if (tableNames.includes('vectors')) {
+      this.table = await this.db.openTable('vectors');
+      const rows = await this.table.query().toArray();
+      this.entries = rows.map(row => rowToEntry(row as Record<string, unknown>));
+    } else if (fs.existsSync(this.legacyJsonPath)) {
+      // Migrate from vectors.json
       try {
-        this.entries = JSON.parse(fs.readFileSync(this.filePath, 'utf-8'));
+        const legacy: MemoryEntry[] = JSON.parse(fs.readFileSync(this.legacyJsonPath, 'utf-8'));
+        if (legacy.length > 0) {
+          const rows = legacy.map(entryToRow);
+          this.table = await this.db.createTable('vectors', rows);
+          this.entries = legacy;
+          fs.unlinkSync(this.legacyJsonPath);
+        }
       } catch {
         this.entries = [];
       }
     }
+    // If no table and no legacy file, table will be created on first insert
   }
 
-  private save() {
-    fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
-    fs.writeFileSync(this.filePath, JSON.stringify(this.entries, null, 2), 'utf-8');
-  }
-
-  private touchRecalled(entries: MemoryEntry[]) {
-    if (entries.length === 0) return;
-
-    const now = new Date().toISOString();
-    const touched = new Set(entries.map(entry => entry.id));
-    let updated = false;
-
-    this.entries = this.entries.map(entry => {
-      if (!touched.has(entry.id)) return entry;
-      updated = true;
-      return {
-        ...entry,
-        metadata: {
-          ...entry.metadata,
-          recallCount: (entry.metadata.recallCount || 0) + 1,
-          lastRecalledAt: now,
-        },
-      };
-    });
-
-    if (updated) {
-      this.save();
-    }
+  private async getOrCreateTable(firstRow: LanceRow): Promise<{ table: lancedb.Table; created: boolean; }> {
+    if (this.table) return { table: this.table, created: false };
+    if (!this.db) throw new Error('DB not initialized');
+    this.table = await this.db.createTable('vectors', [firstRow]);
+    return { table: this.table, created: true };
   }
 
   async add(text: string, metadata?: Partial<MemoryEntry['metadata']>): Promise<string> {
+    await this.ensureInit();
     const embedding = await this.embedder.embed(text);
     const entry: MemoryEntry = {
       id: randomUUID(),
@@ -271,12 +330,18 @@ export class VectorMemory {
       },
     };
     this.entries.push(entry);
-    this.save();
+
+    const row = entryToRow(entry);
+    const { table, created } = await this.getOrCreateTable(row);
+    if (!created) {
+      await table.add([row]);
+    }
     return entry.id;
   }
 
   /** Auto-save a conversation message to vector memory. Skips empty or trivial text. */
   async autoAdd(msg: ChatMessage): Promise<void> {
+    await this.ensureInit();
     const text = extractTextForMemory(msg);
     if (text.trim().length < 10) return;
 
@@ -286,6 +351,7 @@ export class VectorMemory {
     if (chunks.length === 0) return;
 
     const timestamp = new Date().toISOString();
+    const newEntries: MemoryEntry[] = [];
     for (const chunk of chunks) {
       const embedding = await this.embedder.embed(chunk);
       const entry: MemoryEntry = {
@@ -301,11 +367,21 @@ export class VectorMemory {
         },
       };
       this.entries.push(entry);
+      newEntries.push(entry);
     }
-    this.save();
+
+    if (newEntries.length === 0) return;
+    const rows = newEntries.map(entryToRow);
+    const { table, created } = await this.getOrCreateTable(rows[0]);
+    if (!created) {
+      await table.add(rows);
+    } else if (rows.length > 1) {
+      await table.add(rows.slice(1));
+    }
   }
 
   async search(query: string, limit = 10): Promise<Array<{ entry: MemoryEntry; score: number; }>> {
+    await this.ensureInit();
     if (this.entries.length === 0) return [];
     const queryEmbedding = await this.embedder.embed(query);
     const scored = this.entries.map((entry) => ({
@@ -313,6 +389,23 @@ export class VectorMemory {
       score: cosineSimilarity(queryEmbedding, entry.embedding),
     }));
     return scored.sort((a, b) => b.score - a.score).slice(0, limit);
+  }
+
+  async keywordSearch(query: string, limit = 10, exact = false): Promise<MemoryEntry[]> {
+    await this.ensureInit();
+    if (this.entries.length === 0) return [];
+
+    let filtered: MemoryEntry[];
+    if (exact) {
+      filtered = this.entries.filter(e => e.text.includes(query));
+    } else {
+      const lowerQuery = query.toLowerCase();
+      filtered = this.entries.filter(e => e.text.toLowerCase().includes(lowerQuery));
+    }
+
+    return filtered
+      .sort((a, b) => b.metadata.timestamp.localeCompare(a.metadata.timestamp))
+      .slice(0, limit);
   }
 
   /**
@@ -324,6 +417,7 @@ export class VectorMemory {
    * - Recency decay and deduplication keep results relevant and diverse.
    */
   async humanLikeRecall(cues: string[], options: SmartRecallOptions = {}): Promise<RecalledEntry[]> {
+    await this.ensureInit();
     if (this.entries.length === 0) return [];
 
     const normalizedCues = cues
@@ -396,7 +490,7 @@ export class VectorMemory {
     }
 
     if (markAsRecalled) {
-      this.touchRecalled(selected.map(item => item.entry));
+      await this.touchRecalled(selected.map(item => item.entry));
     }
 
     return selected;
@@ -406,11 +500,45 @@ export class VectorMemory {
     return this.humanLikeRecall([query], options);
   }
 
+  private async touchRecalled(entries: MemoryEntry[]) {
+    if (entries.length === 0) return;
+
+    const now = new Date().toISOString();
+    const touched = new Set(entries.map(entry => entry.id));
+    let updated = false;
+
+    this.entries = this.entries.map(entry => {
+      if (!touched.has(entry.id)) return entry;
+      updated = true;
+      return {
+        ...entry,
+        metadata: {
+          ...entry.metadata,
+          recallCount: (entry.metadata.recallCount || 0) + 1,
+          lastRecalledAt: now,
+        },
+      };
+    });
+
+    if (!updated || !this.table) return;
+
+    // Upsert updated rows by id
+    const updatedEntries = this.entries.filter(e => touched.has(e.id));
+    const rows = updatedEntries.map(entryToRow);
+    await this.table.mergeInsert('id')
+      .whenMatchedUpdateAll()
+      .whenNotMatchedInsertAll()
+      .execute(rows);
+  }
+
   async delete(id: string): Promise<boolean> {
+    await this.ensureInit();
     const before = this.entries.length;
     this.entries = this.entries.filter((e) => e.id !== id);
     if (this.entries.length !== before) {
-      this.save();
+      if (this.table) {
+        await this.table.delete(`id = '${id}'`);
+      }
       return true;
     }
     return false;
@@ -426,14 +554,19 @@ export class VectorMemory {
     return this.entries.length;
   }
 
-  clear(): void {
+  async clear(): Promise<void> {
+    await this.ensureInit();
     this.entries = [];
-    if (fs.existsSync(this.filePath)) {
+    if (this.table && this.db) {
       try {
-        fs.unlinkSync(this.filePath);
+        await this.db.dropTable('vectors');
       } catch {
         // ignore
       }
+      this.table = null;
     }
+    // Reset init so table can be recreated on next use
+    this.initPromise = null;
+    this.initPromise = Promise.resolve();
   }
 }

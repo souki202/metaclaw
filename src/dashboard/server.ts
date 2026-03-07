@@ -143,16 +143,16 @@ export class DashboardServer {
     });
 
     // API: clear vector memory
-    this.app.delete('/api/sessions/:id/memory', (req, res) => {
+    this.app.delete('/api/sessions/:id/memory', async (req, res) => {
       const agent = this.sessions.getAgent(req.params.id);
       if (!agent) return res.status(404).json({ error: 'Session not found' });
-      agent.clearVectorMemory();
+      await agent.clearVectorMemory();
       res.json({ ok: true });
     });
 
     // API: reset session state (history and/or memory)
     // Body: { history?: boolean, memory?: boolean }  (default: both true)
-    this.app.post('/api/sessions/:id/reset', (req, res) => {
+    this.app.post('/api/sessions/:id/reset', async (req, res) => {
       const agent = this.sessions.getAgent(req.params.id);
       if (!agent) return res.status(404).json({ error: 'Session not found' });
 
@@ -160,7 +160,7 @@ export class DashboardServer {
       const clearMemory = req.body.memory !== false;
 
       if (clearHistory) agent.clearHistory();
-      if (clearMemory) agent.clearVectorMemory();
+      if (clearMemory) await agent.clearVectorMemory();
 
       res.json({ ok: true, cleared: { history: clearHistory, memory: clearMemory } });
     });
