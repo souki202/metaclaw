@@ -33,6 +33,62 @@ interface ExtendedChatMessage extends ChatMessage {
   };
 }
 
+const CopyButton: React.FC<{ content: string | ContentPart[] | undefined }> = ({
+  content,
+}) => {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    if (!content) return;
+    const text =
+      typeof content === "string"
+        ? content
+        : Array.isArray(content)
+          ? content
+              .map((p) => (p.type === "text" ? p.text : ""))
+              .filter(Boolean)
+              .join("\n")
+          : "";
+    if (!text) return;
+
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error("Failed to copy:", err);
+    }
+  };
+
+  if (!content) return null;
+
+  return (
+    <button
+      onClick={handleCopy}
+      className="copy-button"
+      title="Copy to clipboard"
+      style={{
+        background: "transparent",
+        border: "none",
+        cursor: "pointer",
+        opacity: copied ? 1 : 0.5,
+        fontSize: "14px",
+        padding: "4px",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        transition: "opacity 0.2s",
+      }}
+      onMouseEnter={(e) => (e.currentTarget.style.opacity = "1")}
+      onMouseLeave={(e) =>
+        (e.currentTarget.style.opacity = copied ? "1" : "0.5")
+      }
+    >
+      {copied ? "✓" : "📋"}
+    </button>
+  );
+};
+
 const MemoryRecallBlock: React.FC<{
   recall: {
     mode: "turn" | "autonomous" | string;
@@ -690,8 +746,25 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
 
             {(m.content || m.isStreaming || m.imageUrls || m.reasoning) && (
               <div className={`message ${m.role}`}>
-                <div className="bubble">
-                  {m.role === "assistant" && <div className="role">AI</div>}
+                <div className="bubble" style={{ position: "relative" }}>
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent:
+                        m.role === "assistant" ? "space-between" : "flex-end",
+                      alignItems: "center",
+                      marginBottom: "4px",
+                    }}
+                  >
+                    {m.role === "assistant" && (
+                      <div className="role" style={{ margin: 0 }}>
+                        AI
+                      </div>
+                    )}
+                    {m.content && !m.isStreaming && (
+                      <CopyButton content={m.content} />
+                    )}
+                  </div>
                   {m.role === "assistant" && m.reasoning && (
                     <ReasoningBlock
                       reasoning={m.reasoning}

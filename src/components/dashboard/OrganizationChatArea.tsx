@@ -1,6 +1,47 @@
 import React, { KeyboardEvent, useEffect, useRef, useState } from "react";
 import { OrganizationGroupChatMessage, OrganizationUnread } from "./types";
 
+const CopyButton: React.FC<{ content: string }> = ({ content }) => {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    if (!content) return;
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error("Failed to copy:", err);
+    }
+  };
+
+  return (
+    <button
+      onClick={handleCopy}
+      className="copy-button"
+      title="Copy to clipboard"
+      style={{
+        background: "transparent",
+        border: "none",
+        cursor: "pointer",
+        opacity: copied ? 1 : 0.5,
+        fontSize: "14px",
+        padding: "4px",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        transition: "opacity 0.2s",
+      }}
+      onMouseEnter={(e) => (e.currentTarget.style.opacity = "1")}
+      onMouseLeave={(e) =>
+        (e.currentTarget.style.opacity = copied ? "1" : "0.5")
+      }
+    >
+      {copied ? "✓" : "📋"}
+    </button>
+  );
+};
+
 interface OrganizationChatAreaProps {
   organizationId: string | null;
   viewerSessionId: string | null;
@@ -69,7 +110,9 @@ export const OrganizationChatArea: React.FC<OrganizationChatAreaProps> = ({
     if (filteredMentions.length > 0) {
       if (e.key === "ArrowDown") {
         e.preventDefault();
-        setSelectedMentionIndex((prev) => Math.min(prev + 1, filteredMentions.length - 1));
+        setSelectedMentionIndex((prev) =>
+          Math.min(prev + 1, filteredMentions.length - 1),
+        );
         return;
       }
       if (e.key === "ArrowUp") {
@@ -102,7 +145,9 @@ export const OrganizationChatArea: React.FC<OrganizationChatAreaProps> = ({
     <div className="chat-area">
       <div className="chat-toolbar">
         <span className="title">
-          {organizationId ? `# ${organizationId} Group Chat` : "Select group chat"}
+          {organizationId
+            ? `# ${organizationId} Group Chat`
+            : "Select group chat"}
         </span>
         <div className="spacer"></div>
         {organizationId && (
@@ -110,7 +155,11 @@ export const OrganizationChatArea: React.FC<OrganizationChatAreaProps> = ({
             <span className="org-chat-unread-summary">
               Unread {unread.total} / Mentions {unread.mentions}
             </span>
-            <button className="btn" onClick={onMarkRead} disabled={!viewerSessionId}>
+            <button
+              className="btn"
+              onClick={onMarkRead}
+              disabled={!viewerSessionId}
+            >
               Mark read
             </button>
           </>
@@ -127,16 +176,39 @@ export const OrganizationChatArea: React.FC<OrganizationChatAreaProps> = ({
         )}
 
         {messages.map((message) => {
-          const isSelf = !!viewerSessionId && message.senderSessionId === viewerSessionId;
+          const isSelf =
+            !!viewerSessionId && message.senderSessionId === viewerSessionId;
           const isMentioned =
-            !!viewerSessionId && message.mentionSessionIds.includes(viewerSessionId);
+            !!viewerSessionId &&
+            message.mentionSessionIds.includes(viewerSessionId);
 
           return (
-            <div key={message.id} className={`message ${isSelf ? "user" : "assistant"}`}>
-              <div className={`bubble ${isMentioned ? "mention-highlight" : ""}`}>
-                <div className="role">
-                  {message.senderName}
-                  <span className="org-chat-time"> · {new Date(message.timestamp).toLocaleString()}</span>
+            <div
+              key={message.id}
+              className={`message ${isSelf ? "user" : "assistant"}`}
+            >
+              <div
+                className={`bubble ${isMentioned ? "mention-highlight" : ""}`}
+                style={{ position: "relative" }}
+              >
+                <div
+                  className="role"
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    flexWrap: "wrap",
+                    marginBottom: "4px",
+                  }}
+                >
+                  <span style={{ marginRight: "8px" }}>
+                    {message.senderName}
+                    <span className="org-chat-time">
+                      {" "}
+                      · {new Date(message.timestamp).toLocaleString()}
+                    </span>
+                  </span>
+                  <CopyButton content={message.content} />
                 </div>
                 <div>{message.content}</div>
               </div>
@@ -148,7 +220,9 @@ export const OrganizationChatArea: React.FC<OrganizationChatAreaProps> = ({
       </div>
 
       <div className="input-area" style={{ position: "relative" }}>
-        <div className={`autocomplete-popup ${filteredMentions.length > 0 ? "active" : ""}`}>
+        <div
+          className={`autocomplete-popup ${filteredMentions.length > 0 ? "active" : ""}`}
+        >
           {filteredMentions.map((mention, index) => (
             <div
               key={mention}
@@ -175,7 +249,8 @@ export const OrganizationChatArea: React.FC<OrganizationChatAreaProps> = ({
             onChange={(e) => {
               handleInputValue(e.target.value);
               e.target.style.height = "auto";
-              e.target.style.height = Math.min(e.target.scrollHeight, 200) + "px";
+              e.target.style.height =
+                Math.min(e.target.scrollHeight, 200) + "px";
             }}
             onKeyDown={onKeyDown}
             disabled={!organizationId || !viewerSessionId}
