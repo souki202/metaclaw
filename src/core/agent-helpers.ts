@@ -78,7 +78,10 @@ export function buildAgentSystemPrompt({
   const activeServersInfo = [];
   for (const server of connectedServers) {
     if (!server.toolCount || server.toolCount === 0) continue;
-    activeServersInfo.push({ id: server.id });
+    activeServersInfo.push({
+      id: server.id,
+      count: server.toolCount,
+    });
   }
 
   if (activeServersInfo.length > 0) {
