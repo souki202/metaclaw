@@ -1,6 +1,5 @@
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
 import type { ChatMessage, SessionConfig, Config, ProviderConfig, ContentPart, ContentPartText, ToolDefinition, ScheduleUpsertInput, SessionSchedule } from '../types.js';
 import { OpenAIProvider } from '../providers/openai.js';
 import { VectorMemory, type RecalledEntry } from '../memory/vector.js';
@@ -8,13 +7,13 @@ import { EmbeddingClient, type EmbeddingProvider } from '../memory/embedding.js'
 import { QuickMemory, WorkspaceFiles } from '../memory/quick.js';
 import { buildTools, executeTool, type ToolContext } from '../tools/index.js';
 import { McpClientManager } from '../tools/mcp-client.js';
-import { buildSkillsPromptText } from './skills.js';
 import { createLogger } from '../logger.js';
 import type { A2ARegistry } from '../a2a/registry.js';
 import { ACAManager } from '../aca/manager.js';
 import type { ACAConfig } from '../aca/types.js';
 import type { SessionCommsManager } from '../a2a/session-comms.js';
 import { countTokens, sliceToTokenLimit } from '../utils/tokens.js';
+import { buildAgentSystemPrompt, normalizeAssistantContent, rewriteImageUrlsForUser } from './agent-helpers.js';
 
 const MAX_ITERATIONS = 100;
 const RESTART_CODE = 75;
@@ -697,89 +696,18 @@ ${text}
   }
 
   private buildSystemPrompt(recalledMemories?: string | null): string {
-    const identity = this.files.read('IDENTITY.md');
-    const soul = this.files.read('SOUL.md');
-    const user = this.files.read('USER.md');
-    const memory = this.quickMemory.read();
-    const tmpMemory = this.tmpMemory.read();
-    const parts = [
-      `You are an AI personal agent running in the meta-claw system.`,
-      `Session ID: ${this.sessionId}`,
-      ``,
-    ];
-
-    if (identity) {
-      parts.push(`## Your Identity\n${identity}`);
-    }
-    if (soul) {
-      parts.push(`## Your Soul\n${soul}`);
-    }
-    if (user) {
-      parts.push(`## About the User\n${user}`);
-    }
-    if (memory) {
-      parts.push(`## Quick Memory (MEMORY.md)\n${memory}`);
-    }
-    if (tmpMemory) {
-      parts.push(`## Temporary Memory (TMP_MEMORY.md)\n${tmpMemory}`);
-    }
-    if (recalledMemories) {
-      parts.push(`## Recalled Conversation History\nThe following past conversation snippets were recalled as semantically relevant to the current message. They are from earlier sessions or earlier in this session and may not be in the active context window:\n\n${recalledMemories}`);
-    }
-
-    const skillsPrompt = buildSkillsPromptText([process.cwd(), this.workspace]);
-    if (skillsPrompt) {
-      parts.push(skillsPrompt);
-    }
-
-    parts.push(
-      ``,
-      `## Workspace`,
-      `Your workspace is: ${this.workspace}`,
-      `Workspace restriction: ${this.config.restrictToWorkspace ? 'ENABLED (files/exec limited to workspace)' : 'DISABLED'}`,
-      `Self-modification: ${this.config.allowSelfModify ? 'ENABLED' : 'DISABLED'}`,
-    );
-
-    // Add MCP tools info
-    const mcpStates = this.mcpManager.getServerStates();
-    const connectedServers = mcpStates.filter(s => s.status === 'connected');
-
-    // Determine which tools are actually active to avoid hallucination
-    const disabledTools = new Set(this.config.disabledTools || []);
-
-    // We only want to list servers that actually have at least 1 enabled tool
-    const activeServersInfo = [];
-    for (const server of connectedServers) {
-      if (!server.toolCount || server.toolCount === 0) continue;
-
-      // We don't have the exact tool list here without fetching, but we know the prefix is mcp_{id}_
-      // In a real scenario we'd count exactly, but as a heuristic, if we have disabledTools, we just
-      // warn the model that SOME tools might be disabled. Let's actually fetch the exact list to be perfectly safe.
-      // Wait, buildSystemPrompt is synchronous. We can't await this.mcpManager.getTools().
-      // Instead, we just list the servers and add a strict note about disabled tools.
-      activeServersInfo.push({
-        id: server.id,
-        count: server.toolCount
-      });
-    }
-
-    if (activeServersInfo.length > 0) {
-      parts.push(``, `## Available Tools`);
-      parts.push(`You have access to a variety of tools. ONLY EXPECT THE TOOLS PROVIDED IN THE FUNCTION CALLING SCHEMA TO ACTUALLY WORK. Do not attempt to use tools if they are not defined in your tool_calls schema (some may be disabled by the user).`);
-      parts.push(`You also have access to external MCP (Model Context Protocol) tools from the following servers:`);
-      for (const info of activeServersInfo) {
-        parts.push(`- **${info.id}** — Tool names are prefixed with \`mcp_${info.id}_\``);
-      }
-      parts.push(`When the user asks about functionality that matches an MCP server's capabilities, ALWAYS use the corresponding MCP tool instead of explaining how to do it manually.`);
-    }
-
-    parts.push(
-      ``,
-      `Use the provided tools to help the user. When you learn important facts, save them to memory.`,
-      `When you need to show an image to the user, prefer standard Markdown image syntax: ![alt text](image_url).`
-    );
-
-    return parts.join('\n');
+    return buildAgentSystemPrompt({
+      sessionId: this.sessionId,
+      workspace: this.workspace,
+      config: this.config,
+      identity: this.files.read('IDENTITY.md'),
+      soul: this.files.read('SOUL.md'),
+      user: this.files.read('USER.md'),
+      memory: this.quickMemory.read(),
+      tmpMemory: this.tmpMemory.read(),
+      recalledMemories,
+      mcpStates: this.mcpManager.getServerStates(),
+    });
   }
 
   private async compressContext() {
@@ -1036,121 +964,17 @@ ${text}
     return null;
   }
 
-  private toPublicImageUrl(rawUrl: string): string | null {
-    if (!rawUrl) return null;
-    if (rawUrl.startsWith('/api/sessions/')) return rawUrl;
-    if (rawUrl.startsWith('http://') || rawUrl.startsWith('https://') || rawUrl.startsWith('data:') || rawUrl.startsWith('mailto:')) return rawUrl;
-
-    const decode = (value: string): string => {
-      try {
-        return decodeURIComponent(value);
-      } catch {
-        return value;
-      }
-    };
-
-    const toSessionRelative = (candidate: string): string | null => {
-      const normalizedCandidate = path.normalize(candidate);
-      const normalizedSessionDir = path.normalize(this.sessionDir);
-
-      const rel = path.relative(normalizedSessionDir, normalizedCandidate);
-      if (rel && !rel.startsWith('..') && !path.isAbsolute(rel)) {
-        return rel.replace(/\\/g, '/');
-      }
-      if (!rel) return '';
-      return null;
-    };
-
-    const toArtifactUrl = (relPath: string): string | null => {
-      const cleaned = relPath.replace(/^\/+/, '').replace(/\\/g, '/');
-      if (!cleaned || cleaned.startsWith('..')) return null;
-      const encoded = cleaned
-        .split('/')
-        .filter(Boolean)
-        .map(encodeURIComponent)
-        .join('/');
-      if (!encoded) return null;
-      return `/api/sessions/${this.sessionId}/artifacts/${encoded}`;
-    };
-
-    const trimmed = rawUrl.trim();
-    let localPathCandidate: string | null = null;
-
-    if (trimmed.startsWith('file://')) {
-      try {
-        localPathCandidate = fileURLToPath(trimmed);
-      } catch {
-        localPathCandidate = decode(trimmed.replace(/^file:\/\//i, '').replace(/^\/+([A-Za-z]:)/, '$1'));
-      }
-    } else if (path.isAbsolute(trimmed)) {
-      localPathCandidate = trimmed;
-    }
-
-    if (localPathCandidate) {
-      const sessionRelative = toSessionRelative(localPathCandidate);
-      if (sessionRelative !== null) {
-        return toArtifactUrl(sessionRelative);
-      }
-
-      const slashPath = decode(localPathCandidate).replace(/\\/g, '/');
-      const marker = `/sessions/${this.sessionId}/`;
-      const markerIndex = slashPath.lastIndexOf(marker);
-      if (markerIndex >= 0) {
-        const rel = slashPath.slice(markerIndex + marker.length);
-        return toArtifactUrl(rel);
-      }
-    }
-
-    const normalized = decode(trimmed).replace(/\\/g, '/').replace(/^\.\//, '').replace(/^\//, '');
-    if (!normalized || normalized.startsWith('..')) return null;
-
-    if (normalized.startsWith(`sessions/${this.sessionId}/`)) {
-      return toArtifactUrl(normalized.slice(`sessions/${this.sessionId}/`.length));
-    }
-
-    return toArtifactUrl(normalized);
-  }
-
   private rewriteImageUrlsForUser(text: string): string {
-    if (!text) return text;
-
-    const rewrite = (url: string): string => this.toPublicImageUrl(url) ?? url;
-
-    let updated = text.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_m, alt: string, url: string) => {
-      return `![${alt}](${rewrite(url)})`;
+    return rewriteImageUrlsForUser(text, {
+      sessionId: this.sessionId,
+      sessionDir: this.sessionDir,
     });
-
-    updated = updated.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_m, label: string, url: string) => {
-      return `[${label}](${rewrite(url)})`;
-    });
-
-    updated = updated.replace(/(^|\s)(\.?\/?(?:screenshots|uploads)\/[\w\-.\/]+(?:\?[\w=&.-]+)?)/g, (_m, lead: string, rawPath: string) => {
-      const mapped = this.toPublicImageUrl(rawPath);
-      return `${lead}${mapped ?? rawPath}`;
-    });
-
-    return updated;
   }
 
   private normalizeAssistantContent(content: string | ContentPart[] | null): string | ContentPart[] | null {
-    if (!content) return content;
-    if (typeof content === 'string') return this.rewriteImageUrlsForUser(content);
-
-    return content.map((part) => {
-      if (part.type === 'text') {
-        return { ...part, text: this.rewriteImageUrlsForUser(part.text) };
-      }
-      if (part.type === 'image_url') {
-        const resolved = this.toPublicImageUrl(part.image_url.url) ?? part.image_url.url;
-        return {
-          ...part,
-          image_url: {
-            ...part.image_url,
-            url: resolved,
-          },
-        };
-      }
-      return part;
+    return normalizeAssistantContent(content, {
+      sessionId: this.sessionId,
+      sessionDir: this.sessionDir,
     });
   }
 
