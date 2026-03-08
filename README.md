@@ -183,3 +183,12 @@ Three operational memory tiers ensure continuity:
 1. **Short-Term Extensible** (`TMP_MEMORY.md`) - Scratchpad for current operations or thoughts tracking over context resets.
 2. **Quick Memory** (`MEMORY.md`) - Small footprint identity traits baked globally into every prompt interaction.
 3. **Long-term Vector DB** - Dynamically queried semantically leveraging `memory_save` and `memory_search` interactions.
+
+### Context Window Management & Compression
+
+- **Limits**: Effective window defaults to the provider's `contextWindow` (fallback 128k). If `context.maxTokens` is set, it is clamped between 1,024 and the provider window.
+- **When compression runs**: Estimate tokens for the full history (text counted via `tiktoken`, images as 765 tokens, plus small overhead). If estimated tokens ≥ `contextLimit * compressionThreshold`, compression starts. `compressionThreshold` defaults to 0.8 and is bounded to 0.5–0.98.
+- **Messages preserved**: Keeps the most recent messages: either `context.keepRecentMessages` (minimum 4) or an adaptive value when `context.maxTokens` is provided (`round(contextLimit / 6000)`, clamped 8–80). Otherwise defaults to 20.
+- **Compression algorithm**: If at least 5 earlier messages exist, the older portion is summarized with the active provider's `summarize` call. The history is replaced with an assistant message `[Earlier conversation summary: …]` plus the preserved recent messages.
+- **Pruning**: After compression, messages are pruned until the estimate ≤ `contextLimit * min(0.95, max(compressionThreshold, 0.72))`, while keeping a pinned summary (if present) and at least the recent-message floor.
+- **Persistence**: Any compression or pruning rewrites `history.jsonl`, ensuring subsequent runs respect the compressed context.
