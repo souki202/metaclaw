@@ -1,6 +1,9 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
+import type { AttachAddon } from '@xterm/addon-attach';
+import type { FitAddon } from '@xterm/addon-fit';
+import type { Terminal } from '@xterm/xterm';
 
 interface TerminalPanelProps {
   sessionId: string;
@@ -8,162 +11,136 @@ interface TerminalPanelProps {
 
 export function TerminalPanel({ sessionId }: TerminalPanelProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const flushTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (!containerRef.current || !sessionId) return;
 
-    let term: any = null;
-    let fitAddon: any = null;
-    let stream: EventSource | null = null;
+    let term: Terminal | null = null;
+    let fitAddon: FitAddon | null = null;
+    let attachAddon: AttachAddon | null = null;
+    let socket: WebSocket | null = null;
     let resizeObserver: ResizeObserver | null = null;
+    let reconnectTimer: number | null = null;
     let disposed = false;
-    let pendingInput = '';
-    let sendingInput = false;
+    let reconnectDelay = 500;
 
-    const terminalApiPath = `/api/sessions/${encodeURIComponent(sessionId)}/terminal`;
-    const terminalStreamPath = `${terminalApiPath}/stream`;
+    const modulesPromise = Promise.all([
+      import('@xterm/xterm'),
+      import('@xterm/addon-fit'),
+      import('@xterm/addon-attach'),
+    ]);
 
-    const sendTerminalRequest = async (payload: Record<string, unknown>) => {
-      const response = await fetch(terminalApiPath, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-
-      if (!response.ok) {
-        throw new Error(`Terminal request failed with ${response.status}`);
-      }
-    };
-
-    const flushInput = async () => {
-      if (sendingInput || !pendingInput) return;
-      const chunk = pendingInput;
-      pendingInput = '';
-      sendingInput = true;
-
+    const tryFit = () => {
+      if (!fitAddon) return;
       try {
-        await sendTerminalRequest({ input: chunk });
+        fitAddon.fit();
       } catch {
-        if (term && !disposed) {
-          term.write('\r\n\x1b[31m[Terminal input failed]\x1b[0m\r\n');
-        }
-      } finally {
-        sendingInput = false;
-        if (pendingInput && !disposed) {
-          void flushInput();
-        }
+        // Ignore fit errors caused by zero-sized containers during layout thrash
       }
-    };
-
-    const queueInput = (data: string) => {
-      pendingInput += data;
-      if (data.includes('\r') || data.includes('\n')) {
-        if (flushTimerRef.current !== null) {
-          window.clearTimeout(flushTimerRef.current);
-          flushTimerRef.current = null;
-        }
-        void flushInput();
-        return;
-      }
-
-      if (flushTimerRef.current !== null) return;
-      flushTimerRef.current = window.setTimeout(() => {
-        flushTimerRef.current = null;
-        void flushInput();
-      }, 25);
     };
 
     const sendResize = () => {
-      if (!term || disposed) return;
-      void sendTerminalRequest({ resize: { cols: term.cols, rows: term.rows } }).catch(() => {
-        if (term && !disposed) {
-          term.write('\r\n\x1b[33m[Resize sync failed]\x1b[0m\r\n');
+      if (!term || !socket || socket.readyState !== WebSocket.OPEN) return;
+      socket.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+    };
+
+    const scheduleReconnect = () => {
+      if (disposed || reconnectTimer !== null) return;
+      reconnectTimer = window.setTimeout(() => {
+        reconnectTimer = null;
+        reconnectDelay = Math.min(reconnectDelay * 1.5, 8000);
+        void connect();
+      }, reconnectDelay);
+    };
+
+    const connect = async () => {
+      const [{ Terminal }, { FitAddon }, { AttachAddon }] = await modulesPromise;
+      if (disposed || !containerRef.current) return;
+
+      if (!term) {
+        term = new Terminal({
+          cursorBlink: true,
+          fontSize: 13,
+          fontFamily: 'Consolas, "Courier New", monospace',
+          cols: 80,
+          rows: 24,
+          allowTransparency: true,
+          theme: {
+            background: '#1a1a1a',
+            foreground: '#d4d4d4',
+          },
+        });
+
+        fitAddon = new FitAddon();
+        term.loadAddon(fitAddon);
+        term.options.disableStdin = true;
+        term.open(containerRef.current);
+
+        // Double rAF ensures layout is ready before fitting, mirroring VS Code's terminal flow
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+          if (!disposed) {
+            tryFit();
+            term?.focus();
+          }
+        }));
+      }
+
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const url = `${protocol}//${window.location.host}/terminal/${encodeURIComponent(sessionId)}`;
+      const ws = new WebSocket(url);
+      ws.binaryType = 'arraybuffer';
+      socket = ws;
+
+      ws.addEventListener('open', () => {
+        if (disposed) {
+          ws.close();
+          return;
         }
+
+        reconnectDelay = 500;
+        term!.options.disableStdin = false;
+
+        // Recreate attach addon per connection to mirror VS Code's duplex pipe behaviour
+        attachAddon?.dispose();
+        attachAddon = new AttachAddon(ws, { bidirectional: true });
+        term!.loadAddon(attachAddon);
+
+        tryFit();
+        sendResize();
+        term!.focus();
+      });
+
+      ws.addEventListener('close', () => {
+        if (disposed) return;
+        term?.writeln('\r\n\x1b[33m[Terminal disconnected; reconnecting...]\x1b[0m');
+        term?.options && (term.options.disableStdin = true);
+        attachAddon?.dispose();
+        attachAddon = null;
+        scheduleReconnect();
+      });
+
+      ws.addEventListener('error', () => {
+        ws.close();
       });
     };
 
-    (async () => {
-      const { Terminal } = await import('@xterm/xterm');
-      const { FitAddon } = await import('@xterm/addon-fit');
+    void connect();
 
-      if (disposed || !containerRef.current) return;
-
-      term = new Terminal({
-        cursorBlink: true,
-        fontSize: 13,
-        fontFamily: 'Consolas, "Courier New", monospace',
-        cols: 80,
-        rows: 24,
-        theme: {
-          background: '#1a1a1a',
-          foreground: '#d4d4d4',
-        },
-      });
-
-      fitAddon = new FitAddon();
-      term.loadAddon(fitAddon);
-      term.open(containerRef.current);
-
-      // Use setTimeout to ensure layout is complete before fitting
-      const initialFit = () => {
-        if (!disposed && fitAddon) {
-          try {
-            fitAddon.fit();
-          } catch (_) { /* ignore */ }
-          term.focus();
-        }
-      };
-      // Double rAF ensures browser has done layout
-      requestAnimationFrame(() => requestAnimationFrame(initialFit));
-
-      stream = new EventSource(terminalStreamPath);
-
-      stream.onopen = () => {
-        try { fitAddon?.fit(); } catch (_) { }
-        term.focus();
-        sendResize();
-      };
-
-      stream.onmessage = (e) => {
-        if (!term || disposed) return;
-        try {
-          const payload = JSON.parse(e.data);
-          if (payload.type === 'output' && typeof payload.data === 'string') {
-            term.write(payload.data);
-          }
-        } catch {
-          term.write(e.data);
-        }
-      };
-
-      stream.onerror = () => {
-        if (term && !disposed) {
-          term.write('\r\n\x1b[31m[Terminal stream disconnected; retrying...]\x1b[0m\r\n');
-        }
-      };
-
-      term.onData((data: string) => {
-        queueInput(data);
-      });
-
-      resizeObserver = new ResizeObserver(() => {
-        try { fitAddon?.fit(); } catch (_) { }
-        sendResize();
-      });
-      if (containerRef.current) {
-        resizeObserver.observe(containerRef.current);
-      }
-    })();
+    resizeObserver = new ResizeObserver(() => {
+      tryFit();
+      sendResize();
+    });
+    resizeObserver.observe(containerRef.current);
 
     return () => {
       disposed = true;
-      if (flushTimerRef.current !== null) {
-        window.clearTimeout(flushTimerRef.current);
-        flushTimerRef.current = null;
+      if (reconnectTimer !== null) {
+        window.clearTimeout(reconnectTimer);
+        reconnectTimer = null;
       }
       resizeObserver?.disconnect();
-      stream?.close();
+      attachAddon?.dispose();
+      socket?.close();
       term?.dispose();
     };
   }, [sessionId]);
