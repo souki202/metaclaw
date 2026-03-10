@@ -46,25 +46,28 @@ function extractText(content: string | ContentPart[] | null): string {
 // Uses a plain string when there are no images (maximum compatibility with all endpoints
 // including LM Studio), and falls back to an array of parts only when images are present
 // (the only way to pass image data to vision-capable models).
+// Note: audio_url and video_url parts are NOT handled here — they are extracted and
+// emitted as top-level input items by toResponsesInput() per the Responses API spec.
 function toMessageContent(content: string | ContentPart[] | null): string | Array<Record<string, unknown>> {
   if (!content) return '';
   if (typeof content === 'string') return content;
 
-  const hasImages = content.some(p => p.type === 'image_url');
-  const hasAudio = content.some(p => p.type === 'audio_url');
-  const hasVideo = content.some(p => p.type === 'video_url');
+  // Strip audio/video parts — handled separately as top-level input items
+  const visibleParts = content.filter(p => p.type !== 'audio_url' && p.type !== 'video_url');
 
-  if (!hasImages && !hasAudio && !hasVideo) {
-    // No media → flatten to plain string for maximum endpoint compatibility
-    return content
+  const hasImages = visibleParts.some(p => p.type === 'image_url');
+
+  if (!hasImages) {
+    // No images → flatten to plain string for maximum endpoint compatibility
+    return visibleParts
       .filter((p): p is ContentPartText => p.type === 'text')
       .map(p => p.text)
       .join('\n');
   }
 
-  // Has media → must use content-parts array
+  // Has images → must use content-parts array
   const parts: Array<Record<string, unknown>> = [];
-  for (const part of content) {
+  for (const part of visibleParts) {
     if (part.type === 'text') {
       parts.push({ type: 'input_text', text: part.text });
     } else if (part.type === 'image_url') {
@@ -74,27 +77,34 @@ function toMessageContent(content: string | ContentPart[] | null): string | Arra
         image_url: imgPart.image_url.url,
         ...(imgPart.image_url.detail && { detail: imgPart.image_url.detail }),
       });
-    } else if (part.type === 'audio_url') {
-      const audioPart = part as ContentPartAudio;
-      const url = audioPart.audio_url.url;
-      let base64 = url;
-      if (url.startsWith('data:')) {
-        base64 = url.split(',')[1] || url;
-      }
-      parts.push({
-        type: 'input_audio',
-        data: base64,
-        format: audioPart.audio_url.format || 'mp3',
-      });
-    } else if (part.type === 'video_url') {
-      const videoPart = part as ContentPartVideo;
-      parts.push({
-        type: 'input_video',
-        video_url: videoPart.video_url.url,
-      });
     }
   }
   return parts.length > 0 ? parts : '';
+}
+
+// Extract audio/video content parts from a message and return them as top-level
+// Responses API input items. The Responses API spec places input_audio at the
+// top-level of the input array (not nested inside a message's content).
+function extractMediaInputItems(content: string | ContentPart[] | null): Array<Record<string, unknown>> {
+  if (!content || typeof content === 'string') return [];
+  const items: Array<Record<string, unknown>> = [];
+  for (const part of content) {
+    if (part.type === 'audio_url') {
+      const ap = part as ContentPartAudio;
+      let base64 = ap.audio_url.url;
+      if (base64.startsWith('data:')) {
+        base64 = base64.split(',')[1] || base64;
+      }
+      // Responses API only supports 'mp3' and 'wav'
+      const format = ap.audio_url.format === 'wav' ? 'wav' : 'mp3';
+      items.push({
+        type: 'input_audio',
+        input_audio: { data: base64, format },
+      });
+    }
+    // video_url: no standard Responses API format yet; skip (described via text reference)
+  }
+  return items;
 }
 
 // function_call_output.output must be a plain string (responses API spec).
@@ -148,6 +158,11 @@ function toResponsesInput(messages: ChatMessage[]): Array<any> {
           arguments: toolCall.function.arguments,
         });
       }
+    }
+
+    // Emit audio/video as top-level input items after the message (Responses API spec)
+    for (const mediaItem of extractMediaInputItems(message.content)) {
+      input.push(mediaItem);
     }
   }
 
