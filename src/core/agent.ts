@@ -835,7 +835,7 @@ ${text}
 
     let filePath: string | null = null;
     if (uploadsMatch) {
-      filePath = path.join(this.sessionDir, 'uploads', uploadsMatch[1]);
+      filePath = path.join(this.workspace, 'uploads', uploadsMatch[1]);
     } else if (imagesMatch) {
       filePath = path.join(this.sessionDir, 'screenshots', imagesMatch[1]);
     }
@@ -859,7 +859,7 @@ ${text}
     }
     const uploadsMatch = url.match(/\/api\/sessions\/[^/]+\/uploads\/(.+)$/);
     if (uploadsMatch) {
-      const filePath = path.join(this.sessionDir, 'uploads', uploadsMatch[1]);
+      const filePath = path.join(this.workspace, 'uploads', uploadsMatch[1]);
       if (fs.existsSync(filePath)) {
         return fs.readFileSync(filePath).toString('base64');
       }
