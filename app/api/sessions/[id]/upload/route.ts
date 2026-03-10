@@ -9,11 +9,24 @@ const TEXT_EXTENSIONS = new Set([
   'sh', 'bash', 'sql', 'toml', 'ini', 'cfg', 'conf',
 ]);
 
+const AUDIO_EXTENSIONS = new Set(['mp3', 'wav', 'ogg', 'flac', 'aac', 'm4a', 'opus', 'weba', 'webm']);
+const VIDEO_EXTENSIONS = new Set(['mp4', 'webm', 'ogv', 'mov', 'avi', 'mkv']);
+
 function isTextFile(filename: string, mimeType: string): boolean {
   const ext = filename.split('.').pop()?.toLowerCase() || '';
   if (TEXT_EXTENSIONS.has(ext)) return true;
   if (mimeType.startsWith('text/')) return true;
   return false;
+}
+
+function isAudioFile(filename: string, mimeType: string): boolean {
+  const ext = filename.split('.').pop()?.toLowerCase() || '';
+  return AUDIO_EXTENSIONS.has(ext) || mimeType.startsWith('audio/');
+}
+
+function isVideoFile(filename: string, mimeType: string): boolean {
+  const ext = filename.split('.').pop()?.toLowerCase() || '';
+  return VIDEO_EXTENSIONS.has(ext) || mimeType.startsWith('video/');
 }
 
 export async function POST(
@@ -49,6 +62,8 @@ export async function POST(
 
       const savedImageUrls: string[] = [];
       const savedTextFiles: { name: string; url: string; size: number; }[] = [];
+      const savedAudioFiles: { name: string; url: string; size: number; mimeType: string; }[] = [];
+      const savedVideoFiles: { name: string; url: string; size: number; mimeType: string; }[] = [];
 
       for (const file of allFiles) {
         if (file.type.startsWith('image/')) {
@@ -71,6 +86,30 @@ export async function POST(
             url: `/api/sessions/${id}/uploads/texts/${filename}`,
             size: buffer.length,
           });
+        } else if (isAudioFile(file.name, file.type)) {
+          const ext = file.name.split('.').pop() || 'mp3';
+          const filename = `upload_${Date.now()}_${Math.random().toString(36).substr(2, 6)}.${ext}`;
+          const filePath = path.join(uploadDir, filename);
+          const arrayBuffer = await file.arrayBuffer();
+          fs.writeFileSync(filePath, Buffer.from(arrayBuffer));
+          savedAudioFiles.push({
+            name: file.name,
+            url: `/api/sessions/${id}/uploads/${filename}`,
+            size: arrayBuffer.byteLength,
+            mimeType: file.type || `audio/${ext}`,
+          });
+        } else if (isVideoFile(file.name, file.type)) {
+          const ext = file.name.split('.').pop() || 'mp4';
+          const filename = `upload_${Date.now()}_${Math.random().toString(36).substr(2, 6)}.${ext}`;
+          const filePath = path.join(uploadDir, filename);
+          const arrayBuffer = await file.arrayBuffer();
+          fs.writeFileSync(filePath, Buffer.from(arrayBuffer));
+          savedVideoFiles.push({
+            name: file.name,
+            url: `/api/sessions/${id}/uploads/${filename}`,
+            size: arrayBuffer.byteLength,
+            mimeType: file.type || `video/${ext}`,
+          });
         }
       }
 
@@ -78,6 +117,8 @@ export async function POST(
         ok: true,
         urls: savedImageUrls,
         textFiles: savedTextFiles,
+        audioFiles: savedAudioFiles,
+        videoFiles: savedVideoFiles,
       });
     } else {
       // Handle JSON with base64 data URLs (images only, legacy)

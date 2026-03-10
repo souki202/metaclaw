@@ -539,9 +539,10 @@ export default function DashboardClient() {
     msg: string,
     imageUrls?: string[],
     textFiles?: { name: string; url: string; size: number }[],
+    mediaFiles?: { name: string; url: string; size: number; mimeType: string; }[],
   ) => {
     if (!currentSession) return;
-    setMessages((prev) => [...prev, { role: "user", content: msg, imageUrls }]);
+    setMessages((prev) => [...prev, { role: "user", content: msg, imageUrls, mediaFiles }]);
     setIsThinking(true);
 
     try {
@@ -552,6 +553,7 @@ export default function DashboardClient() {
           message: msg,
           imageUrls,
           textFiles: textFiles?.map((tf) => ({ name: tf.name, url: tf.url })),
+          mediaFiles: mediaFiles?.map((mf) => ({ name: mf.name, url: mf.url, mimeType: mf.mimeType })),
         }),
       });
     } catch (e: any) {

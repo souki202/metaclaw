@@ -48,6 +48,15 @@ export async function POST(
       if (textFiles.length === 0) textFiles = undefined;
     }
 
+    // Pass media files (audio/video) if provided
+    let mediaFiles: { name: string; url: string; mimeType: string; }[] | undefined;
+    if (Array.isArray(body.mediaFiles) && body.mediaFiles.length > 0) {
+      mediaFiles = (body.mediaFiles as { name: string; url: string; mimeType: string; }[]).filter(
+        mf => mf.url && mf.mimeType,
+      );
+      if (mediaFiles.length === 0) mediaFiles = undefined;
+    }
+
     const response = await agent.processMessage(
       body.message,
       'dashboard',
@@ -58,6 +67,7 @@ export async function POST(
         systemPrompt: body.systemPrompt as string | undefined,
       },
       textFiles,
+      mediaFiles,
     );
     return NextResponse.json({ response });
   } catch (error) {

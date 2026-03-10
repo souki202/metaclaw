@@ -290,6 +290,7 @@ interface ChatAreaProps {
     msg: string,
     imageUrls?: string[],
     textFiles?: PendingTextFile[],
+    mediaFiles?: { name: string; url: string; size: number; mimeType: string; }[],
   ) => void;
   onCancel: () => void;
   onClearHistory: () => void;
@@ -314,6 +315,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   const [pendingTextFiles, setPendingTextFiles] = useState<PendingTextFile[]>(
     [],
   );
+  const [pendingMediaFiles, setPendingMediaFiles] = useState<{ name: string; url: string; size: number; mimeType: string; type: 'audio' | 'video'; }[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -386,7 +388,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   const handleSend = () => {
     const msg = inputValue.trim();
     if (
-      (!msg && pendingImages.length === 0 && pendingTextFiles.length === 0) ||
+      (!msg && pendingImages.length === 0 && pendingTextFiles.length === 0 && pendingMediaFiles.length === 0) ||
       isThinking ||
       !currentSession
     )
@@ -395,7 +397,9 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
       msg ||
       (pendingImages.length > 0
         ? "この画像を確認してください。"
-        : "このファイルを確認してください。");
+        : pendingMediaFiles.length > 0
+          ? "このメディアファイルを確認してください。"
+          : "このファイルを確認してください。");
     setInputValue("");
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
@@ -405,9 +409,11 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
       finalMsg,
       pendingImages.length > 0 ? pendingImages : undefined,
       pendingTextFiles.length > 0 ? pendingTextFiles : undefined,
+      pendingMediaFiles.length > 0 ? pendingMediaFiles : undefined,
     );
     setPendingImages([]);
     setPendingTextFiles([]);
+    setPendingMediaFiles([]);
   };
 
   // Image upload via file input
@@ -420,11 +426,23 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   const uploadFiles = async (files: File[]) => {
     if (!currentSession) return;
     const imageFiles = files.filter((f) => f.type.startsWith("image/"));
+    const audioFiles = files.filter((f) => f.type.startsWith("audio/"));
+    const videoFiles = files.filter((f) => f.type.startsWith("video/"));
     const textFiles = files.filter(
-      (f) => !f.type.startsWith("image/") && isTextFile(f),
+      (f) =>
+        !f.type.startsWith("image/") &&
+        !f.type.startsWith("audio/") &&
+        !f.type.startsWith("video/") &&
+        isTextFile(f),
     );
 
-    if (imageFiles.length === 0 && textFiles.length === 0) return;
+    if (
+      imageFiles.length === 0 &&
+      textFiles.length === 0 &&
+      audioFiles.length === 0 &&
+      videoFiles.length === 0
+    )
+      return;
 
     setIsUploading(true);
     try {
@@ -433,6 +451,12 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
         formData.append("images", file);
       }
       for (const file of textFiles) {
+        formData.append("files", file);
+      }
+      for (const file of audioFiles) {
+        formData.append("files", file);
+      }
+      for (const file of videoFiles) {
         formData.append("files", file);
       }
 
@@ -448,6 +472,20 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
         }
         if (data.textFiles && data.textFiles.length > 0) {
           setPendingTextFiles((prev) => [...prev, ...data.textFiles]);
+        }
+        if (data.audioFiles && data.audioFiles.length > 0) {
+          setPendingMediaFiles((prev) => [
+            ...prev,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            ...data.audioFiles.map((f: any) => ({ ...f, type: "audio" as const })),
+          ]);
+        }
+        if (data.videoFiles && data.videoFiles.length > 0) {
+          setPendingMediaFiles((prev) => [
+            ...prev,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            ...data.videoFiles.map((f: any) => ({ ...f, type: "video" as const })),
+          ]);
         }
       }
     } catch (e) {
@@ -873,11 +911,35 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
           </div>
         )}
 
+        {/* Pending audio/video files preview */}
+        {pendingMediaFiles.length > 0 && (
+          <div className="pending-text-files">
+            {pendingMediaFiles.map((mf, i) => (
+              <div key={i} className="pending-text-file-item">
+                <span className="file-icon">{mf.type === "audio" ? "🎵" : "🎬"}</span>
+                <span className="file-name" title={mf.name}>
+                  {mf.name}
+                </span>
+                <span className="file-size">{formatFileSize(mf.size)}</span>
+                <button
+                  className="remove-image-btn"
+                  onClick={() =>
+                    setPendingMediaFiles((prev) => prev.filter((_, j) => j !== i))
+                  }
+                  title="Remove"
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
         <div className="input-row">
           <input
             type="file"
             ref={fileInputRef}
-            accept="image/*,.txt,.md,.csv,.json,.xml,.html,.htm,.yaml,.yml,.log,.rst,.tsv,.ts,.js,.py,.sh,.bash,.sql,.toml,.ini,.cfg,.conf"
+            accept="image/*,audio/*,video/*,.txt,.md,.csv,.json,.xml,.html,.htm,.yaml,.yml,.log,.rst,.tsv,.ts,.js,.py,.sh,.bash,.sql,.toml,.ini,.cfg,.conf"
             multiple
             style={{ display: "none" }}
             onChange={(e) => handleFileSelect(e.target.files)}
@@ -936,7 +998,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                 !currentSession ||
                 (!inputValue.trim() &&
                   pendingImages.length === 0 &&
-                  pendingTextFiles.length === 0)
+                  pendingTextFiles.length === 0 &&
+                  pendingMediaFiles.length === 0)
               }
             >
               ➤

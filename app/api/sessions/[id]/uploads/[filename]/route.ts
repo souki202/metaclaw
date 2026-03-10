@@ -51,6 +51,22 @@ export async function GET(
       '.log': 'text/plain',
       '.rst': 'text/plain',
       '.tsv': 'text/tab-separated-values',
+      // Audio
+      '.mp3': 'audio/mpeg',
+      '.wav': 'audio/wav',
+      '.ogg': 'audio/ogg',
+      '.flac': 'audio/flac',
+      '.aac': 'audio/aac',
+      '.m4a': 'audio/mp4',
+      '.opus': 'audio/opus',
+      '.weba': 'audio/webm',
+      // Video
+      '.mp4': 'video/mp4',
+      '.webm': 'video/webm',
+      '.ogv': 'video/ogg',
+      '.mov': 'video/quicktime',
+      '.avi': 'video/x-msvideo',
+      '.mkv': 'video/x-matroska',
     };
 
     return new NextResponse(buffer, {

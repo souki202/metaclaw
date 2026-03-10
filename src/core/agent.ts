@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import type { ChatMessage, SessionConfig, Config, ProviderConfig, ContentPart, ContentPartText, ToolDefinition, ScheduleUpsertInput, SessionSchedule } from '../types.js';
+import type { ChatMessage, SessionConfig, Config, ProviderConfig, ContentPart, ContentPartText, ContentPartAudio, ContentPartVideo, ToolDefinition, ScheduleUpsertInput, SessionSchedule } from '../types.js';
 import { OpenAIProvider } from '../providers/openai.js';
 import { VectorMemory, type RecalledEntry } from '../memory/vector.js';
 import { EmbeddingClient, type EmbeddingProvider } from '../memory/embedding.js';
@@ -852,6 +852,22 @@ ${text}
     return url;
   }
 
+  // Convert relative media URLs to base64 strings for LLM
+  private resolveMediaToBase64(url: string): string {
+    if (url.startsWith('data:') || url.startsWith('http://') || url.startsWith('https://')) {
+      return url;
+    }
+    const uploadsMatch = url.match(/\/api\/sessions\/[^/]+\/uploads\/(.+)$/);
+    if (uploadsMatch) {
+      const filePath = path.join(this.sessionDir, 'uploads', uploadsMatch[1]);
+      if (fs.existsSync(filePath)) {
+        return fs.readFileSync(filePath).toString('base64');
+      }
+    }
+    this.log.warn(`Could not resolve media URL: ${url}`);
+    return '';
+  }
+
   private detectImageTypeFromBuffer(buffer: Buffer): { ext: string; mime: string; } | null {
     if (buffer.length >= 8
       && buffer[0] === 0x89
@@ -988,6 +1004,7 @@ ${text}
     imageUrls?: string[],
     options?: { noMemory?: boolean; noRecall?: boolean; systemPrompt?: string; },
     textFiles?: { name: string; content: string; }[],
+    mediaFiles?: { name: string; url: string; mimeType: string; }[],
   ): Promise<string> {
     this.beginProcessing();
     try {
@@ -1011,6 +1028,9 @@ ${text}
       const imageUrlReferenceText = imageUrls && imageUrls.length > 0
         ? `\n\nAttached image URLs (these are visible to the user):\n${imageUrls.map((url) => `- ${url}`).join('\n')}`
         : '';
+      const mediaUrlReferenceText = mediaFiles && mediaFiles.length > 0
+        ? `\n\nAttached media files:\n${mediaFiles.map(mf => `- ${mf.name} (${mf.mimeType})`).join('\n')}`
+        : '';
 
       // Build attached text file context (RAG)
       const MAX_FILE_TOKENS = 8000;
@@ -1033,16 +1053,38 @@ ${text}
         }
       }
 
-      const baseUserText = `${timestampMarker}${userMessage}${imageUrlReferenceText}${textFileContext}`;
+      const baseUserText = `${timestampMarker}${userMessage}${imageUrlReferenceText}${mediaUrlReferenceText}${textFileContext}`;
 
-      const userMsgContent = resolvedImageUrls && resolvedImageUrls.length > 0
-        ? [
-          { type: 'text' as const, text: baseUserText },
-          ...resolvedImageUrls.map(url => ({
-            type: 'image_url' as const,
-            image_url: { url, detail: 'high' as const },
-          })),
-        ]
+      const mediaParts: ContentPart[] = [];
+
+      if (resolvedImageUrls && resolvedImageUrls.length > 0) {
+        mediaParts.push(...resolvedImageUrls.map(url => ({
+          type: 'image_url' as const,
+          image_url: { url, detail: 'high' as const },
+        })));
+      }
+
+      if (mediaFiles && mediaFiles.length > 0) {
+        for (const mf of mediaFiles) {
+          const base64 = this.resolveMediaToBase64(mf.url);
+          if (!base64) continue;
+          if (mf.mimeType.startsWith('audio/')) {
+            const format = mf.mimeType.split('/')[1].replace('mpeg', 'mp3') || 'mp3';
+            mediaParts.push({
+              type: 'audio_url' as const,
+              audio_url: { url: `data:${mf.mimeType};base64,${base64}`, format },
+            } as ContentPartAudio);
+          } else if (mf.mimeType.startsWith('video/')) {
+            mediaParts.push({
+              type: 'video_url' as const,
+              video_url: { url: `data:${mf.mimeType};base64,${base64}` },
+            } as ContentPartVideo);
+          }
+        }
+      }
+
+      const userMsgContent: string | ContentPart[] = mediaParts.length > 0
+        ? [{ type: 'text' as const, text: baseUserText }, ...mediaParts]
         : baseUserText;
 
       const userMsg: ChatMessage = {

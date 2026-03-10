@@ -1,5 +1,5 @@
 import OpenAI from 'openai';
-import type { ChatMessage, ToolDefinition, ProviderConfig, ContentPart, ContentPartText, ContentPartImageUrl } from '../types.js';
+import type { ChatMessage, ToolDefinition, ProviderConfig, ContentPart, ContentPartText, ContentPartImageUrl, ContentPartAudio, ContentPartVideo } from '../types.js';
 
 function isInvalidPromptError(error: unknown): boolean {
   const e = error as { status?: number; code?: string; message?: string; };
@@ -10,6 +10,18 @@ function isInvalidPromptError(error: unknown): boolean {
 
 function invalidPromptFallbackMessage(): string {
   return 'The provider rejected this request as an invalid prompt payload. This is usually caused by request formatting or tool-call context, not user safety policy. Please retry once; if it persists, check tool-call IDs and message formatting.';
+}
+
+function isMediaUnsupportedError(error: unknown): boolean {
+  const e = error as { status?: number; message?: string; };
+  const msg = String(e?.message ?? '').toLowerCase();
+  if (e?.status !== 400) return false;
+  return (msg.includes('audio') || msg.includes('video') || msg.includes('media') || msg.includes('modality'))
+    && (msg.includes('unsupported') || msg.includes('not support') || msg.includes('invalid') || msg.includes('not allow'));
+}
+
+function mediaUnsupportedFallbackMessage(): string {
+  return 'このプロバイダはオーディオ/ビデオ入力に対応していません。GPT-5やGeminiなど、マルチモーダル対応のプロバイダをご利用ください。\n\n(This provider does not support audio/video input. Please use a multimodal provider such as GPT-5 or Gemini.)';
 }
 
 function isToolUseUnsupportedError(error: unknown): boolean {
@@ -39,15 +51,18 @@ function toMessageContent(content: string | ContentPart[] | null): string | Arra
   if (typeof content === 'string') return content;
 
   const hasImages = content.some(p => p.type === 'image_url');
-  if (!hasImages) {
-    // No images → flatten to plain string for maximum endpoint compatibility
+  const hasAudio = content.some(p => p.type === 'audio_url');
+  const hasVideo = content.some(p => p.type === 'video_url');
+
+  if (!hasImages && !hasAudio && !hasVideo) {
+    // No media → flatten to plain string for maximum endpoint compatibility
     return content
       .filter((p): p is ContentPartText => p.type === 'text')
       .map(p => p.text)
       .join('\n');
   }
 
-  // Has images → must use content-parts array
+  // Has media → must use content-parts array
   const parts: Array<Record<string, unknown>> = [];
   for (const part of content) {
     if (part.type === 'text') {
@@ -58,6 +73,24 @@ function toMessageContent(content: string | ContentPart[] | null): string | Arra
         type: 'input_image',
         image_url: imgPart.image_url.url,
         ...(imgPart.image_url.detail && { detail: imgPart.image_url.detail }),
+      });
+    } else if (part.type === 'audio_url') {
+      const audioPart = part as ContentPartAudio;
+      const url = audioPart.audio_url.url;
+      let base64 = url;
+      if (url.startsWith('data:')) {
+        base64 = url.split(',')[1] || url;
+      }
+      parts.push({
+        type: 'input_audio',
+        data: base64,
+        format: audioPart.audio_url.format || 'mp3',
+      });
+    } else if (part.type === 'video_url') {
+      const videoPart = part as ContentPartVideo;
+      parts.push({
+        type: 'input_video',
+        video_url: videoPart.video_url.url,
       });
     }
   }
@@ -221,6 +254,11 @@ export class OpenAIProvider {
             console.log(e);
             return { role: 'assistant', content: fallback };
           }
+          if (isMediaUnsupportedError(e)) {
+            const fallback = mediaUnsupportedFallbackMessage();
+            onStream(fallback, 'content');
+            return { role: 'assistant', content: fallback };
+          }
           throw e;
         }
 
@@ -277,6 +315,11 @@ export class OpenAIProvider {
               content: fallback,
             };
           }
+          if (isMediaUnsupportedError(e)) {
+            const fallback = mediaUnsupportedFallbackMessage();
+            onStream(fallback, 'content');
+            return { role: 'assistant', content: fallback };
+          }
           if (signal?.aborted || e?.name === 'AbortError') {
             return {
               role: 'assistant',
@@ -309,6 +352,12 @@ export class OpenAIProvider {
             return {
               role: 'assistant',
               content: invalidPromptFallbackMessage(),
+            };
+          }
+          if (isMediaUnsupportedError(e)) {
+            return {
+              role: 'assistant',
+              content: mediaUnsupportedFallbackMessage(),
             };
           }
           throw e;

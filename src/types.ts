@@ -8,7 +8,17 @@ export interface ContentPartImageUrl {
   image_url: { url: string; detail?: 'low' | 'high' | 'auto'; };
 }
 
-export type ContentPart = ContentPartText | ContentPartImageUrl;
+export interface ContentPartAudio {
+  type: 'audio_url';
+  audio_url: { url: string; format: string; };
+}
+
+export interface ContentPartVideo {
+  type: 'video_url';
+  video_url: { url: string; };
+}
+
+export type ContentPart = ContentPartText | ContentPartImageUrl | ContentPartAudio | ContentPartVideo;
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
