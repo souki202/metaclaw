@@ -21,6 +21,7 @@ import {
   OrganizationGroupChatMessage,
   OrganizationUnread,
 } from "./types";
+import { extractUserAuthoredText } from "../../utils/chat-history";
 
 export default function DashboardClient() {
   const [sessions, setSessions] = useState<SessionData[]>([]);
@@ -239,6 +240,9 @@ export default function DashboardClient() {
           setMessages((prev) => {
             return processEvent(prev, event);
           });
+          if (event.type === "message" && event.data?.role === "assistant") {
+            void loadHistory(event.sessionId);
+          }
         } catch (err) {
           console.error(err);
         }
@@ -414,21 +418,17 @@ export default function DashboardClient() {
       const formatted: any[] = [];
       let currentToolEvents: any[] | null = null;
 
-      for (const m of history) {
+      for (const [historyIndex, m] of history.entries()) {
         if (m.role === "user") {
           // Handle multi-part content with images
           const content = m.content;
           const imageUrls: string[] = [];
-          let textContent = "";
-          if (typeof content === "string") {
-            textContent = content;
-          } else if (Array.isArray(content)) {
+          const textContent = extractUserAuthoredText(content);
+          if (Array.isArray(content)) {
             for (const part of content) {
-              if (part.type === "text") textContent += part.text || "";
               if (
                 part.type === "image_url" &&
-                part.image_url?.url &&
-                !part.image_url.url.startsWith("data:")
+                part.image_url?.url
               ) {
                 imageUrls.push(part.image_url.url);
               }
@@ -438,6 +438,7 @@ export default function DashboardClient() {
             role: "user",
             content: textContent,
             imageUrls: imageUrls.length > 0 ? imageUrls : undefined,
+            historyIndex,
           });
           currentToolEvents = null;
         } else if (m.role === "assistant") {
@@ -542,7 +543,22 @@ export default function DashboardClient() {
     mediaFiles?: { name: string; url: string; size: number; mimeType: string; }[],
   ) => {
     if (!currentSession) return;
-    setMessages((prev) => [...prev, { role: "user", content: msg, imageUrls, mediaFiles }]);
+    const nextHistoryIndex =
+      messages.reduce<number>((max, entry: any) => {
+        return typeof entry?.historyIndex === "number"
+          ? Math.max(max, entry.historyIndex)
+          : max;
+      }, -1) + 1;
+    setMessages((prev) => [
+      ...prev,
+      {
+        role: "user",
+        content: msg,
+        imageUrls,
+        mediaFiles,
+        historyIndex: nextHistoryIndex,
+      },
+    ]);
     setIsThinking(true);
 
     try {
@@ -558,6 +574,60 @@ export default function DashboardClient() {
       });
     } catch (e: any) {
       setIsThinking(false);
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: "Error: " + e.message },
+      ]);
+    }
+  };
+
+  const handleEditLastUserMessage = async (
+    historyIndex: number,
+    msg: string,
+  ) => {
+    if (!currentSession) return;
+
+    setMessages((prev) => {
+      let displayIndex = -1;
+      for (let index = prev.length - 1; index >= 0; index -= 1) {
+        const entry = prev[index];
+        if (entry?.role === "user" && entry?.historyIndex === historyIndex) {
+          displayIndex = index;
+          break;
+        }
+      }
+      if (displayIndex < 0) return prev;
+      return prev.slice(0, displayIndex + 1).map((entry: any, index: number) =>
+        index === displayIndex ? { ...entry, content: msg } : entry,
+      );
+    });
+    setIsThinking(true);
+
+    try {
+      const res = await fetch(`/api/sessions/${currentSession}/message`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: msg,
+          editHistoryIndex: historyIndex,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data?.error || "Failed to edit message");
+      }
+
+      if (data?.cancelled) {
+        setIsThinking(false);
+        await loadHistory(currentSession);
+        return;
+      }
+
+      await loadHistory(currentSession);
+    } catch (e: any) {
+      setIsThinking(false);
+      await loadHistory(currentSession);
       setMessages((prev) => [
         ...prev,
         { role: "assistant", content: "Error: " + e.message },
@@ -770,6 +840,7 @@ export default function DashboardClient() {
                 isThinking={isThinking}
                 availableSkills={availableSkills}
                 onSendMessage={handleSendMessage}
+                onEditLastUserMessage={handleEditLastUserMessage}
                 onCancel={handleCancelGeneration}
                 onClearHistory={handleClearHistory}
                 onOpenSessionSettings={() => setActiveModal("session")}
@@ -788,6 +859,7 @@ export default function DashboardClient() {
             isThinking={isThinking}
             availableSkills={availableSkills}
             onSendMessage={handleSendMessage}
+            onEditLastUserMessage={handleEditLastUserMessage}
             onCancel={handleCancelGeneration}
             onClearHistory={handleClearHistory}
             onOpenSessionSettings={() => setActiveModal("session")}

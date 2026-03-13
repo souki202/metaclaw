@@ -313,6 +313,126 @@ header .status {
   flex: 1;
 }
 
+.message-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.message-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.message-action {
+  background: rgba(13, 17, 23, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 4px 8px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.message-action:hover {
+  background: rgba(13, 17, 23, 0.16);
+  border-color: rgba(255, 255, 255, 0.28);
+}
+
+.copy-button {
+  background: rgba(13, 17, 23, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: transparent;
+  border-radius: 999px;
+  padding: 0;
+  width: 28px;
+  height: 28px;
+  font-size: 0;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.copy-button span {
+  color: var(--text);
+  font-size: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.copy-button.copied span {
+  color: var(--green);
+}
+
+.copy-button svg {
+  width: 14px;
+  height: 14px;
+  display: block;
+}
+
+.copy-button:hover {
+  background: rgba(13, 17, 23, 0.16);
+  border-color: rgba(255, 255, 255, 0.28);
+}
+
+.message-side-actions {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  align-items: center;
+  gap: 8px;
+  padding-top: 8px;
+}
+
+.message-icon-button {
+  background: rgba(13, 17, 23, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: var(--text);
+  border-radius: 999px;
+  width: 28px;
+  height: 28px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.message-icon-button span {
+  font-size: 14px;
+  line-height: 1;
+}
+
+.message-icon-button:hover {
+  background: rgba(13, 17, 23, 0.16);
+  border-color: rgba(255, 255, 255, 0.28);
+}
+
+.message.user .message-icon-button,
+.message.user .copy-button {
+  background: rgba(13, 17, 23, 0.14);
+  border-color: rgba(255, 255, 255, 0.26);
+}
+
+.message.user .message-icon-button,
+.message.user .copy-button span {
+  color: #f8fbff;
+}
+
+.message.user .message-icon-button:hover,
+.message.user .copy-button:hover {
+  background: rgba(13, 17, 23, 0.22);
+  border-color: rgba(255, 255, 255, 0.38);
+}
+
 .org-chat-unread-summary {
   font-size: 12px;
   color: var(--text2);
@@ -378,7 +498,7 @@ header .status {
 
 .message.user {
   align-self: flex-end;
-  flex-direction: row-reverse;
+  flex-direction: row;
 }
 
 .message .bubble {
@@ -391,9 +511,10 @@ header .status {
 }
 
 .message.user .bubble {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--bg);
+  background: linear-gradient(135deg, #4a97f0 0%, #3d84d8 100%);
+  border-color: rgba(255, 255, 255, 0.14);
+  color: #f8fbff;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.22);
 }
 
 .message .role {
@@ -432,14 +553,14 @@ header .status {
 }
 
 .message.user pre {
-  background: rgba(0, 0, 0, 0.15);
-  border-color: rgba(255, 255, 255, 0.2);
-  color: var(--bg);
+  background: rgba(13, 17, 23, 0.18);
+  border-color: rgba(255, 255, 255, 0.16);
+  color: #f8fbff;
 }
 
 .message.user code {
-  background: rgba(0, 0, 0, 0.15);
-  color: var(--bg);
+  background: rgba(13, 17, 23, 0.18);
+  color: #f8fbff;
 }
 
 .message a {
@@ -451,7 +572,7 @@ header .status {
 }
 
 .message.user a {
-  color: #0d1117;
+  color: #f8fbff;
   text-decoration: underline;
 }
 
@@ -724,6 +845,20 @@ header .status {
   border-top: 1px solid var(--border);
   background: var(--surface);
   flex-shrink: 0;
+}
+
+.edit-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  margin-bottom: 10px;
+  border: 1px solid rgba(88, 166, 255, 0.25);
+  background: rgba(88, 166, 255, 0.08);
+  border-radius: var(--radius);
+  font-size: 12px;
+  color: var(--text2);
 }
 
 .input-row {

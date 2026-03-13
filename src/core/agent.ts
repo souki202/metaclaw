@@ -13,6 +13,7 @@ import { ACAManager } from '../aca/manager.js';
 import type { ACAConfig } from '../aca/types.js';
 import type { SessionCommsManager } from '../a2a/session-comms.js';
 import { countTokens, sliceToTokenLimit } from '../utils/tokens.js';
+import { extractUserAuthoredText, findLastUserMessageIndex, replaceUserAuthoredText } from '../utils/chat-history.js';
 import { buildAgentSystemPrompt, normalizeAssistantContent, rewriteImageUrlsForUser } from './agent-helpers.js';
 
 const MAX_ITERATIONS = 100;
@@ -339,6 +340,12 @@ export class Agent {
 
   private emit(type: string, data: unknown) {
     this.onEvent?.({ type, sessionId: this.sessionId, data });
+  }
+
+  private buildTimestampMarker(): string {
+    const now = new Date();
+    const localTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'local';
+    return `[[timestamp:${now.toLocaleString()} (${localTimeZone})]] `;
   }
 
   private buildRecallCues(primaryCue: string, recentLimit = 8): string[] {
@@ -1397,6 +1404,345 @@ ${text}
       });
 
       return finalResponse;
+    } finally {
+      this.endProcessing();
+    }
+  }
+
+  async resendEditedLastUserMessage(
+    historyIndex: number,
+    userMessage: string,
+    channelId?: string,
+    options?: { noMemory?: boolean; noRecall?: boolean; systemPrompt?: string; },
+  ): Promise<{ cancelled: boolean; response?: string; }> {
+    const trimmedMessage = userMessage.trim();
+    if (!trimmedMessage) {
+      throw new Error('message required');
+    }
+    if (this.isProcessing()) {
+      throw new Error('Cannot edit the last user message while a response is still in progress.');
+    }
+
+    const lastUserIndex = findLastUserMessageIndex(this.history);
+    if (lastUserIndex < 0) {
+      throw new Error('No user message available to edit.');
+    }
+    if (historyIndex !== lastUserIndex) {
+      throw new Error('Only the latest user message can be edited.');
+    }
+
+    const targetMessage = this.history[historyIndex];
+    if (!targetMessage || targetMessage.role !== 'user') {
+      throw new Error('Target message is not a user message.');
+    }
+
+    if (extractUserAuthoredText(targetMessage.content) === trimmedMessage) {
+      return { cancelled: true };
+    }
+
+    this.beginProcessing();
+    try {
+      this.log.info(`Replaying history from edited user message at index ${historyIndex}`);
+
+      this.abortController = new AbortController();
+      const signal = this.abortController.signal;
+
+      await this.compressContext();
+
+      this.history = this.history.slice(0, historyIndex + 1);
+      this.history[historyIndex] = {
+        ...targetMessage,
+        content: replaceUserAuthoredText(
+          targetMessage.content,
+          trimmedMessage,
+          this.buildTimestampMarker(),
+        ),
+      };
+      this.rewriteHistory();
+
+      if (this.config.tools.memory && this.vectorMemory && !options?.noMemory) {
+        this.vectorMemory.autoAdd({ role: 'user', content: trimmedMessage }).catch(e => {
+          this.log.warn('Auto-save user message to vector failed:', e);
+        });
+      }
+
+      const recalledMemories = options?.noRecall
+        ? { text: null, ids: [] }
+        : await this.recallForCurrentTurn(trimmedMessage);
+      const systemPrompt = options?.systemPrompt ?? this.buildSystemPrompt(recalledMemories.text);
+      const recalledMemoryIds = new Set<string>(recalledMemories.ids);
+      const toolCtx: ToolContext = {
+        sessionId: this.sessionId,
+        config: this.config,
+        workspace: this.workspace,
+        sessionDir: this.sessionDir,
+        vectorMemory: this.vectorMemory ?? undefined,
+        quickMemory: this.quickMemory,
+        tmpMemory: this.tmpMemory,
+        searchConfig: this.globalConfig?.search,
+        mcpManager: this.mcpManager,
+        a2aRegistry: this.a2aRegistry,
+        acaManager: this.acaManager,
+        commsManager: this.commsManager,
+        sessionManager: this.getSessionManager ? this.getSessionManager() : undefined,
+        scheduleList: this.scheduleAccess ? () => this.scheduleAccess!.list() : undefined,
+        scheduleCreate: this.scheduleAccess ? (input) => this.scheduleAccess!.create(input) : undefined,
+        scheduleUpdate: this.scheduleAccess ? (scheduleId, patch) => this.scheduleAccess!.update(scheduleId, patch) : undefined,
+        scheduleDelete: this.scheduleAccess ? (scheduleId) => this.scheduleAccess!.remove(scheduleId) : undefined,
+        clearHistory: () => this.clearHistory(),
+      };
+      let tools = await buildTools(toolCtx);
+
+      if (this.config.disabledTools && this.config.disabledTools.length > 0) {
+        tools = tools.filter(t => !this.config.disabledTools!.includes(t.function.name));
+      }
+
+      const messages: ChatMessage[] = [
+        { role: 'system', content: systemPrompt },
+        ...this.history,
+      ];
+
+      let iterations = 0;
+      let finalResponse = '';
+      let lastStreamBuffer = '';
+
+      while (iterations < MAX_ITERATIONS) {
+        if (signal.aborted) {
+          this.log.info('Processing cancelled by user');
+          finalResponse = lastStreamBuffer
+            ? lastStreamBuffer + '\n\n[cancelled]'
+            : '[cancelled]';
+          break;
+        }
+
+        iterations++;
+
+        if (this.pendingNotifications.length > 0) {
+          const timestampMarker = this.buildTimestampMarker();
+
+          for (const notification of this.pendingNotifications) {
+            const userContent = `${timestampMarker}${notification}`;
+            const notifMsg: ChatMessage = { role: 'user', content: userContent };
+            messages.push(notifMsg);
+            this.history.push(notifMsg);
+            this.saveHistory(notifMsg);
+
+            this.emit('message', { role: 'user', content: notification, channelId: 'system' });
+
+            if (this.config.tools.memory && this.vectorMemory && !options?.noMemory) {
+              this.vectorMemory.autoAdd({ role: 'user', content: notification }).catch(e => {
+                this.log.warn('Auto-save notification to vector failed:', e);
+              });
+            }
+          }
+          this.pendingNotifications = [];
+        }
+
+        let streamBuffer = '';
+        try {
+          let response = await this.provider.chat(messages, tools, (chunk, type) => {
+            if (type === 'reasoning') {
+              this.emit('stream', { chunk, type: 'reasoning' });
+            } else {
+              streamBuffer += chunk;
+              this.emit('stream', { chunk, type: 'content' });
+            }
+          }, signal).catch(async (err: unknown) => {
+            const msg = String((err as Error)?.message ?? '').toLowerCase();
+            const isVisionError =
+              ((err as { status?: number; })?.status === 404 || msg.includes('404')) &&
+              (msg.includes('image') || msg.includes('vision') || msg.includes('endpoint'));
+            if (isVisionError) {
+              this.log.warn('Model does not support image input - retrying without images');
+              return this.provider.chat(stripImageUrls(messages), tools, (chunk, type) => {
+                if (type === 'reasoning') {
+                  this.emit('stream', { chunk, type: 'reasoning' });
+                } else {
+                  streamBuffer += chunk;
+                  this.emit('stream', { chunk, type: 'content' });
+                }
+              }, signal);
+            }
+            throw err;
+          });
+
+          if (!response.tool_calls || response.tool_calls.length === 0) {
+            response = {
+              ...response,
+              content: this.normalizeAssistantContent(response.content),
+            };
+          }
+
+          if (response.generatedImages && response.generatedImages.length > 0) {
+            const imageUrls: string[] = [];
+            const genImgDir = path.join(this.sessionDir, 'generated-images');
+            fs.mkdirSync(genImgDir, { recursive: true });
+
+            for (let i = 0; i < response.generatedImages.length; i++) {
+              const payload = response.generatedImages[i];
+              const decoded = this.decodeGeneratedImagePayload(payload);
+
+              if (!decoded) {
+                this.log.warn(`Generated image payload could not be decoded (index=${i}, head=${payload.slice(0, 64)})`);
+                continue;
+              }
+
+              const filename = `${Date.now()}_${i}.${decoded.ext}`;
+              const filePath = path.join(genImgDir, filename);
+              fs.writeFileSync(filePath, decoded.bytes);
+              imageUrls.push(`/api/sessions/${this.sessionId}/artifacts/generated-images/${encodeURIComponent(filename)}`);
+            }
+
+            const imageMarkdown = imageUrls.map(url => `![Generated Image](${url})`).join('\n\n');
+            const existingText = typeof response.content === 'string' ? response.content : '';
+            const { generatedImages: _dropGen, ...restResponse } = response;
+            response = {
+              ...restResponse,
+              content: existingText ? `${existingText}\n\n${imageMarkdown}` : imageMarkdown,
+            };
+
+            this.log.info(`Saved ${imageUrls.length} generated image(s) to ${genImgDir}`);
+          }
+
+          if (signal.aborted) {
+            finalResponse = streamBuffer
+              ? streamBuffer + '\n\n[cancelled]'
+              : '[cancelled]';
+            const partialMsg: ChatMessage = { role: 'assistant', content: finalResponse };
+            this.history.push(partialMsg);
+            this.saveHistory(partialMsg);
+            break;
+          }
+
+          lastStreamBuffer = streamBuffer;
+          messages.push(response);
+          this.history.push(response);
+          this.saveHistory(response);
+          if (this.config.tools.memory && this.vectorMemory && !options?.noMemory) {
+            this.vectorMemory.autoAdd(response).catch(e => {
+              this.log.warn('Auto-save assistant message to vector failed:', e);
+            });
+          }
+
+          let shouldRestart = false;
+
+          if (response.tool_calls && response.tool_calls.length > 0) {
+            this.log.info(`Tool calls: ${response.tool_calls.map((t) => t.function.name).join(', ')}`);
+            this.emit('tool_call', { tools: response.tool_calls.map((t) => ({ name: t.function.name, args: t.function.arguments })) });
+
+            for (const tc of response.tool_calls) {
+              if (signal.aborted) break;
+
+              let args: Record<string, unknown> = {};
+              try {
+                args = JSON.parse(tc.function.arguments);
+              } catch {
+                args = {};
+              }
+
+              const result = await executeTool(tc.function.name, args, toolCtx);
+              this.log.debug(`Tool ${tc.function.name}: ${result.success ? 'ok' : 'error'} - ${result.output.slice(0, 100)}`);
+              this.emit('tool_result', {
+                tool: tc.function.name,
+                success: result.success,
+                output: result.output.slice(0, 1000),
+                ...(result.imageUrl && { imageUrl: result.imageUrl }),
+              });
+
+              if (result.output === "__META_CLAW_RESTART__") {
+                const toolMsg: ChatMessage = {
+                  role: 'tool',
+                  tool_call_id: tc.id,
+                  name: tc.function.name,
+                  content: "Server restarting... The system will reboot and you will resume this task.",
+                };
+                messages.push(toolMsg);
+                this.history.push(toolMsg);
+                this.saveHistory(toolMsg);
+
+                const resumePath = path.join(this.sessionDir, '.resume');
+                fs.writeFileSync(resumePath, 'resume', 'utf-8');
+
+                finalResponse = "Rebooting system... Please wait.";
+                shouldRestart = true;
+                process.emit('meta-claw-restart' as any);
+                break;
+              }
+
+              const toolText = this.rewriteImageUrlsForUser(result.success ? result.output : `Error: ${result.output}`);
+              const toolTextWithImageUrl = result.imageUrl
+                ? `${toolText}\n\nImage URL: ${result.imageUrl}\nIf you show this to the user, use Markdown: ![image](${result.imageUrl})`
+                : toolText;
+              const toolMsg: ChatMessage = {
+                role: 'tool',
+                tool_call_id: tc.id,
+                name: tc.function.name,
+                content: result.image
+                  ? [
+                    { type: 'text' as const, text: toolTextWithImageUrl },
+                    { type: 'image_url' as const, image_url: { url: result.image, detail: 'high' as const } },
+                  ]
+                  : toolTextWithImageUrl,
+              };
+              messages.push(toolMsg);
+              this.history.push(toolMsg);
+              this.saveHistory(toolMsg);
+              if (this.config.tools.memory && this.vectorMemory && !options?.noMemory) {
+                this.vectorMemory.autoAdd(toolMsg).catch(e => {
+                  this.log.warn('Auto-save tool message to vector failed:', e);
+                });
+              }
+            }
+
+            if (signal.aborted) {
+              finalResponse = '[cancelled]';
+              const cancelledMsg: ChatMessage = { role: 'assistant', content: finalResponse };
+              this.history.push(cancelledMsg);
+              this.saveHistory(cancelledMsg);
+              break;
+            }
+
+            const autonomousRecall = await this.recallDuringAutonomousLoop(messages, recalledMemoryIds);
+            if (autonomousRecall) {
+              messages.splice(messages.length - 1, 0, autonomousRecall);
+            }
+          } else {
+            finalResponse = extractText(response.content);
+            break;
+          }
+
+          if (shouldRestart) {
+            break;
+          }
+        } catch (e: any) {
+          if (signal.aborted || e?.name === 'AbortError') {
+            finalResponse = streamBuffer
+              ? streamBuffer + '\n\n[cancelled]'
+              : '[cancelled]';
+            const partialMsg: ChatMessage = { role: 'assistant', content: finalResponse };
+            this.history.push(partialMsg);
+            this.saveHistory(partialMsg);
+            break;
+          }
+          throw e;
+        }
+      }
+
+      if (!finalResponse) {
+        finalResponse = 'I reached the maximum number of tool iterations. Please try again.';
+        const assistantMsg: ChatMessage = { role: 'assistant', content: finalResponse };
+        this.history.push(assistantMsg);
+        this.saveHistory(assistantMsg);
+      }
+
+      this.abortController = null;
+      this.emit('message', {
+        role: 'assistant',
+        content: finalResponse,
+        reasoning: this.history[this.history.length - 1]?.reasoning,
+      });
+
+      return { cancelled: false, response: finalResponse };
     } finally {
       this.endProcessing();
     }

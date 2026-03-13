@@ -18,6 +18,7 @@ interface ContentPart {
 
 interface ExtendedChatMessage extends ChatMessage {
   isStreaming?: boolean;
+  historyIndex?: number;
   toolEvents?: {
     name: string;
     args: Record<string, any>;
@@ -38,6 +39,40 @@ const CopyButton: React.FC<{ content: string | ContentPart[] | undefined }> = ({
 }) => {
   const [copied, setCopied] = useState(false);
 
+  const copyWithFallback = async (text: string) => {
+    if (
+      typeof navigator !== "undefined" &&
+      navigator.clipboard &&
+      typeof navigator.clipboard.writeText === "function"
+    ) {
+      await navigator.clipboard.writeText(text);
+      return;
+    }
+
+    if (typeof document === "undefined") {
+      throw new Error("Clipboard API is unavailable");
+    }
+
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.setAttribute("readonly", "");
+    textarea.style.position = "fixed";
+    textarea.style.top = "-9999px";
+    textarea.style.left = "-9999px";
+    document.body.appendChild(textarea);
+    textarea.select();
+    textarea.setSelectionRange(0, textarea.value.length);
+
+    try {
+      const success = document.execCommand("copy");
+      if (!success) {
+        throw new Error("Copy command failed");
+      }
+    } finally {
+      document.body.removeChild(textarea);
+    }
+  };
+
   const handleCopy = async () => {
     if (!content) return;
     const text =
@@ -52,7 +87,7 @@ const CopyButton: React.FC<{ content: string | ContentPart[] | undefined }> = ({
     if (!text) return;
 
     try {
-      await navigator.clipboard.writeText(text);
+      await copyWithFallback(text);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch (err) {
@@ -65,26 +100,34 @@ const CopyButton: React.FC<{ content: string | ContentPart[] | undefined }> = ({
   return (
     <button
       onClick={handleCopy}
-      className="copy-button"
+      type="button"
+      className={`copy-button${copied ? " copied" : ""}`}
+      aria-label={copied ? "Copied" : "Copy"}
       title="Copy to clipboard"
-      style={{
-        background: "transparent",
-        border: "none",
-        cursor: "pointer",
-        opacity: copied ? 1 : 0.5,
-        fontSize: "14px",
-        padding: "4px",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        transition: "opacity 0.2s",
-      }}
-      onMouseEnter={(e) => (e.currentTarget.style.opacity = "1")}
-      onMouseLeave={(e) =>
-        (e.currentTarget.style.opacity = copied ? "1" : "0.5")
-      }
     >
-      {copied ? "✓" : "📋"}
+      {copied ? (
+        <span aria-hidden="true">
+          <svg viewBox="0 0 16 16" focusable="false">
+            <path
+              d="M13.78 3.97a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0L2.22 7.03a.75.75 0 1 1 1.06-1.06L7 9.69l5.72-5.72a.75.75 0 0 1 1.06 0Z"
+              fill="currentColor"
+            />
+          </svg>
+        </span>
+      ) : (
+        <span aria-hidden="true">
+          <svg viewBox="0 0 16 16" focusable="false">
+            <path
+              d="M5 2.75A1.75 1.75 0 0 1 6.75 1h5.5A1.75 1.75 0 0 1 14 2.75v6.5A1.75 1.75 0 0 1 12.25 11h-5.5A1.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v6.5c0 .138.112.25.25.25h5.5a.25.25 0 0 0 .25-.25v-6.5a.25.25 0 0 0-.25-.25Z"
+              fill="currentColor"
+            />
+            <path
+              d="M2 5.75C2 4.784 2.784 4 3.75 4h.5a.75.75 0 0 1 0 1.5h-.5a.25.25 0 0 0-.25.25v6.5c0 .138.112.25.25.25h5.5a.25.25 0 0 0 .25-.25v-.5a.75.75 0 0 1 1.5 0v.5A1.75 1.75 0 0 1 9.25 14h-5.5A1.75 1.75 0 0 1 2 12.25Z"
+              fill="currentColor"
+            />
+          </svg>
+        </span>
+      )}
     </button>
   );
 };
@@ -292,6 +335,7 @@ interface ChatAreaProps {
     textFiles?: PendingTextFile[],
     mediaFiles?: { name: string; url: string; size: number; mimeType: string; }[],
   ) => void;
+  onEditLastUserMessage: (historyIndex: number, msg: string) => void;
   onCancel: () => void;
   onClearHistory: () => void;
   onOpenSessionSettings: () => void;
@@ -304,11 +348,16 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   isThinking,
   availableSkills,
   onSendMessage,
+  onEditLastUserMessage,
   onCancel,
   onClearHistory,
   onOpenSessionSettings,
 }) => {
   const [inputValue, setInputValue] = useState("");
+  const [editingTarget, setEditingTarget] = useState<{
+    historyIndex: number;
+    originalContent: string;
+  } | null>(null);
   const [filteredSkills, setFilteredSkills] = useState<Skill[]>([]);
   const [selectedSkillIndex, setSelectedSkillIndex] = useState(-1);
   const [pendingImages, setPendingImages] = useState<string[]>([]);
@@ -326,6 +375,18 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "auto" });
   }, [messages, isThinking]);
+
+  useEffect(() => {
+    if (!editingTarget) return;
+    const stillExists = messages.some(
+      (message) =>
+        message.role === "user" &&
+        message.historyIndex === editingTarget.historyIndex,
+    );
+    if (!stillExists) {
+      setEditingTarget(null);
+    }
+  }, [editingTarget, messages]);
 
   const handleInputValue = (val: string) => {
     setInputValue(val);
@@ -393,6 +454,24 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
       !currentSession
     )
       return;
+    if (editingTarget) {
+      if (msg === editingTarget.originalContent.trim()) {
+        setEditingTarget(null);
+        setInputValue("");
+        if (textareaRef.current) {
+          textareaRef.current.style.height = "auto";
+        }
+        return;
+      }
+      setEditingTarget(null);
+      setInputValue("");
+      if (textareaRef.current) {
+        textareaRef.current.style.height = "auto";
+      }
+      setFilteredSkills([]);
+      onEditLastUserMessage(editingTarget.historyIndex, msg);
+      return;
+    }
     const finalMsg =
       msg ||
       (pendingImages.length > 0
@@ -424,7 +503,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
 
   // Upload files to server and get URLs
   const uploadFiles = async (files: File[]) => {
-    if (!currentSession) return;
+    if (!currentSession || editingTarget) return;
     const imageFiles = files.filter((f) => f.type.startsWith("image/"));
     const audioFiles = files.filter((f) => f.type.startsWith("audio/"));
     const videoFiles = files.filter((f) => f.type.startsWith("video/"));
@@ -537,6 +616,54 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
 
   const removePendingTextFile = (index: number) => {
     setPendingTextFiles((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const editableHistoryIndex = messages.reduce<number | null>((latest, message) => {
+    if (message.role === "user" && typeof message.historyIndex === "number") {
+      return message.historyIndex;
+    }
+    return latest;
+  }, null);
+
+  const beginEditing = (message: ExtendedChatMessage) => {
+    if (
+      message.role !== "user" ||
+      typeof message.historyIndex !== "number" ||
+      typeof message.content !== "string"
+    ) {
+      return;
+    }
+
+    setEditingTarget({
+      historyIndex: message.historyIndex,
+      originalContent: message.content,
+    });
+    setInputValue(message.content);
+    setFilteredSkills([]);
+    setSelectedSkillIndex(-1);
+    setPendingImages([]);
+    setPendingTextFiles([]);
+    setPendingMediaFiles([]);
+
+    requestAnimationFrame(() => {
+      if (!textareaRef.current) return;
+      textareaRef.current.focus();
+      textareaRef.current.setSelectionRange(
+        message.content.length,
+        message.content.length,
+      );
+      textareaRef.current.style.height = "auto";
+      textareaRef.current.style.height =
+        Math.min(textareaRef.current.scrollHeight, 200) + "px";
+    });
+  };
+
+  const cancelEditing = () => {
+    setEditingTarget(null);
+    setInputValue("");
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "auto";
+    }
   };
 
   const TEXT_EXTENSIONS = new Set([
@@ -784,25 +911,40 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
 
             {(m.content || m.isStreaming || m.imageUrls || m.reasoning) && (
               <div className={`message ${m.role}`}>
-                <div className="bubble" style={{ position: "relative" }}>
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent:
-                        m.role === "assistant" ? "space-between" : "flex-end",
-                      alignItems: "center",
-                      marginBottom: "4px",
-                    }}
-                  >
-                    {m.role === "assistant" && (
-                      <div className="role" style={{ margin: 0 }}>
-                        AI
-                      </div>
-                    )}
+                {m.role === "user" && (
+                  <div className="message-side-actions">
                     {m.content && !m.isStreaming && (
                       <CopyButton content={m.content} />
                     )}
+                    {!isThinking &&
+                      typeof m.historyIndex === "number" &&
+                      m.historyIndex === editableHistoryIndex &&
+                      typeof m.content === "string" && (
+                        <button
+                          type="button"
+                          className="message-icon-button edit"
+                          aria-label="Edit"
+                          title="Edit"
+                          onClick={() => beginEditing(m)}
+                        >
+                          <span aria-hidden="true">✎</span>
+                        </button>
+                      )}
                   </div>
+                )}
+                <div className="bubble" style={{ position: "relative" }}>
+                  {m.role === "assistant" && (
+                    <div className="message-head">
+                      <div className="role" style={{ margin: 0 }}>
+                        AI
+                      </div>
+                      <div className="message-actions">
+                        {m.content && !m.isStreaming && (
+                          <CopyButton content={m.content} />
+                        )}
+                      </div>
+                    </div>
+                  )}
                   {m.role === "assistant" && m.reasoning && (
                     <ReasoningBlock
                       reasoning={m.reasoning}
@@ -853,6 +995,20 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
       </div>
 
       <div className="input-area" style={{ position: "relative" }}>
+        {editingTarget && (
+          <div className="edit-banner">
+            <span>
+              Editing the last user message. Sending will discard later replies.
+            </span>
+            <button
+              type="button"
+              className="message-action"
+              onClick={cancelEditing}
+            >
+              Cancel
+            </button>
+          </div>
+        )}
         <div
           className={`autocomplete-popup ${filteredSkills.length > 0 ? "active" : ""}`}
         >
@@ -947,14 +1103,14 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
           <button
             className="attach-btn"
             onClick={() => fileInputRef.current?.click()}
-            disabled={!currentSession || isThinking || isUploading}
+            disabled={!currentSession || isThinking || isUploading || !!editingTarget}
             title="ファイルを添付 (画像・テキスト)"
           >
             {isUploading ? "⏳" : "📎"}
           </button>
           <textarea
             ref={textareaRef}
-            placeholder="Message..."
+            placeholder={editingTarget ? "Edit the last user message..." : "Message..."}
             rows={1}
             value={inputValue}
             onChange={(e) => {
@@ -967,6 +1123,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
             disabled={!currentSession || isThinking}
             onPaste={async (e) => {
               // Handle paste of images
+              if (editingTarget) return;
               const items = Array.from(e.clipboardData.items);
               const imageItems = items.filter((item) =>
                 item.type.startsWith("image/"),

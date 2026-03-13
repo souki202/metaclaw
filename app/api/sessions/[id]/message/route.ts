@@ -21,6 +21,17 @@ export async function POST(
       return badRequest('message required');
     }
 
+    const editHistoryIndex = Number.isInteger(body.editHistoryIndex)
+      ? Number(body.editHistoryIndex)
+      : null;
+
+    if (editHistoryIndex !== null && agent.isProcessing()) {
+      return NextResponse.json(
+        { error: 'Cannot edit the last user message while a response is still in progress.' },
+        { status: 409 },
+      );
+    }
+
     // Resolve text file contents from uploaded file URLs
     let textFiles: { name: string; content: string; }[] | undefined;
     if (Array.isArray(body.textFiles) && body.textFiles.length > 0) {
@@ -55,6 +66,20 @@ export async function POST(
         mf => mf.url && mf.mimeType,
       );
       if (mediaFiles.length === 0) mediaFiles = undefined;
+    }
+
+    if (editHistoryIndex !== null) {
+      const result = await agent.resendEditedLastUserMessage(
+        editHistoryIndex,
+        body.message,
+        'dashboard',
+        {
+          noMemory: body.noMemory === true,
+          noRecall: body.noRecall === true,
+          systemPrompt: body.systemPrompt as string | undefined,
+        },
+      );
+      return NextResponse.json(result);
     }
 
     const response = await agent.processMessage(
