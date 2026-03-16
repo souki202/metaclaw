@@ -3,7 +3,8 @@ import fs from 'fs';
 import path from 'path';
 import type { SessionManager } from '../core/sessions.js';
 import type { Config, SessionConfig, SearchConfig } from '../types.js';
-import { loadConfig, saveConfig, setSession, deleteSession, setSearchConfig, setEmbeddingConfig, setMemoryConfig } from '../config.js';
+import { loadConfig, saveConfig, setSession, deleteSession, setSearchConfig, setEmbeddingConfig, setMemoryConfig, setFalConfig, DEFAULT_FAL_BASE_URL, DEFAULT_FAL_EDIT_MODEL, DEFAULT_FAL_IMAGE_MODEL, DEFAULT_FAL_TIMEOUT_MS } from '../config.js';
+import type { FalAiConfig } from '../types.js';
 import { loadSkills, type Skill } from '../core/skills.js';
 import { createLogger } from '../logger.js';
 
@@ -726,6 +727,59 @@ export async function setupApiRoutes(
     const config = loadConfig();
     const memory = config.memory || {};
     sendJson(res, memory);
+    return true;
+  }
+
+  // GET /api/fal
+  if (method === 'GET' && pathname === '/api/fal') {
+    const config = loadConfig();
+    const falAi = config.falAi || {
+      enabled: false,
+      apiKey: '',
+      baseUrl: DEFAULT_FAL_BASE_URL,
+      defaultImageModel: DEFAULT_FAL_IMAGE_MODEL,
+      defaultEditModel: DEFAULT_FAL_EDIT_MODEL,
+      timeoutMs: DEFAULT_FAL_TIMEOUT_MS,
+    };
+    sendJson(res, {
+      enabled: falAi.enabled !== false,
+      apiKey: falAi.apiKey ? `${falAi.apiKey.slice(0, 8)}***` : '',
+      baseUrl: falAi.baseUrl || DEFAULT_FAL_BASE_URL,
+      defaultImageModel: falAi.defaultImageModel || DEFAULT_FAL_IMAGE_MODEL,
+      defaultEditModel: falAi.defaultEditModel || DEFAULT_FAL_EDIT_MODEL,
+      timeoutMs: falAi.timeoutMs || DEFAULT_FAL_TIMEOUT_MS,
+    });
+    return true;
+  }
+
+  // PUT /api/fal
+  if (method === 'PUT' && pathname === '/api/fal') {
+    try {
+      const config = loadConfig();
+      const existing = config.falAi || {
+        enabled: false,
+        apiKey: '',
+        baseUrl: DEFAULT_FAL_BASE_URL,
+        defaultImageModel: DEFAULT_FAL_IMAGE_MODEL,
+        defaultEditModel: DEFAULT_FAL_EDIT_MODEL,
+        timeoutMs: DEFAULT_FAL_TIMEOUT_MS,
+      };
+      const body = await parseBody(req);
+      const falConfig: FalAiConfig = {
+        enabled: body.enabled !== false,
+        apiKey: body.apiKey !== undefined && !String(body.apiKey).includes('***') ? body.apiKey : existing.apiKey,
+        baseUrl: body.baseUrl || DEFAULT_FAL_BASE_URL,
+        defaultImageModel: body.defaultImageModel || DEFAULT_FAL_IMAGE_MODEL,
+        defaultEditModel: body.defaultEditModel || DEFAULT_FAL_EDIT_MODEL,
+        timeoutMs: Number(body.timeoutMs) > 0 ? Number(body.timeoutMs) : DEFAULT_FAL_TIMEOUT_MS,
+      };
+      setFalConfig(config, falConfig);
+      saveConfig(config);
+      sessions.reloadConfig(config);
+      sendJson(res, { ok: true });
+    } catch (e: unknown) {
+      sendJson(res, { error: (e as Error).message }, 500);
+    }
     return true;
   }
 

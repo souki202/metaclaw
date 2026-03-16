@@ -1,4 +1,4 @@
-import type { SessionConfig, SearchConfig, ScheduleUpsertInput, SessionSchedule } from '../types.js';
+import type { FalAiConfig, SessionConfig, SearchConfig, ScheduleUpsertInput, SessionSchedule } from '../types.js';
 import type { VectorMemory } from '../memory/vector.js';
 import type { QuickMemory } from '../memory/quick.js';
 import type { McpClientManager } from './mcp-client.js';
@@ -24,6 +24,7 @@ export interface ToolContext {
   quickMemory?: QuickMemory;
   tmpMemory?: QuickMemory;
   searchConfig?: SearchConfig;
+  falAiConfig?: FalAiConfig;
   mcpManager?: McpClientManager;
   a2aRegistry?: A2ARegistry;
   acaManager?: ACAManager;

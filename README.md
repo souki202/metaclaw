@@ -14,6 +14,7 @@ A multi-session AI personal agent system featuring Discord / Slack integration, 
 - **Slack Integration** — Bidirectional chat synchronization via Slack bot tokens. Route specific channels or teams to dedicated agent sessions.
 - **Browser Automation** — Advanced web interaction using Playwright. The AI can navigate, click, type, and take visual screenshots. Users can track the AI's browser activity in real-time and manually intervene if needed.
 - **Vision & Image Support** — Full multi-part message support. AI can process real-time screenshots and images uploaded via dashboard drag-and-drop or Discord.
+- **External Image Generation via fal.ai** — Non-image-generation chat models can call built-in fal.ai tools to generate or edit images, with common options such as aspect ratio, seed, output format, and image count exposed as tool arguments.
 - **Model Context Protocol (MCP)** — Dynamically connect to local or remote standard MCP servers to expand the AI's toolset. Manage connection statuses directly via the dashboard.
 - **Skills System** — Extend functionality through external, installable skills configured on a per-session basis in the UI.
 - **Advanced Memory Ecosystem** — Semantic vector database for long-term fact retrieval, `MEMORY.md` for core persistent identity facts, `SOUL.md` for deeper behavioral traits, and `TMP_MEMORY.md` for ephemeral, task-specific context.
@@ -45,6 +46,7 @@ The dashboard will be at `http://localhost:8080` (or the port configured in `con
 | Field | Description |
 |---|---|
 | `dashboard.port` | Dashboard port (default 8080) |
+| `falAi.*` | Global fal.ai configuration used by all sessions for external image generation/editing |
 | `providerTemplates.*` | Reusable provider configurations (endpoint, API key, models) |
 | `sessions.*` | Session definitions (multiple supported) |
 
@@ -70,6 +72,30 @@ The dashboard will be at `http://localhost:8080` (or the port configured in `con
 | `aca.maxGoalsPerCycle` | Max objectives per scan (default: 3) |
 
 > Note: You can use any OpenAI-compatible API endpoints natively (e.g., Anthropic, Ollama, OpenRouter).
+
+### External Image Tools
+
+When global `falAi.enabled` is set, every session receives two built-in tools:
+
+- `fal_generate_image`
+- `fal_edit_image`
+
+These are intended for chat models that support tool calling but do not natively generate images. The tool schema exposes common image arguments directly, including `aspect_ratio`, `num_images`, `seed`, `output_format`, and `safety_tolerance`. Model-specific fal.ai inputs can still be passed via `additional_input`.
+
+Example:
+
+```json
+{
+  "falAi": {
+    "enabled": true,
+    "apiKey": "fal_key_YOUR_FAL_API_KEY",
+    "baseUrl": "https://fal.run",
+    "defaultImageModel": "fal-ai/gemini-3.1-flash-image-preview",
+    "defaultEditModel": "fal-ai/gemini-3.1-flash-image-preview/edit",
+    "timeoutMs": 120000
+  }
+}
+```
 
 ## Workspace Files
 

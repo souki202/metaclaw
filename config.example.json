@@ -3,6 +3,14 @@
     "enabled": true,
     "port": 8080
   },
+  "falAi": {
+    "enabled": false,
+    "apiKey": "fal_key_YOUR_FAL_API_KEY",
+    "baseUrl": "https://fal.run",
+    "defaultImageModel": "fal-ai/gemini-3.1-flash-image-preview",
+    "defaultEditModel": "fal-ai/gemini-3.1-flash-image-preview/edit",
+    "timeoutMs": 120000
+  },
   "discord": {
     "token": "YOUR_DISCORD_BOT_TOKEN"
   },

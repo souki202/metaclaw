@@ -100,6 +100,10 @@ export function buildAgentSystemPrompt({
     `When you need to show an image to the user, prefer standard Markdown image syntax: ![alt text](image_url).`
   );
 
+  if (config.falAi?.enabled) {
+    parts.push(`If the current model cannot generate or edit images directly, use the fal.ai image tools when they are available in your tool schema.`);
+  }
+
   return parts.join('\n');
 }
 

@@ -4,9 +4,9 @@ import http from 'http';
 import path from 'path';
 import fs from 'fs';
 import type { SessionManager } from '../core/sessions.js';
-import type { DashboardEvent, Config, SessionConfig, SearchConfig } from '../types.js';
+import type { DashboardEvent, Config, SessionConfig, SearchConfig, FalAiConfig } from '../types.js';
 import { createLogger } from '../logger.js';
-import { loadConfig, saveConfig, setSession, deleteSession, setSearchConfig, setEmbeddingConfig, setMemoryConfig, ensureBuiltinMcpServer } from '../config.js';
+import { loadConfig, saveConfig, setSession, deleteSession, setSearchConfig, setEmbeddingConfig, setMemoryConfig, setFalConfig, ensureBuiltinMcpServer, DEFAULT_FAL_BASE_URL, DEFAULT_FAL_EDIT_MODEL, DEFAULT_FAL_IMAGE_MODEL, DEFAULT_FAL_TIMEOUT_MS } from '../config.js';
 import { loadSkills, type Skill } from '../core/skills.js';
 import { handleTerminalWs } from './terminal-ws.js';
 
@@ -614,6 +614,56 @@ export class DashboardServer {
         }
         setMemoryConfig(config, memoryConfig);
         saveConfig(config);
+        res.json({ ok: true });
+      } catch (e: unknown) {
+        res.status(500).json({ error: (e as Error).message });
+      }
+    });
+
+    // API: fal.ai image settings get
+    this.app.get('/api/fal', (_req, res) => {
+      const config = this.loadCurrentConfig();
+      const falAi = config.falAi || {
+        enabled: false,
+        apiKey: '',
+        baseUrl: DEFAULT_FAL_BASE_URL,
+        defaultImageModel: DEFAULT_FAL_IMAGE_MODEL,
+        defaultEditModel: DEFAULT_FAL_EDIT_MODEL,
+        timeoutMs: DEFAULT_FAL_TIMEOUT_MS,
+      };
+      res.json({
+        enabled: falAi.enabled !== false,
+        apiKey: falAi.apiKey ? `${falAi.apiKey.slice(0, 8)}***` : '',
+        baseUrl: falAi.baseUrl || DEFAULT_FAL_BASE_URL,
+        defaultImageModel: falAi.defaultImageModel || DEFAULT_FAL_IMAGE_MODEL,
+        defaultEditModel: falAi.defaultEditModel || DEFAULT_FAL_EDIT_MODEL,
+        timeoutMs: falAi.timeoutMs || DEFAULT_FAL_TIMEOUT_MS,
+      });
+    });
+
+    // API: fal.ai image settings update
+    this.app.put('/api/fal', (req, res) => {
+      try {
+        const config = this.loadCurrentConfig();
+        const existing = config.falAi || {
+          enabled: false,
+          apiKey: '',
+          baseUrl: DEFAULT_FAL_BASE_URL,
+          defaultImageModel: DEFAULT_FAL_IMAGE_MODEL,
+          defaultEditModel: DEFAULT_FAL_EDIT_MODEL,
+          timeoutMs: DEFAULT_FAL_TIMEOUT_MS,
+        };
+        const falConfig: FalAiConfig = {
+          enabled: req.body.enabled !== false,
+          apiKey: req.body.apiKey !== undefined && !String(req.body.apiKey).includes('***') ? req.body.apiKey : existing.apiKey,
+          baseUrl: req.body.baseUrl || DEFAULT_FAL_BASE_URL,
+          defaultImageModel: req.body.defaultImageModel || DEFAULT_FAL_IMAGE_MODEL,
+          defaultEditModel: req.body.defaultEditModel || DEFAULT_FAL_EDIT_MODEL,
+          timeoutMs: Number(req.body.timeoutMs) > 0 ? Number(req.body.timeoutMs) : DEFAULT_FAL_TIMEOUT_MS,
+        };
+        setFalConfig(config, falConfig);
+        saveConfig(config);
+        this.sessions.reloadConfig(config);
         res.json({ ok: true });
       } catch (e: unknown) {
         res.status(500).json({ error: (e as Error).message });

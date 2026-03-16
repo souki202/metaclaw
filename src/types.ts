@@ -86,6 +86,15 @@ export interface ProviderConfig {
   contextWindow?: number;
 }
 
+export interface FalAiConfig {
+  enabled: boolean;
+  apiKey?: string;
+  baseUrl?: string;
+  defaultImageModel?: string;
+  defaultEditModel?: string;
+  timeoutMs?: number;
+}
+
 export interface SearchConfig {
   provider: 'brave' | 'serper' | 'vertex';
   braveApiKey?: string;
@@ -173,6 +182,7 @@ export interface SessionConfig {
     model: string;
     enabled: boolean;
   };
+  falAi?: FalAiConfig;
   mcpServers?: Record<string, McpServerConfig>;
   disabledTools?: string[];
   a2a?: {
@@ -212,6 +222,7 @@ export interface Config {
   search?: SearchConfig;
   embedding?: EmbeddingConfig;
   memory?: MemoryConfig;
+  falAi?: FalAiConfig;
   providerTemplates?: Record<string, ProviderTemplate>;
   sessions: Record<string, SessionConfig>;
 }

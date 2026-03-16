@@ -3,7 +3,7 @@ import React, { useState, useEffect } from "react";
 // -------- Global Settings Modal --------
 export const GlobalSettingsModal = ({ onClose, onSave }: any) => {
   const [tab, setTab] = useState<
-    "search" | "embedding" | "memory" | "skills" | "providers"
+    "search" | "embedding" | "image" | "memory" | "skills" | "providers"
   >("search");
   const [provider, setProvider] = useState("brave");
   const [braveKey, setBraveKey] = useState("");
@@ -34,6 +34,16 @@ export const GlobalSettingsModal = ({ onClose, onSave }: any) => {
   const [embeddingEndpoint, setEmbeddingEndpoint] = useState("");
   const [embeddingApiKey, setEmbeddingApiKey] = useState("");
   const [embeddingModel, setEmbeddingModel] = useState("");
+  const [falEnabled, setFalEnabled] = useState(false);
+  const [falApiKey, setFalApiKey] = useState("");
+  const [falBaseUrl, setFalBaseUrl] = useState("https://fal.run");
+  const [falDefaultImageModel, setFalDefaultImageModel] = useState(
+    "fal-ai/gemini-3.1-flash-image-preview",
+  );
+  const [falDefaultEditModel, setFalDefaultEditModel] = useState(
+    "fal-ai/gemini-3.1-flash-image-preview/edit",
+  );
+  const [falTimeoutMs, setFalTimeoutMs] = useState("120000");
   const [configLoading, setConfigLoading] = useState(true);
 
   // Memory Settings State
@@ -100,6 +110,25 @@ export const GlobalSettingsModal = ({ onClose, onSave }: any) => {
         }
       })
       .catch(() => {});
+
+    fetch("/api/fal")
+      .then((r) => r.ok && r.json())
+      .then((data) => {
+        if (data) {
+          setFalEnabled(data.enabled ?? false);
+          setFalApiKey(data.apiKey || "");
+          setFalBaseUrl(data.baseUrl || "https://fal.run");
+          setFalDefaultImageModel(
+            data.defaultImageModel || "fal-ai/gemini-3.1-flash-image-preview",
+          );
+          setFalDefaultEditModel(
+            data.defaultEditModel ||
+              "fal-ai/gemini-3.1-flash-image-preview/edit",
+          );
+          setFalTimeoutMs(data.timeoutMs?.toString() || "120000");
+        }
+      })
+      .catch(() => {});
   }, []);
 
   const handleSave = async () => {
@@ -125,6 +154,21 @@ export const GlobalSettingsModal = ({ onClose, onSave }: any) => {
           endpoint: embeddingEndpoint,
           apiKey: embeddingApiKey,
           model: embeddingModel,
+        }),
+      });
+    }
+
+    if (tab === "image") {
+      await fetch("/api/fal", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          enabled: falEnabled,
+          apiKey: falApiKey,
+          baseUrl: falBaseUrl,
+          defaultImageModel: falDefaultImageModel,
+          defaultEditModel: falDefaultEditModel,
+          timeoutMs: falTimeoutMs,
         }),
       });
     }
@@ -321,6 +365,12 @@ export const GlobalSettingsModal = ({ onClose, onSave }: any) => {
                   Embedding
                 </div>
                 <div
+                  className={`modal-tab ${tab === "image" ? "active" : ""}`}
+                  onClick={() => setTab("image")}
+                >
+                  Images
+                </div>
+                <div
                   className={`modal-tab ${tab === "memory" ? "active" : ""}`}
                   onClick={() => setTab("memory")}
                 >
@@ -451,6 +501,77 @@ export const GlobalSettingsModal = ({ onClose, onSave }: any) => {
                       value={embeddingModel}
                       onChange={(e) => setEmbeddingModel(e.target.value)}
                       placeholder="text-embedding-3-small"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {tab === "image" && (
+                <div className="settings-section" style={{ marginTop: 20 }}>
+                  <p
+                    style={{
+                      fontSize: 13,
+                      color: "var(--text-dim)",
+                      marginBottom: 16,
+                    }}
+                  >
+                    Global fal.ai settings used by all sessions for external
+                    image generation and editing.
+                  </p>
+                  <div className="form-group">
+                    <label className="form-checkbox">
+                      <input
+                        type="checkbox"
+                        checked={falEnabled}
+                        onChange={(e) => setFalEnabled(e.target.checked)}
+                      />
+                      <span>Enable fal.ai image tools globally</span>
+                    </label>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">fal.ai API Key</label>
+                    <input
+                      type="password"
+                      className="form-input mono"
+                      value={falApiKey}
+                      onChange={(e) => setFalApiKey(e.target.value)}
+                      placeholder="fal_key_..."
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Base URL</label>
+                    <input
+                      className="form-input mono"
+                      value={falBaseUrl}
+                      onChange={(e) => setFalBaseUrl(e.target.value)}
+                      placeholder="https://fal.run"
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Default Generate Model</label>
+                    <input
+                      className="form-input mono"
+                      value={falDefaultImageModel}
+                      onChange={(e) =>
+                        setFalDefaultImageModel(e.target.value)
+                      }
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Default Edit Model</label>
+                    <input
+                      className="form-input mono"
+                      value={falDefaultEditModel}
+                      onChange={(e) => setFalDefaultEditModel(e.target.value)}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Timeout (ms)</label>
+                    <input
+                      type="number"
+                      className="form-input mono"
+                      value={falTimeoutMs}
+                      onChange={(e) => setFalTimeoutMs(e.target.value)}
                     />
                   </div>
                 </div>

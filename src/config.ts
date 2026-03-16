@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import type { Config, SessionConfig, ProviderConfig, SearchConfig, EmbeddingConfig, MemoryConfig } from './types.js';
+import type { Config, SessionConfig, ProviderConfig, SearchConfig, EmbeddingConfig, MemoryConfig, FalAiConfig } from './types.js';
 
 const CONFIG_PATH = path.resolve(process.cwd(), 'config.json');
 const EXAMPLE_PATH = path.resolve(process.cwd(), 'config.example.json');
@@ -13,6 +13,10 @@ const DEFAULT_PROVIDER: ProviderConfig = {
 };
 
 export const DEFAULT_BUILTIN_MCP_ID = 'consult-ai';
+export const DEFAULT_FAL_BASE_URL = 'https://fal.run';
+export const DEFAULT_FAL_IMAGE_MODEL = 'fal-ai/gemini-3.1-flash-image-preview';
+export const DEFAULT_FAL_EDIT_MODEL = 'fal-ai/gemini-3.1-flash-image-preview/edit';
+export const DEFAULT_FAL_TIMEOUT_MS = 120000;
 
 export function ensureBuiltinMcpServer(session: SessionConfig): void {
   // Migrate existing consult-ai MCP config if it exists
@@ -38,6 +42,17 @@ export function ensureBuiltinMcpServer(session: SessionConfig): void {
       enabled: true,
     };
   }
+
+  if (session.falAi) {
+    session.falAi = {
+      enabled: session.falAi.enabled !== false,
+      apiKey: session.falAi.apiKey || '',
+      baseUrl: session.falAi.baseUrl || DEFAULT_FAL_BASE_URL,
+      defaultImageModel: session.falAi.defaultImageModel || DEFAULT_FAL_IMAGE_MODEL,
+      defaultEditModel: session.falAi.defaultEditModel || DEFAULT_FAL_EDIT_MODEL,
+      timeoutMs: session.falAi.timeoutMs || DEFAULT_FAL_TIMEOUT_MS,
+    };
+  }
 }
 
 export function loadConfig(): Config {
@@ -51,6 +66,18 @@ export function loadConfig(): Config {
 
   const raw = fs.readFileSync(CONFIG_PATH, 'utf-8');
   const config: Config = JSON.parse(raw);
+  let shouldSave = false;
+
+  if (config.falAi) {
+    config.falAi = {
+      enabled: config.falAi.enabled !== false,
+      apiKey: config.falAi.apiKey || '',
+      baseUrl: config.falAi.baseUrl || DEFAULT_FAL_BASE_URL,
+      defaultImageModel: config.falAi.defaultImageModel || DEFAULT_FAL_IMAGE_MODEL,
+      defaultEditModel: config.falAi.defaultEditModel || DEFAULT_FAL_EDIT_MODEL,
+      timeoutMs: config.falAi.timeoutMs || DEFAULT_FAL_TIMEOUT_MS,
+    };
+  }
 
   // Migrate backward capability (if it had environment but no provider, map back if we can)
   for (const session of Object.values(config.sessions)) {
@@ -79,12 +106,30 @@ export function loadConfig(): Config {
     }
 
     ensureBuiltinMcpServer(session);
+
+    if (session.falAi) {
+      if (!config.falAi) {
+        config.falAi = {
+          enabled: session.falAi.enabled !== false,
+          apiKey: session.falAi.apiKey || '',
+          baseUrl: session.falAi.baseUrl || DEFAULT_FAL_BASE_URL,
+          defaultImageModel: session.falAi.defaultImageModel || DEFAULT_FAL_IMAGE_MODEL,
+          defaultEditModel: session.falAi.defaultEditModel || DEFAULT_FAL_EDIT_MODEL,
+          timeoutMs: session.falAi.timeoutMs || DEFAULT_FAL_TIMEOUT_MS,
+        };
+      }
+      delete session.falAi;
+      shouldSave = true;
+    }
   }
 
   // Clean up old environments field
   if ('environments' in config) {
     delete (config as any).environments;
-    // Auto-save cleaned config
+    shouldSave = true;
+  }
+
+  if (shouldSave) {
     fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2), 'utf-8');
   }
 
@@ -101,6 +146,14 @@ function createDefaultConfig(): Config {
     search: {
       provider: 'brave',
       braveApiKey: '',
+    },
+    falAi: {
+      enabled: false,
+      apiKey: '',
+      baseUrl: DEFAULT_FAL_BASE_URL,
+      defaultImageModel: DEFAULT_FAL_IMAGE_MODEL,
+      defaultEditModel: DEFAULT_FAL_EDIT_MODEL,
+      timeoutMs: DEFAULT_FAL_TIMEOUT_MS,
     },
     sessions: {
       'default': {
@@ -207,5 +260,10 @@ export function setEmbeddingConfig(config: Config, embedding: EmbeddingConfig): 
 // Memory設定を更新
 export function setMemoryConfig(config: Config, memory: MemoryConfig): Config {
   config.memory = memory;
+  return config;
+}
+
+export function setFalConfig(config: Config, falAi: FalAiConfig): Config {
+  config.falAi = falAi;
   return config;
 }

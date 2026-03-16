@@ -7,6 +7,7 @@ import { buildWebTools, executeWebTool } from './web.js';
 import { buildExecTools, executeExecTool } from './exec.js';
 import { buildTerminalTools, executeTerminalTool } from './terminal.js';
 import { buildBrowserTools, executeBrowserTool } from './browser.js';
+import { buildFalTools, executeFalTool } from './fal.js';
 import { buildSelfTools, executeSelfTool } from './self.js';
 import { buildMemoryTools, executeMemoryTool } from './memory.js';
 import { buildA2ATools, executeA2ATool } from '../a2a/tools.js';
@@ -28,6 +29,7 @@ export async function buildTools(ctx: ToolContext): Promise<ToolDefinition[]> {
     ...buildExecTools(ctx),
     ...buildTerminalTools(ctx),
     ...buildBrowserTools(ctx),
+    ...buildFalTools(ctx),
     ...buildSelfTools(ctx),
     ...mcpTools,
   ];
@@ -49,6 +51,7 @@ export async function executeTool(
     await executeExecTool(name, args, ctx) ??
     await executeTerminalTool(name, args, ctx) ??
     await executeBrowserTool(name, args, ctx) ??
+    await executeFalTool(name, args, ctx) ??
     await executeSelfTool(name, args, ctx);
 
   if (result) return result;

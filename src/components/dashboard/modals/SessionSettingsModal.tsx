@@ -193,7 +193,13 @@ export const SessionSettingsModal = ({
   onDelete,
 }: any) => {
   const [tab, setTab] = useState<
-    "general" | "consult" | "discord" | "slack" | "mcp" | "tools" | "a2a"
+    | "general"
+    | "consult"
+    | "discord"
+    | "slack"
+    | "mcp"
+    | "tools"
+    | "a2a"
   >("general");
   const [config, setConfig] = useState<any>({});
   const [toolsList, setToolsList] = useState<any[]>([]);
@@ -272,6 +278,7 @@ export const SessionSettingsModal = ({
         else if (name === "exec") groupName = "Built-in: Execution";
         else if (name.startsWith("web_")) groupName = "Built-in: Web";
         else if (name.startsWith("browser_")) groupName = "Built-in: Browser";
+        else if (name.startsWith("fal_")) groupName = "Built-in: Images";
         else if (
           name.startsWith("self_") ||
           name === "read_config" ||
