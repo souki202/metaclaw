@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { handleError } from '../helpers';
+import { normalizeModelList } from '@/src/utils/model-list';
 
 export async function POST(request: Request) {
   try {
@@ -35,20 +36,17 @@ export async function POST(request: Request) {
     // OpenAI-compatible response: { data: [{ id: string, ... }] }
     let models: string[] = [];
     if (Array.isArray(data?.data)) {
-      models = data.data
-        .map((m: any) => (typeof m === 'string' ? m : m?.id))
-        .filter(Boolean)
-        .sort();
+      models = normalizeModelList(
+        data.data.map((m: any) => (typeof m === 'string' ? m : m?.id)),
+      );
     } else if (Array.isArray(data?.models)) {
-      models = data.models
-        .map((m: any) => (typeof m === 'string' ? m : m?.id || m?.name))
-        .filter(Boolean)
-        .sort();
+      models = normalizeModelList(
+        data.models.map((m: any) => (typeof m === 'string' ? m : m?.id || m?.name)),
+      );
     } else if (Array.isArray(data)) {
-      models = data
-        .map((m: any) => (typeof m === 'string' ? m : m?.id || m?.name))
-        .filter(Boolean)
-        .sort();
+      models = normalizeModelList(
+        data.map((m: any) => (typeof m === 'string' ? m : m?.id || m?.name)),
+      );
     }
 
     return NextResponse.json({ models });

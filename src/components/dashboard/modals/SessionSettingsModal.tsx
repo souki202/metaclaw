@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { McpServerConfig } from "../types";
+import { normalizeModelList } from "@/src/utils/model-list";
 
 // -------- ModelSelector Component --------
 const ModelSelector = ({
@@ -37,7 +38,7 @@ const ModelSelector = ({
       if (!res.ok) {
         setFetchError(data.error || "Failed to fetch models");
       } else {
-        setModels(data.models || []);
+        setModels(normalizeModelList(data.models || []));
         setOpen(true);
         setTimeout(() => searchRef.current?.focus(), 50);
       }
@@ -125,9 +126,9 @@ const ModelSelector = ({
                 該当なし
               </div>
             ) : (
-              filtered.map((m) => (
+              filtered.map((m, index) => (
                 <div
-                  key={m}
+                  key={`${m}-${index}`}
                   onClick={() => {
                     onChange(m);
                     setOpen(false);
