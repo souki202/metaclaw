@@ -2,6 +2,12 @@ import React, { useState, useEffect, useRef } from "react";
 import { McpServerConfig } from "../types";
 import { normalizeModelList } from "@/src/utils/model-list";
 
+type SessionSkill = {
+  name: string;
+  description: string;
+  enabled: boolean;
+};
+
 // -------- ModelSelector Component --------
 const ModelSelector = ({
   value,
@@ -198,10 +204,13 @@ export const SessionSettingsModal = ({
     | "discord"
     | "slack"
     | "mcp"
+    | "skills"
     | "tools"
     | "a2a"
   >("general");
   const [config, setConfig] = useState<any>({});
+  const [skillsList, setSkillsList] = useState<SessionSkill[]>([]);
+  const [skillsLoading, setSkillsLoading] = useState(false);
   const [toolsList, setToolsList] = useState<any[]>([]);
   const [toolsLoading, setToolsLoading] = useState(false);
   const [mcpConfig, setMcpConfig] = useState<Record<string, McpServerConfig>>(
@@ -275,7 +284,8 @@ export const SessionSettingsModal = ({
         else if (name.startsWith("memory_")) groupName = "Built-in: Memory";
         else if (name.startsWith("schedule_"))
           groupName = "Built-in: Scheduling";
-        else if (name === "exec") groupName = "Built-in: Execution";
+        else if (name === "exec" || name.startsWith("terminal_"))
+          groupName = "Built-in: Execution";
         else if (name.startsWith("web_")) groupName = "Built-in: Web";
         else if (name.startsWith("browser_")) groupName = "Built-in: Browser";
         else if (name.startsWith("fal_")) groupName = "Built-in: Images";
@@ -338,6 +348,17 @@ export const SessionSettingsModal = ({
       .catch(() => {});
   };
 
+  const loadSkills = () => {
+    setSkillsLoading(true);
+    fetch(`/api/sessions/${sessionId}/skills?all=true`)
+      .then((r) => r.json())
+      .then((data) => {
+        setSkillsList(Array.isArray(data) ? data : []);
+      })
+      .catch((err) => console.error("Failed to load skills", err))
+      .finally(() => setSkillsLoading(false));
+  };
+
   const loadTools = () => {
     setToolsLoading(true);
     fetch(`/api/sessions/${sessionId}/tools`)
@@ -367,6 +388,9 @@ export const SessionSettingsModal = ({
   const handleSave = async () => {
     const configToSave = { ...config };
     delete configToSave.mcpServers; // Prevent overwriting MCP configurations managed separately
+    if (!configToSave.disabledSkills?.length) {
+      delete configToSave.disabledSkills;
+    }
 
     await fetch(`/api/sessions/${sessionId}/config`, {
       method: "PUT",
@@ -531,6 +555,20 @@ export const SessionSettingsModal = ({
       config.context?.memoryCompressionEndpoint ||
       config.context?.memoryCompressionApiKey
     );
+  const disabledSkills: string[] = config.disabledSkills || [];
+  const allSkillsEnabled =
+    skillsList.length > 0 &&
+    skillsList.every((skill) => !disabledSkills.includes(skill.name));
+
+  const setSkillEnabled = (name: string, enabled: boolean) => {
+    const next = new Set<string>(disabledSkills);
+    if (enabled) {
+      next.delete(name);
+    } else {
+      next.add(name);
+    }
+    setNested(["disabledSkills"], Array.from(next).sort());
+  };
 
   return (
     <div
@@ -613,6 +651,15 @@ export const SessionSettingsModal = ({
                   onClick={() => setTab("mcp")}
                 >
                   MCP
+                </div>
+                <div
+                  className={`modal-tab ${tab === "skills" ? "active" : ""}`}
+                  onClick={() => {
+                    setTab("skills");
+                    loadSkills();
+                  }}
+                >
+                  Skills
                 </div>
                 <div
                   className={`modal-tab ${tab === "tools" ? "active" : ""}`}
@@ -1534,6 +1581,106 @@ export const SessionSettingsModal = ({
                       })
                     )}
                   </div>
+                </div>
+              )}
+
+              {tab === "skills" && (
+                <div>
+                  <div className="settings-title">Configure Skills</div>
+                  <p
+                    style={{
+                      color: "var(--text-dim)",
+                      fontSize: "13px",
+                      marginBottom: 16,
+                    }}
+                  >
+                    Select skills that are available to this session. Newly
+                    added skills are enabled by default.
+                  </p>
+                  {skillsLoading ? (
+                    <div className="empty">Loading skills...</div>
+                  ) : skillsList.length === 0 ? (
+                    <div className="empty">
+                      No skills installed. Use <code>npx skills add</code> to
+                      install them.
+                    </div>
+                  ) : (
+                    <div
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: 12,
+                      }}
+                    >
+                      <label
+                        className="form-checkbox"
+                        style={{ display: "flex", gap: 8 }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={allSkillsEnabled}
+                          ref={(el) => {
+                            if (el) {
+                              const enabledCount = skillsList.filter(
+                                (skill) => !disabledSkills.includes(skill.name),
+                              ).length;
+                              el.indeterminate =
+                                enabledCount > 0 &&
+                                enabledCount < skillsList.length;
+                            }
+                          }}
+                          onChange={(e) => {
+                            setNested(
+                              ["disabledSkills"],
+                              e.target.checked
+                                ? []
+                                : skillsList.map((skill) => skill.name).sort(),
+                            );
+                          }}
+                        />
+                        <span>Enable all skills</span>
+                      </label>
+
+                      <div className="env-list">
+                        {skillsList.map((skill) => {
+                          const enabled = !disabledSkills.includes(skill.name);
+                          return (
+                            <label
+                              key={skill.name}
+                              className="env-item"
+                              style={{
+                                display: "flex",
+                                alignItems: "flex-start",
+                                gap: 10,
+                              }}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={enabled}
+                                onChange={(e) =>
+                                  setSkillEnabled(skill.name, e.target.checked)
+                                }
+                              />
+                              <div style={{ display: "grid", gap: 4 }}>
+                                <div className="env-name">{skill.name}</div>
+                                {skill.description && (
+                                  <div
+                                    className="env-detail"
+                                    style={{
+                                      fontSize: "13px",
+                                      color: "var(--text-dim)",
+                                    }}
+                                  >
+                                    {skill.description}
+                                  </div>
+                                )}
+                              </div>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 

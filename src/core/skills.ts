@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { createLogger } from '../logger.js';
+import type { SessionConfig } from '../types.js';
 
 const log = createLogger('skills');
 
@@ -10,6 +11,8 @@ export interface Skill {
   instructions: string;
   source: string;
 }
+
+type SkillFilterConfig = Pick<SessionConfig, 'disabledSkills'> | null | undefined;
 
 /**
  * Parses a SKILL.md file to extract the YAML frontmatter and the markdown instructions.
@@ -121,11 +124,19 @@ export function loadSkills(baseDirs: string[]): Skill[] {
   return Array.from(uniqueSkills.values());
 }
 
+export function isSkillEnabled(skillName: string, sessionConfig?: SkillFilterConfig): boolean {
+  return !(sessionConfig?.disabledSkills || []).includes(skillName);
+}
+
+export function filterSkillsForSession(skills: Skill[], sessionConfig?: SkillFilterConfig): Skill[] {
+  return skills.filter((skill) => isSkillEnabled(skill.name, sessionConfig));
+}
+
 /**
  * Returns a formatted prompt string representing all loaded skills.
  */
-export function buildSkillsPromptText(baseDirs: string[]): string {
-  const skills = loadSkills(baseDirs);
+export function buildSkillsPromptText(baseDirs: string[], sessionConfig?: SkillFilterConfig): string {
+  const skills = filterSkillsForSession(loadSkills(baseDirs), sessionConfig);
   if (skills.length === 0) return '';
 
   let text = `## Enhanced Action Skills\nYou have the following specialized skills available to you. Follow these instructions when you recognize a relevant task:\n\n`;

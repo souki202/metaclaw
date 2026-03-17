@@ -7,7 +7,7 @@ import type { SessionManager } from '../core/sessions.js';
 import type { DashboardEvent, Config, SessionConfig, SearchConfig, FalAiConfig } from '../types.js';
 import { createLogger } from '../logger.js';
 import { loadConfig, saveConfig, setSession, deleteSession, setSearchConfig, setEmbeddingConfig, setMemoryConfig, setFalConfig, ensureBuiltinMcpServer, DEFAULT_FAL_BASE_URL, DEFAULT_FAL_EDIT_MODEL, DEFAULT_FAL_IMAGE_MODEL, DEFAULT_FAL_TIMEOUT_MS } from '../config.js';
-import { loadSkills, type Skill } from '../core/skills.js';
+import { isSkillEnabled, loadSkills, type Skill } from '../core/skills.js';
 import { handleTerminalWs } from './terminal-ws.js';
 
 const log = createLogger('dashboard');
@@ -231,10 +231,23 @@ export class DashboardServer {
 
     // API: get loaded skills for session
     this.app.get('/api/sessions/:id/skills', (req, res) => {
+      const sessionConfig = this.sessions.getSessionConfig(req.params.id);
       const agent = this.sessions.getAgent(req.params.id);
-      if (!agent) return res.status(404).json({ error: 'Session not found' });
-      const skills = loadSkills([process.cwd(), agent.getWorkspace()]);
-      res.json(skills.map((s: Skill) => ({ name: s.name, description: s.description })));
+      if (!sessionConfig) return res.status(404).json({ error: 'Session not found' });
+      const includeAll = req.query.all === 'true';
+      const workspace = agent?.getWorkspace() ?? this.sessions.resolveWorkspace(sessionConfig);
+      const skills = loadSkills([process.cwd(), workspace]).map((s: Skill) => ({
+        name: s.name,
+        description: s.description,
+        enabled: isSkillEnabled(s.name, sessionConfig),
+      }));
+      res.json(
+        includeAll
+          ? skills
+          : skills
+            .filter((skill) => skill.enabled)
+            .map(({ enabled: _enabled, ...skill }) => skill)
+      );
     });
 
     // API: セッション設定取得
@@ -262,6 +275,7 @@ export class DashboardServer {
 
         setSession(config, req.params.id, updated);
         saveConfig(config);
+        this.sessions.getAgent(req.params.id)?.updateConfig(updated);
         res.json({ ok: true, session: updated });
       } catch (e: unknown) {
         res.status(500).json({ error: (e as Error).message });

@@ -11,6 +11,7 @@ export interface SessionData {
 export interface Skill {
   name: string;
   description: string;
+  enabled?: boolean;
 }
 
 export interface ContentPart {

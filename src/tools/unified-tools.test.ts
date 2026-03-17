@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { buildTools, executeTool } from './index.js';
 import { executeMemoryTool } from './memory.js';
 import { executeBrowserTool } from './browser.js';
 import type { ToolContext } from './context.js';
@@ -69,4 +70,34 @@ test('browser unified tool rejects unknown action without launching browser', as
   const result = await executeBrowserTool('browser', { type: 'unknown' }, ctx);
   assert.equal(result!.success, false);
   assert.ok(result!.output.includes('Unknown browser action'));
+});
+
+test('buildTools exposes terminal tools but not legacy exec', async () => {
+  const ctx = {
+    sessionId: 's',
+    config: { tools: { exec: true }, restrictToWorkspace: false } as any,
+    workspace: process.cwd(),
+    sessionDir: '/tmp',
+  } as ToolContext;
+
+  const tools = await buildTools(ctx);
+  const names = tools.map((tool) => tool.function.name);
+
+  assert.ok(names.includes('terminal_exec'));
+  assert.ok(names.includes('terminal_send_input'));
+  assert.ok(!names.includes('exec'));
+});
+
+test('executeTool rejects legacy exec calls', async () => {
+  const ctx = {
+    sessionId: 's',
+    config: { tools: { exec: true }, restrictToWorkspace: false } as any,
+    workspace: process.cwd(),
+    sessionDir: '/tmp',
+  } as ToolContext;
+
+  const result = await executeTool('exec', { command: 'echo test' }, ctx);
+
+  assert.equal(result.success, false);
+  assert.equal(result.output, 'Unknown tool: exec');
 });

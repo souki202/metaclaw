@@ -185,6 +185,7 @@ export interface SessionConfig {
   falAi?: FalAiConfig;
   mcpServers?: Record<string, McpServerConfig>;
   disabledTools?: string[];
+  disabledSkills?: string[];
   a2a?: {
     enabled: boolean;
     hiddenFromAgents?: boolean; // If true, this session won't appear in list_agents

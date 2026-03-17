@@ -888,6 +888,7 @@ export default function DashboardClient() {
           onSave={() => {
             setActiveModal("none");
             loadSessions();
+            loadSkillsList(currentSession);
           }}
           onDelete={handleDeleteSession}
         />

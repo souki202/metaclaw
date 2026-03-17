@@ -5,7 +5,7 @@ import type { SessionManager } from '../core/sessions.js';
 import type { Config, SessionConfig, SearchConfig } from '../types.js';
 import { loadConfig, saveConfig, setSession, deleteSession, setSearchConfig, setEmbeddingConfig, setMemoryConfig, setFalConfig, DEFAULT_FAL_BASE_URL, DEFAULT_FAL_EDIT_MODEL, DEFAULT_FAL_IMAGE_MODEL, DEFAULT_FAL_TIMEOUT_MS } from '../config.js';
 import type { FalAiConfig } from '../types.js';
-import { loadSkills, type Skill } from '../core/skills.js';
+import { isSkillEnabled, loadSkills, type Skill } from '../core/skills.js';
 import { createLogger } from '../logger.js';
 
 const log = createLogger('api');
@@ -313,13 +313,27 @@ export async function setupApiRoutes(
   // GET /api/sessions/:id/skills
   const skillsMatch = matchRoute(pathname, '/api/sessions/:id/skills');
   if (method === 'GET' && skillsMatch) {
+    const sessionConfig = sessions.getSessionConfig(skillsMatch.params.id);
     const agent = sessions.getAgent(skillsMatch.params.id);
-    if (!agent) {
+    if (!sessionConfig) {
       sendJson(res, { error: 'Session not found' }, 404);
       return true;
     }
-    const skills = loadSkills([process.cwd(), agent.getWorkspace()]);
-    sendJson(res, skills.map((s: Skill) => ({ name: s.name, description: s.description })));
+    const includeAll = url.searchParams.get('all') === 'true';
+    const workspace = agent?.getWorkspace() ?? sessions.resolveWorkspace(sessionConfig);
+    const skills = loadSkills([process.cwd(), workspace]).map((s: Skill) => ({
+      name: s.name,
+      description: s.description,
+      enabled: isSkillEnabled(s.name, sessionConfig),
+    }));
+    sendJson(
+      res,
+      includeAll
+        ? skills
+        : skills
+          .filter((skill) => skill.enabled)
+          .map(({ enabled: _enabled, ...skill }) => skill)
+    );
     return true;
   }
 
@@ -351,6 +365,7 @@ export async function setupApiRoutes(
       const updated: SessionConfig = { ...existing, ...body };
       setSession(config, putConfigMatch.params.id, updated);
       saveConfig(config);
+      sessions.getAgent(putConfigMatch.params.id)?.updateConfig(updated);
       sendJson(res, { ok: true, session: updated });
     } catch (e: unknown) {
       sendJson(res, { error: (e as Error).message }, 500);

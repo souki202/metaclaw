@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'fs';
+import os from 'os';
 import path from 'path';
 
 import { buildAgentSystemPrompt, normalizeAssistantContent, rewriteImageUrlsForUser, toPublicImageUrl } from './agent-helpers.js';
@@ -49,6 +51,41 @@ test('buildAgentSystemPrompt keeps core sections and connected MCP server list',
   assert.ok(prompt.includes('- **docs** — Tool names are prefixed with `mcp_docs_`'));
   assert.equal(prompt.includes('empty'), false);
   assert.equal(prompt.includes('offline'), false);
+});
+
+test('buildAgentSystemPrompt omits disabled skills', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-skill-'));
+  const skillDir = path.join(tempDir, '.agents', 'skills', 'hidden-skill');
+
+  try {
+    fs.mkdirSync(skillDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(skillDir, 'SKILL.md'),
+      ['---', 'name: hidden-skill', 'description: Hidden skill', '---', '', 'Hidden instructions.'].join('\n'),
+      'utf-8',
+    );
+
+    const prompt = buildAgentSystemPrompt({
+      sessionId: 'agent-1',
+      workspace: tempDir,
+      config: {
+        ...createSessionConfig(),
+        workspace: tempDir,
+        disabledSkills: ['hidden-skill'],
+      },
+      identity: '',
+      soul: '',
+      user: '',
+      memory: '',
+      tmpMemory: '',
+      recalledMemories: null,
+      mcpStates: [],
+    });
+
+    assert.equal(prompt.includes('hidden-skill'), false);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
 });
 
 test('toPublicImageUrl maps session-local paths to artifact URLs', () => {

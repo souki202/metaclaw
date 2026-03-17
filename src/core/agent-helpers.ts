@@ -61,7 +61,7 @@ export function buildAgentSystemPrompt({
     parts.push(`## Recalled Conversation History\nThe following past conversation snippets were recalled as semantically relevant to the current message. They are from earlier sessions or earlier in this session and may not be in the active context window:\n\n${recalledMemories}`);
   }
 
-  const skillsPrompt = buildSkillsPromptText([process.cwd(), workspace]);
+  const skillsPrompt = buildSkillsPromptText([process.cwd(), workspace], config);
   if (skillsPrompt) {
     parts.push(skillsPrompt);
   }
@@ -70,7 +70,7 @@ export function buildAgentSystemPrompt({
     ``,
     `## Workspace`,
     `Your workspace is: ${workspace}`,
-    `Workspace restriction: ${config.restrictToWorkspace ? 'ENABLED (files/exec limited to workspace)' : 'DISABLED'}`,
+    `Workspace restriction: ${config.restrictToWorkspace ? 'ENABLED (files/terminal tools limited to workspace)' : 'DISABLED'}`,
     `Self-modification: ${config.allowSelfModify ? 'ENABLED' : 'DISABLED'}`,
   );
 

@@ -18,7 +18,7 @@ A multi-session AI personal agent system featuring Discord / Slack integration, 
 - **Model Context Protocol (MCP)** — Dynamically connect to local or remote standard MCP servers to expand the AI's toolset. Manage connection statuses directly via the dashboard.
 - **Skills System** — Extend functionality through external, installable skills configured on a per-session basis in the UI.
 - **Advanced Memory Ecosystem** — Semantic vector database for long-term fact retrieval, `MEMORY.md` for core persistent identity facts, `SOUL.md` for deeper behavioral traits, and `TMP_MEMORY.md` for ephemeral, task-specific context.
-- **Workspace Sandboxing & Terminal** — AI operates within a secure workspace boundary, allowing for isolated file system read/writes and terminal command execution (`exec`).
+- **Workspace Sandboxing & Terminal** — AI operates within a secure workspace boundary, allowing for isolated file system read/writes and terminal command execution (`terminal_exec`).
 - **Self-Modification & Hot Reloading** — (Opt-in) AI can read/modify its own source code and execute Git actions. The system supports intelligent backend restarts that apply modifications without dropping the Next.js frontend server.
 - **Tool Controls** — Specifically toggle individual tools on or off per-session saving context tokens and restricting system capabilities.
 - **Schedules** — Register one-time or recurring (cron) self-wakeup tasks with memo payloads.
