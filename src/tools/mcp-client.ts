@@ -5,6 +5,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import type { McpServerConfig, ToolDefinition, ToolResult, SearchConfig } from '../types.js';
 import { createLogger } from '../logger.js';
+import { withRateLimitRetry } from '../providers/openai-retry.js';
 
 const log = createLogger('mcp');
 
@@ -357,24 +358,30 @@ Identify potential risks or edge cases.
       const client = McpClientManager.createOpenAIClient(normalizedConfig.apiKey as string, normalizedConfig.endpointUrl);
 
       try {
-        const response = await client.responses.create({
-          model: normalizedConfig.model || 'gpt-4o',
-          input: [
-            {
-              role: 'system',
-              content: [{ type: 'input_text', text: systemPrompt }],
-            },
-            {
-              role: 'user',
-              content: imagePayload
-                ? [
-                    { type: 'input_text', text: prompt },
-                    { type: 'input_image', image_url: imagePayload, detail: 'auto' },
-                  ]
-                : [{ type: 'input_text', text: prompt }],
-            },
-          ],
-        });
+        const response = await withRateLimitRetry(
+          () => client.responses.create({
+            model: normalizedConfig.model || 'gpt-4o',
+            input: [
+              {
+                role: 'system',
+                content: [{ type: 'input_text', text: systemPrompt }],
+              },
+              {
+                role: 'user',
+                content: imagePayload
+                  ? [
+                      { type: 'input_text', text: prompt },
+                      { type: 'input_image', image_url: imagePayload, detail: 'auto' },
+                    ]
+                  : [{ type: 'input_text', text: prompt }],
+              },
+            ],
+          }),
+          {
+            label: `built-in consult MCP request (${id})`,
+            log,
+          },
+        );
 
         // Extract text from response
         const texts: string[] = [];

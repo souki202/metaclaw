@@ -1,5 +1,9 @@
 import OpenAI from 'openai';
 import type { EmbeddingConfig } from '../types.js';
+import { createLogger } from '../logger.js';
+import { withRateLimitRetry } from '../providers/openai-retry.js';
+
+const log = createLogger('embedding');
 
 export interface EmbeddingProvider {
   embed(text: string): Promise<number[]>;
@@ -19,10 +23,16 @@ export class EmbeddingClient implements EmbeddingProvider {
 
   async embed(text: string): Promise<number[]> {
     try {
-      const response = await this.client.embeddings.create({
-        model: this.model,
-        input: text,
-      });
+      const response = await withRateLimitRetry(
+        () => this.client.embeddings.create({
+          model: this.model,
+          input: text,
+        }),
+        {
+          label: 'embedding request',
+          log,
+        },
+      );
 
       if (!response.data || response.data.length === 0 || !response.data[0].embedding) {
         throw new Error(`Invalid embedding response: ${JSON.stringify(response)}`);
@@ -30,7 +40,7 @@ export class EmbeddingClient implements EmbeddingProvider {
 
       return response.data[0].embedding;
     } catch (e) {
-      console.error('Embedding failed:', e);
+      log.error('Embedding failed:', e);
       // Return a zero vector of appropriate size or throw?
       // For now, re-throw with context so callers (like autoAdd) can handle it.
       throw e;

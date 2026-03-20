@@ -1,6 +1,7 @@
-import test from 'node:test';
+import test, { mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { OpenAIProvider } from './openai.js';
+import { openAIRetryHooks } from './openai-retry.js';
 import type { ChatMessage, ProviderConfig, ToolDefinition } from '../types.js';
 
 const baseConfig: ProviderConfig = {
@@ -49,6 +50,20 @@ test('chat uses responses.create and maps tools and multimodal messages', async 
       content: [
         { type: 'text', text: 'check image' },
         { type: 'image_url', image_url: { url: 'data:image/png;base64,abc', detail: 'high' } },
+      ],
+    },
+    {
+      role: 'assistant',
+      content: null,
+      tool_calls: [
+        {
+          id: 'call_prev',
+          type: 'function',
+          function: {
+            name: 'read_file',
+            arguments: '{"path":"README.md"}',
+          },
+        },
       ],
     },
     {
@@ -181,6 +196,35 @@ test('chat falls back to assistant text for tool message missing tool_call_id', 
   assert.equal(assistantItems[0].content, 'legacy tool output without call id');
 });
 
+test('chat falls back to assistant text for orphaned tool message with unmatched tool_call_id', async () => {
+  const provider = makeProvider() as any;
+  let capturedParams: any;
+
+  provider.client = {
+    responses: {
+      create: async (params: any) => {
+        capturedParams = params;
+        return { output_text: 'ok' };
+      },
+    },
+    embeddings: {
+      create: async () => ({ data: [{ embedding: [0.1, 0.2, 0.3] }] }),
+    },
+  };
+
+  await provider.chat([
+    { role: 'user', content: 'hello' },
+    { role: 'tool', name: 'web_search', tool_call_id: 'missing_call', content: 'orphaned tool output' },
+  ], []);
+
+  const functionCallOutputItems = capturedParams.input.filter((i: any) => i.type === 'function_call_output');
+  assert.equal(functionCallOutputItems.length, 0);
+
+  const assistantItems = capturedParams.input.filter((i: any) => i.role === 'assistant');
+  assert.equal(assistantItems.length, 1);
+  assert.equal(assistantItems[0].content, 'orphaned tool output');
+});
+
 test('chat streams output_text deltas via responses.stream', async () => {
   const provider = makeProvider() as any;
 
@@ -262,6 +306,72 @@ test('chat retries without tools when endpoint does not support tool use', async
   assert.equal(calls[0].tool_choice, 'auto');
   assert.equal(calls[1].tools, undefined);
   assert.equal(calls[1].tool_choice, undefined);
+});
+
+test('chat waits and retries once on OpenAI rate limits', async () => {
+  const provider = makeProvider() as any;
+  const waits: number[] = [];
+  let attempts = 0;
+
+  mock.method(openAIRetryHooks, 'wait', async (ms: number) => {
+    waits.push(ms);
+  });
+
+  provider.client = {
+    responses: {
+      create: async () => {
+        attempts += 1;
+        if (attempts === 1) {
+          const err = new Error('Rate limit reached for gpt-5.4-mini on tokens per min. Please try again in 1.186s.');
+          (err as any).status = 429;
+          throw err;
+        }
+        return { output_text: 'retried successfully' };
+      },
+    },
+    embeddings: {
+      create: async () => ({ data: [{ embedding: [0.1, 0.2, 0.3] }] }),
+    },
+  };
+
+  const result = await provider.chat([{ role: 'user', content: 'hello' }], []);
+
+  assert.equal(result.content, 'retried successfully');
+  assert.equal(attempts, 2);
+  assert.equal(waits.length, 1);
+  assert.equal(waits[0], 60_000);
+});
+
+test('chat retries when provider reports too many requests in the message', async () => {
+  const provider = makeProvider() as any;
+  const waits: number[] = [];
+  let attempts = 0;
+
+  mock.method(openAIRetryHooks, 'wait', async (ms: number) => {
+    waits.push(ms);
+  });
+
+  provider.client = {
+    responses: {
+      create: async () => {
+        attempts += 1;
+        if (attempts === 1) {
+          throw new Error('Too many requests. Please retry later.');
+        }
+        return { output_text: 'retried after too many requests' };
+      },
+    },
+    embeddings: {
+      create: async () => ({ data: [{ embedding: [0.1, 0.2, 0.3] }] }),
+    },
+  };
+
+  const result = await provider.chat([{ role: 'user', content: 'hello' }], []);
+
+  assert.equal(result.content, 'retried after too many requests');
+  assert.equal(attempts, 2);
+  assert.equal(waits.length, 1);
+  assert.equal(waits[0], 60_000);
 });
 
 test('summarize uses responses API', async () => {
