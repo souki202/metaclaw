@@ -5,6 +5,7 @@ import os from 'os';
 import path from 'path';
 
 import * as McpClientModule from './mcp-client.js';
+import { openAIRetryHooks } from '../providers/openai-retry.js';
 const { McpClientManager } = McpClientModule;
 import type { SearchConfig } from '../types.js';
 
@@ -72,4 +73,56 @@ test('built-in consult MCP server exposes tool and sends base64 images', async (
   } finally {
     fs.rmSync(workspace, { recursive: true, force: true });
   }
+});
+
+test('built-in consult MCP server waits and retries on rate limits', async () => {
+  const searchConfig: SearchConfig = { provider: 'brave', braveApiKey: 'brave-key' };
+  const manager = new McpClientManager(searchConfig, process.cwd());
+  const waits: number[] = [];
+  let attempts = 0;
+
+  mock.method(openAIRetryHooks, 'wait', async (ms: number) => {
+    waits.push(ms);
+  });
+
+  mock.method(McpClientManager, 'createOpenAIClient', () => {
+    return {
+      responses: {
+        create: async () => {
+          attempts += 1;
+          if (attempts === 1) {
+            const err = new Error('Too many requests, slow down.');
+            (err as any).status = 429;
+            throw err;
+          }
+
+          return {
+            output: [
+              {
+                type: 'message',
+                content: [{ type: 'output_text', text: 'retry-ok' }],
+              },
+            ],
+          };
+        },
+      },
+    } as any;
+  });
+
+  await manager.startServer('consult-ai', {
+    type: 'builtin-consult',
+    endpointUrl: 'https://example.com/ai',
+    apiKey: 'abc',
+    model: 'gpt-test',
+  });
+
+  const result = await manager.routeToolCall('mcp_consult-ai_consult_ai', {
+    prompt: 'Retry test',
+  } as any);
+
+  assert.ok(result && result.success);
+  assert.equal(result?.output, 'retry-ok');
+  assert.equal(attempts, 2);
+  assert.equal(waits.length, 1);
+  assert.equal(waits[0], 60_000);
 });

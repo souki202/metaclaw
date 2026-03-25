@@ -1,5 +1,9 @@
 import OpenAI from 'openai';
 import type { ChatMessage, ToolDefinition, ProviderConfig, ContentPart, ContentPartText, ContentPartImageUrl, ContentPartAudio, ContentPartVideo } from '../types.js';
+import { createLogger } from '../logger.js';
+import { isRateLimitError, withRateLimitRetry } from './openai-retry.js';
+
+const log = createLogger('openai');
 
 function isInvalidPromptError(error: unknown): boolean {
   const e = error as { status?: number; code?: string; message?: string; };
@@ -121,11 +125,14 @@ function extractToolText(content: string | ContentPart[] | null): string {
 
 function toResponsesInput(messages: ChatMessage[]): Array<any> {
   const input: Array<any> = [];
+  const seenToolCallIds = new Set<string>();
 
   for (const message of messages) {
     if (message.role === 'tool') {
-      if (!message.tool_call_id) {
-        // No call_id — surface as plain assistant text
+      if (!message.tool_call_id || !seenToolCallIds.has(message.tool_call_id)) {
+        // Missing or orphaned call_id — surface as plain assistant text.
+        // OpenAI's Responses API rejects function_call_output items whose call_id
+        // does not correspond to a prior function_call item in the same input.
         const text = extractText(message.content);
         if (text) input.push({ role: 'assistant', content: text });
         continue;
@@ -151,6 +158,7 @@ function toResponsesInput(messages: ChatMessage[]): Array<any> {
 
     if (message.role === 'assistant' && message.tool_calls && message.tool_calls.length > 0) {
       for (const toolCall of message.tool_calls) {
+        seenToolCallIds.add(toolCall.id);
         input.push({
           type: 'function_call',
           call_id: toolCall.id,
@@ -258,93 +266,103 @@ export class OpenAIProvider {
     const canUseTools = Boolean(mappedTools && mappedTools.length > 0);
 
     if (onStream) {
-      const runStreamRequest = async (includeTools: boolean): Promise<ChatMessage> => {
-        let stream: ReturnType<typeof this.client.responses.stream>;
-        try {
-          stream = this.client.responses.stream(buildParams(includeTools) as any, requestOpts);
-        } catch (e) {
-          if (isInvalidPromptError(e)) {
-            const fallback = invalidPromptFallbackMessage();
-            onStream(fallback, 'content');
-            console.log(e);
-            return { role: 'assistant', content: fallback };
+      const runStreamRequest = async (includeTools: boolean): Promise<ChatMessage> => withRateLimitRetry(
+        async () => {
+          let stream: ReturnType<typeof this.client.responses.stream>;
+          try {
+            stream = this.client.responses.stream(buildParams(includeTools) as any, requestOpts);
+          } catch (e) {
+            if (isInvalidPromptError(e)) {
+              const fallback = invalidPromptFallbackMessage();
+              onStream(fallback, 'content');
+              log.warn('Invalid prompt fallback triggered for streaming chat request.', e);
+              return { role: 'assistant', content: fallback };
+            }
+            if (isMediaUnsupportedError(e)) {
+              const fallback = mediaUnsupportedFallbackMessage();
+              onStream(fallback, 'content');
+              return { role: 'assistant', content: fallback };
+            }
+            throw e;
           }
-          if (isMediaUnsupportedError(e)) {
-            const fallback = mediaUnsupportedFallbackMessage();
-            onStream(fallback, 'content');
-            return { role: 'assistant', content: fallback };
-          }
-          throw e;
-        }
 
-        let fullContent = '';
-        let fullReasoning = '';
+          let fullContent = '';
+          let fullReasoning = '';
 
-        try {
-          for await (const event of stream) {
-            if (signal?.aborted) break;
+          try {
+            for await (const event of stream) {
+              if (signal?.aborted) break;
 
-            if ((event as any).type === 'response.output_text.delta' && typeof (event as any).delta === 'string') {
-              fullContent += (event as any).delta;
-              onStream((event as any).delta, 'content');
-            } else if ((event as any).type === 'response.reasoning_text.delta' && typeof (event as any).delta === 'string') {
-              fullReasoning += (event as any).delta;
-              onStream((event as any).delta, 'reasoning');
-            } else if ((event as any).type === 'response.content_part.delta' && (event as any).delta?.type === 'text') {
-              // Some models might use different event types for reasoning depending on the specific API implementation
-              const delta = (event as any).delta;
-              if (delta.text) {
-                fullContent += delta.text;
-                onStream(delta.text, 'content');
+              if ((event as any).type === 'response.output_text.delta' && typeof (event as any).delta === 'string') {
+                fullContent += (event as any).delta;
+                onStream((event as any).delta, 'content');
+              } else if ((event as any).type === 'response.reasoning_text.delta' && typeof (event as any).delta === 'string') {
+                fullReasoning += (event as any).delta;
+                onStream((event as any).delta, 'reasoning');
+              } else if ((event as any).type === 'response.content_part.delta' && (event as any).delta?.type === 'text') {
+                // Some models might use different event types for reasoning depending on the specific API implementation
+                const delta = (event as any).delta;
+                if (delta.text) {
+                  fullContent += delta.text;
+                  onStream(delta.text, 'content');
+                }
               }
             }
-          }
 
-          const finalResponse = await stream.finalResponse();
-          const toolCalls = extractResponseToolCalls(finalResponse);
-          const content = fullContent || extractResponseText(finalResponse);
-          const generatedImages = extractResponseImages(finalResponse);
+            const finalResponse = await stream.finalResponse();
+            const toolCalls = extractResponseToolCalls(finalResponse);
+            const content = fullContent || extractResponseText(finalResponse);
+            const generatedImages = extractResponseImages(finalResponse);
 
-          let reasoning = fullReasoning;
-          if (!reasoning && (finalResponse as any).output?.[0]?.content) {
-            const reasoningPart = (finalResponse as any).output[0].content.find((p: any) => p.type === 'reasoning_text');
-            if (reasoningPart) {
-              reasoning = reasoningPart.text;
+            let reasoning = fullReasoning;
+            if (!reasoning && (finalResponse as any).output?.[0]?.content) {
+              const reasoningPart = (finalResponse as any).output[0].content.find((p: any) => p.type === 'reasoning_text');
+              if (reasoningPart) {
+                reasoning = reasoningPart.text;
+              }
             }
-          }
 
-          return {
-            role: 'assistant',
-            content: content || null,
-            ...(reasoning && { reasoning }),
-            ...(toolCalls && { tool_calls: toolCalls }),
-            ...(generatedImages.length > 0 && { generatedImages }),
-          };
-        } catch (e: any) {
-          if (isInvalidPromptError(e)) {
-            const fallback = invalidPromptFallbackMessage();
-            console.log(e);
-            onStream(fallback, 'content');
             return {
               role: 'assistant',
-              content: fallback,
+              content: content || null,
+              ...(reasoning && { reasoning }),
+              ...(toolCalls && { tool_calls: toolCalls }),
+              ...(generatedImages.length > 0 && { generatedImages }),
             };
+          } catch (e: any) {
+            if (isInvalidPromptError(e)) {
+              const fallback = invalidPromptFallbackMessage();
+              log.warn('Invalid prompt fallback triggered while consuming streaming chat response.', e);
+              onStream(fallback, 'content');
+              return {
+                role: 'assistant',
+                content: fallback,
+              };
+            }
+            if (isMediaUnsupportedError(e)) {
+              const fallback = mediaUnsupportedFallbackMessage();
+              onStream(fallback, 'content');
+              return { role: 'assistant', content: fallback };
+            }
+            if (signal?.aborted || e?.name === 'AbortError') {
+              return {
+                role: 'assistant',
+                content: fullContent || null,
+                ...(fullReasoning && { reasoning: fullReasoning }),
+              };
+            }
+            if (isRateLimitError(e) && !fullContent && !fullReasoning) {
+              throw e;
+            }
+            throw e;
           }
-          if (isMediaUnsupportedError(e)) {
-            const fallback = mediaUnsupportedFallbackMessage();
-            onStream(fallback, 'content');
-            return { role: 'assistant', content: fallback };
-          }
-          if (signal?.aborted || e?.name === 'AbortError') {
-            return {
-              role: 'assistant',
-              content: fullContent || null,
-              ...(fullReasoning && { reasoning: fullReasoning }),
-            };
-          }
-          throw e;
-        }
-      };
+        },
+        {
+          label: includeTools ? 'streaming chat completion with tools' : 'streaming chat completion',
+          log,
+          signal,
+        },
+      );
 
       try {
         return await runStreamRequest(canUseTools);
@@ -357,13 +375,27 @@ export class OpenAIProvider {
     } else {
       let response: Awaited<ReturnType<typeof this.client.responses.create>>;
       try {
-        response = await this.client.responses.create(buildParams(canUseTools) as any, requestOpts);
+        response = await withRateLimitRetry(
+          () => this.client.responses.create(buildParams(canUseTools) as any, requestOpts),
+          {
+            label: canUseTools ? 'chat completion with tools' : 'chat completion',
+            log,
+            signal,
+          },
+        );
       } catch (e) {
         if (canUseTools && isToolUseUnsupportedError(e)) {
-          response = await this.client.responses.create(buildParams(false) as any, requestOpts);
+          response = await withRateLimitRetry(
+            () => this.client.responses.create(buildParams(false) as any, requestOpts),
+            {
+              label: 'chat completion without tools',
+              log,
+              signal,
+            },
+          );
         } else {
           if (isInvalidPromptError(e)) {
-            console.log(e);
+            log.warn('Invalid prompt fallback triggered for chat request.', e);
             return {
               role: 'assistant',
               content: invalidPromptFallbackMessage(),
@@ -405,22 +437,28 @@ export class OpenAIProvider {
       systemPrompt?: string;
     } = {},
   ): Promise<string> {
-    const response = await this.client.responses.create({
-      model: options.model || this.config.model,
-      reasoning: {
-        effort: 'minimal',
+    const response = await withRateLimitRetry(
+      () => this.client.responses.create({
+        model: options.model || this.config.model,
+        reasoning: {
+          effort: 'minimal',
+        },
+        input: [
+          {
+            role: 'system',
+            content: options.systemPrompt || 'Summarize the following content concisely, preserving key facts, decisions, and context.',
+          },
+          {
+            role: 'user',
+            content: text,
+          },
+        ],
+      }),
+      {
+        label: 'memory summarization',
+        log,
       },
-      input: [
-        {
-          role: 'system',
-          content: options.systemPrompt || 'Summarize the following content concisely, preserving key facts, decisions, and context.',
-        },
-        {
-          role: 'user',
-          content: text,
-        },
-      ],
-    });
+    );
     return extractResponseText(response);
   }
 

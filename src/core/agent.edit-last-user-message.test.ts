@@ -121,3 +121,50 @@ test('resendEditedLastUserMessage truncates later history and appends the new br
 
   await agent.stopMcpServers();
 });
+
+test('compression helpers keep tool call exchanges intact', async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'metaclaw-agent-edit-'));
+  const sessionDir = path.join(tempDir, 'session');
+  const sessionId = 'test-session';
+  const sessionConfig = createSessionConfig(tempDir);
+  const config: Config = {
+    dashboard: { enabled: true, port: 3020 },
+    sessions: { [sessionId]: sessionConfig },
+  };
+
+  const agent = new Agent(sessionId, sessionConfig, sessionDir, tempDir, undefined, config);
+  const toolHistory: ChatMessage[] = [
+    { role: 'user', content: 'old request' },
+    {
+      role: 'assistant',
+      content: null,
+      tool_calls: [
+        {
+          id: 'call_1',
+          type: 'function',
+          function: {
+            name: 'read_file',
+            arguments: '{"path":"README.md"}',
+          },
+        },
+      ],
+    },
+    { role: 'tool', name: 'read_file', tool_call_id: 'call_1', content: 'file contents' },
+    { role: 'assistant', content: 'final reply' },
+  ];
+
+  (agent as any).history = toolHistory;
+
+  assert.equal((agent as any).getSafeCompressionCutIndex(2), 3);
+  assert.equal((agent as any).getPrunableMessageCount(1), 2);
+
+  (agent as any).history = [
+    { role: 'tool', name: 'read_file', tool_call_id: 'orphan_1', content: 'orphan output 1' },
+    { role: 'tool', name: 'search', tool_call_id: 'orphan_2', content: 'orphan output 2' },
+    { role: 'assistant', content: 'recent reply' },
+  ];
+
+  assert.equal((agent as any).getPrunableMessageCount(0), 2);
+
+  await agent.stopMcpServers();
+});

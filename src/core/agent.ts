@@ -726,8 +726,10 @@ ${text}
     if (estimated >= contextLimit * threshold) {
       this.log.info(`Compressing context (estimated ${estimated} tokens, threshold ${Math.floor(contextLimit * threshold)})`);
 
-      const toCompress = this.history.slice(0, -keepRecent);
-      const toKeep = this.history.slice(-keepRecent);
+      const desiredCutIndex = Math.max(0, this.history.length - keepRecent);
+      const safeCutIndex = this.getSafeCompressionCutIndex(desiredCutIndex);
+      const toCompress = this.history.slice(0, safeCutIndex);
+      const toKeep = this.history.slice(safeCutIndex);
 
       if (toCompress.length >= 5) {
         try {
@@ -795,6 +797,48 @@ ${text}
     return message.content.startsWith('[Earlier conversation summary:');
   }
 
+  private getSafeCompressionCutIndex(desiredCutIndex: number): number {
+    let cutIndex = Math.max(0, Math.min(desiredCutIndex, this.history.length));
+
+    while (cutIndex < this.history.length && this.history[cutIndex]?.role === 'tool') {
+      cutIndex++;
+    }
+
+    return cutIndex;
+  }
+
+  private getPrunableMessageCount(startIndex: number): number {
+    const message = this.history[startIndex];
+    if (!message) return 0;
+
+    if (message.role === 'assistant' && message.tool_calls && message.tool_calls.length > 0) {
+      const pendingToolCallIds = new Set(message.tool_calls.map((toolCall) => toolCall.id));
+      let count = 1;
+
+      while (startIndex + count < this.history.length) {
+        const candidate = this.history[startIndex + count];
+        if (candidate.role !== 'tool' || !candidate.tool_call_id || !pendingToolCallIds.has(candidate.tool_call_id)) {
+          break;
+        }
+
+        pendingToolCallIds.delete(candidate.tool_call_id);
+        count++;
+      }
+
+      return count;
+    }
+
+    if (message.role === 'tool') {
+      let count = 1;
+      while (startIndex + count < this.history.length && this.history[startIndex + count]?.role === 'tool') {
+        count++;
+      }
+      return count;
+    }
+
+    return 1;
+  }
+
   private pruneHistoryToContextLimit(contextLimit: number, keepRecent: number, threshold: number): number {
     let estimated = estimateTokens(this.history);
     if (estimated <= contextLimit) return 0;
@@ -806,7 +850,13 @@ ${text}
     const beforeCount = this.history.length;
 
     while (estimated > pruneTarget && (this.history.length - pinnedPrefix) > minNonPinnedToKeep) {
-      this.history.splice(pinnedPrefix, 1);
+      const removableCount = (this.history.length - pinnedPrefix) - minNonPinnedToKeep;
+      const pruneCount = Math.min(this.getPrunableMessageCount(pinnedPrefix), removableCount);
+      if (pruneCount <= 0) {
+        break;
+      }
+
+      this.history.splice(pinnedPrefix, pruneCount);
       estimated = estimateTokens(this.history);
     }
 
