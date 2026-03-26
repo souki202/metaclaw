@@ -350,10 +350,16 @@ export class VectorMemory {
     const chunks = splitTextForAutoMemory(text, targetLength, maxLength);
     if (chunks.length === 0) return;
 
+    const embeddings = await this.embedder.embedMany(chunks);
+    if (embeddings.length !== chunks.length) {
+      throw new Error(`Embedding batch size mismatch: expected ${chunks.length}, received ${embeddings.length}`);
+    }
+
     const timestamp = new Date().toISOString();
     const newEntries: MemoryEntry[] = [];
-    for (const chunk of chunks) {
-      const embedding = await this.embedder.embed(chunk);
+    for (let index = 0; index < chunks.length; index++) {
+      const chunk = chunks[index];
+      const embedding = embeddings[index];
       const entry: MemoryEntry = {
         id: randomUUID(),
         text: chunk,
@@ -436,7 +442,7 @@ export class VectorMemory {
       markAsRecalled = true,
     } = options;
 
-    const cueEmbeddings = await Promise.all(normalizedCues.map(cue => this.embedder.embed(cue)));
+    const cueEmbeddings = await this.embedder.embedMany(normalizedCues);
     const now = Date.now();
 
     // Score all entries

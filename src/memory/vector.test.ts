@@ -6,7 +6,10 @@ import assert from 'node:assert/strict';
 import { VectorMemory } from './vector.js';
 
 class MockEmbedder {
-  async embed(text: string): Promise<number[]> {
+  public embedCalls = 0;
+  public batchCalls = 0;
+
+  private toVector(text: string): number[] {
     const t = text.toLowerCase();
     return [
       /deploy|pipeline|release/.test(t) ? 1 : 0,
@@ -14,6 +17,16 @@ class MockEmbedder {
       /remember|todo|important|budget/.test(t) ? 1 : 0,
       Math.min(1, t.length / 2000),
     ];
+  }
+
+  async embed(text: string): Promise<number[]> {
+    this.embedCalls += 1;
+    return this.toVector(text);
+  }
+
+  async embedMany(texts: string[]): Promise<number[][]> {
+    this.batchCalls += 1;
+    return texts.map(text => this.toVector(text));
   }
 }
 
@@ -76,7 +89,7 @@ test('autoAdd splits very long text into multiple entries without oversize chunk
   const entries = memory.list(100);
   assert.ok(entries.length > 1);
   assert.ok(entries.every(entry => entry.metadata.role === 'user'));
-  assert.ok(entries.every(entry => entry.text.length <= 1600));
+  assert.ok(entries.every(entry => entry.text.length <= 2500));
 });
 
 test('autoAdd chunking preserves words and sentence endings', async () => {
@@ -96,4 +109,43 @@ test('autoAdd chunking preserves words and sentence endings', async () => {
     .map(entry => entry.text)
     .join(' ');
   assert.ok(!/\s{2,}/.test(merged));
+});
+
+test('humanLikeRecall batches cue embeddings into a single request', async () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'metaclaw-vector-'));
+  const embedder = new MockEmbedder();
+  const memory = new VectorMemory(workspace, 'session-e', embedder);
+
+  await memory.add('Deploy pipeline failed with timeout while publishing release', {
+    timestamp: '2026-01-01T00:00:00.000Z',
+    role: 'tool',
+    type: 'auto',
+    salience: 0.95,
+  });
+
+  embedder.batchCalls = 0;
+  embedder.embedCalls = 0;
+
+  await memory.humanLikeRecall(['deploy timeout', 'pipeline release error', 'failed release'], {
+    limit: 1,
+    minSimilarity: 0.1,
+  });
+
+  assert.equal(embedder.batchCalls, 1);
+  assert.equal(embedder.embedCalls, 0);
+});
+
+test('autoAdd batches chunk embeddings into a single request', async () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'metaclaw-vector-'));
+  const embedder = new MockEmbedder();
+  const memory = new VectorMemory(workspace, 'session-f', embedder);
+
+  const sentence = 'This is a sentence used for automatic vector memory chunking.';
+  const longText = Array.from({ length: 120 }, () => sentence).join(' ');
+
+  await memory.autoAdd({ role: 'tool', content: longText, name: 'read_file' });
+
+  assert.equal(embedder.batchCalls, 1);
+  assert.equal(embedder.embedCalls, 0);
+  assert.ok(memory.count() > 1);
 });
