@@ -84,6 +84,7 @@ export class ScheduleManager {
   start() {
     if (this.isStarted) return;
     this.isStarted = true;
+    log.info('Scheduler started.');
     this.scheduleNextTick();
   }
 
@@ -93,6 +94,7 @@ export class ScheduleManager {
       clearTimeout(this.timer);
       this.timer = null;
     }
+    log.info('Scheduler stopped.');
   }
 
   setTriggerHandler(fn: (trigger: ScheduleTrigger) => Promise<void>) {
@@ -262,6 +264,10 @@ export class ScheduleManager {
       ? Math.max(MIN_DELAY_MS, nextDue.getTime() - Date.now())
       : IDLE_CHECK_INTERVAL_MS;
 
+    if (nextDue) {
+      log.info(`Next schedule due at ${nextDue.toISOString()} (delay ${Math.round(delay / 1000)}s).`);
+    }
+
     this.timer = setTimeout(() => {
       if (!this.isStarted) return;
       if (this.isTickRunning) {
@@ -309,6 +315,8 @@ export class ScheduleManager {
           continue;
         }
 
+        log.info(`Firing schedule ${schedule.id} (memo: "${schedule.memo}") for session ${sessionId}.`);
+
         try {
           await this.onTrigger({
             sessionId,
@@ -319,15 +327,27 @@ export class ScheduleManager {
           continue;
         }
 
+        // Re-fetch the current items array — the trigger handler may have called
+        // loadSession (e.g. via startSession) which replaces the array reference.
+        const currentItems = this.sessionItems.get(sessionId);
+
         if (!schedule.repeatCron) {
-          items.splice(i, 1);
+          if (currentItems) {
+            const idx = currentItems.findIndex(s => s.id === schedule.id);
+            if (idx !== -1) currentItems.splice(idx, 1);
+          }
           changed = true;
           continue;
         }
 
-        schedule.lastRunAt = now.toISOString();
-        schedule.updatedAt = now.toISOString();
-        schedule.nextRunAt = computeNextRunAt(schedule, new Date(now.getTime() + 1000));
+        // Update the schedule in whichever array is current
+        const target = currentItems ?? items;
+        const liveSchedule = target.find(s => s.id === schedule.id);
+        if (liveSchedule) {
+          liveSchedule.lastRunAt = now.toISOString();
+          liveSchedule.updatedAt = now.toISOString();
+          liveSchedule.nextRunAt = computeNextRunAt(liveSchedule, new Date(now.getTime() + 1000));
+        }
         changed = true;
       }
 

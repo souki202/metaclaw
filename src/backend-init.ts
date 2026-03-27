@@ -89,50 +89,6 @@ export async function initializeBackend() {
   sessions.startAll(onEvent);
   logger.info(`Started ${sessions.getSessionIds().length} session(s): ${sessions.getSessionIds().join(', ')}`);
 
-  // Discord ボット起動
-  const discordBots = new Map<string, DiscordChannel>();
-  currentDiscordBots = discordBots;
-  const activeTokens = new Set<string>();
-
-  for (const s of Object.values(config.sessions)) {
-    if (s.discord?.enabled && s.discord?.token) {
-      activeTokens.add(s.discord.token);
-    }
-  }
-
-  for (const token of activeTokens) {
-    const d = new DiscordChannel(token, sessions);
-    try {
-      await d.start();
-      discordBots.set(token, d);
-      logger.info(`Discord bot started for token ending in ...${token.slice(-4)}`);
-    } catch (e: unknown) {
-      logger.error(`Discord bot failed for token ...${token.slice(-4)}: ${(e as Error).message}`);
-    }
-  }
-
-  // Slack ボット起動
-  const slackBots = new Map<string, SlackChannel>();
-  currentSlackBots = slackBots;
-  const activeSlackTokens = new Set<string>();
-
-  for (const s of Object.values(config.sessions)) {
-    if (s.slack?.enabled && s.slack?.botToken) {
-      activeSlackTokens.add(s.slack.botToken);
-    }
-  }
-
-  for (const token of activeSlackTokens) {
-    const slack = new SlackChannel(token, sessions);
-    try {
-      await slack.start();
-      slackBots.set(token, slack);
-      logger.info(`Slack bot started for token ending in ...${token.slice(-4)}`);
-    } catch (e: unknown) {
-      logger.error(`Slack bot failed for token ...${token.slice(-4)}: ${(e as Error).message}`);
-    }
-  }
-
   // スケジュールが変化したとき（CRUD・発火後の nextRunAt 更新）に SSE で通知する
   sessions.setScheduleChangeHandler((sessionId, schedules) => {
     broadcastSseEvent({
@@ -144,7 +100,7 @@ export async function initializeBackend() {
   });
 
   // スケジュールハンドラーを登録してからスケジューラーを起動する
-  // (起動順を保証することで、スケジューラーが最初のtickを実行する前にハンドラーが確実に設定される)
+  // Discord/Slack ボットより先に起動することで、ボット接続の遅延・失敗がスケジューラーに影響しない
   sessions.setScheduleTriggerHandler(async ({ sessionId, schedule }) => {
     const wasActive = sessions.isSessionActive(sessionId);
 
@@ -192,6 +148,50 @@ export async function initializeBackend() {
 
   // ハンドラー登録後にスケジューラーを起動する
   sessions.startScheduler();
+
+  // Discord ボット起動
+  const discordBots = new Map<string, DiscordChannel>();
+  currentDiscordBots = discordBots;
+  const activeTokens = new Set<string>();
+
+  for (const s of Object.values(config.sessions)) {
+    if (s.discord?.enabled && s.discord?.token) {
+      activeTokens.add(s.discord.token);
+    }
+  }
+
+  for (const token of activeTokens) {
+    const d = new DiscordChannel(token, sessions);
+    try {
+      await d.start();
+      discordBots.set(token, d);
+      logger.info(`Discord bot started for token ending in ...${token.slice(-4)}`);
+    } catch (e: unknown) {
+      logger.error(`Discord bot failed for token ...${token.slice(-4)}: ${(e as Error).message}`);
+    }
+  }
+
+  // Slack ボット起動
+  const slackBots = new Map<string, SlackChannel>();
+  currentSlackBots = slackBots;
+  const activeSlackTokens = new Set<string>();
+
+  for (const s of Object.values(config.sessions)) {
+    if (s.slack?.enabled && s.slack?.botToken) {
+      activeSlackTokens.add(s.slack.botToken);
+    }
+  }
+
+  for (const token of activeSlackTokens) {
+    const slack = new SlackChannel(token, sessions);
+    try {
+      await slack.start();
+      slackBots.set(token, slack);
+      logger.info(`Slack bot started for token ending in ...${token.slice(-4)}`);
+    } catch (e: unknown) {
+      logger.error(`Slack bot failed for token ...${token.slice(-4)}: ${(e as Error).message}`);
+    }
+  }
 
   // プロセスシグナルハンドラは一度だけ登録する（再登録するとリーク）
   if (!signalHandlersRegistered) {

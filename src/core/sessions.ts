@@ -190,7 +190,11 @@ export class SessionManager {
 
   startAll(onEvent?: EventCallback) {
     for (const [sessionId, sessionConfig] of Object.entries(this.config.sessions)) {
-      this.startSession(sessionId, sessionConfig, onEvent);
+      try {
+        this.startSession(sessionId, sessionConfig, onEvent);
+      } catch (e) {
+        log.error(`Failed to start session "${sessionId}". Skipping:`, e);
+      }
     }
   }
 
