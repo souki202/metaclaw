@@ -1,10 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import os from 'node:os';
+import path from 'node:path';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { buildTools, executeTool } from './index.js';
 import { executeMemoryTool } from './memory.js';
 import { executeBrowserTool } from './browser.js';
 import type { ToolContext } from './context.js';
 import type { SessionSchedule } from '../types.js';
+import { PtyManager } from './pty-manager.js';
 
 test('schedule unified tool can create and list schedules', async () => {
   const schedules: SessionSchedule[] = [];
@@ -100,4 +104,32 @@ test('executeTool rejects legacy exec calls', async () => {
 
   assert.equal(result.success, false);
   assert.equal(result.output, 'Unknown tool: exec');
+});
+
+test('terminal_exec handles heredoc commands without corrupting subsequent shell state', async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), 'metaclaw-terminal-'));
+  const sessionId = `pty-heredoc-${Date.now()}`;
+  const manager = PtyManager.getInstance();
+
+  try {
+    const first = await manager.execCommand(
+      sessionId,
+      workspace,
+      "cat <<'EOF'\nhello from heredoc\nEOF",
+      5000
+    );
+
+    assert.equal(first.exitCode, 0);
+    assert.match(first.output, /hello from heredoc/);
+    assert.doesNotMatch(first.output, /\[TIMEOUT\]/);
+
+    const second = await manager.execCommand(sessionId, workspace, 'printf after-heredoc', 5000);
+
+    assert.equal(second.exitCode, 0);
+    assert.match(second.output, /after-heredoc/);
+    assert.doesNotMatch(second.output, />\s*printf after-heredoc/);
+  } finally {
+    manager.kill(sessionId);
+    await rm(workspace, { recursive: true, force: true });
+  }
 });

@@ -15,6 +15,14 @@ export interface PtyInstance {
   dataListeners: Set<(data: string) => void>;
 }
 
+function buildWrappedCommand(command: string, sentinel: string): string {
+  if (process.platform === 'win32') {
+    return `${command}\r\nset "METACLAW_EXIT_CODE=%ERRORLEVEL%"\r\necho ${sentinel}_%METACLAW_EXIT_CODE%_\r\n`;
+  }
+
+  return `${command}\nMETACLAW_EXIT_CODE=$?\necho ${sentinel}_\${METACLAW_EXIT_CODE}_\n`;
+}
+
 // Use globalThis to survive Next.js HMR module reloads
 const g = globalThis as typeof globalThis & { __ptyManager?: PtyManager };
 
@@ -184,11 +192,7 @@ export class PtyManager {
 
       // Unique sentinel to detect completion
       const sentinel = `__DONE_${Date.now()}__`;
-
-      // Wrap command with sentinel echo
-      const wrappedCommand = process.platform === 'win32'
-        ? `${command} & echo ${sentinel}_%ERRORLEVEL%_\r\n`
-        : `${command}; echo ${sentinel}_$?_\n`;
+      const wrappedCommand = buildWrappedCommand(command, sentinel);
 
       const listener = (data: string) => {
         output += data;
